@@ -647,7 +647,7 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 p-6 flex items-center justify-center">
         <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg">
-          <h1 className="text-2xl font-bold mb-2">Horse Racing Syndicate</h1>
+          <h1 className="text-2xl font-bold mb-2">Braddo's Horse Punting</h1>
           <p className="text-sm text-slate-500 mb-6">
             Sign in or create an account to start selecting horses.
           </p>
