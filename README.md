@@ -113,12 +113,18 @@ For Vercel, add the same variables in Project Settings -> Environment Variables.
 
 ### 4) Username vs email login
 
-You can type a username or an email on the login form:
+You can log in with a username or an email on the login form:
 
 - If it already contains `@`, it is used as email.
-- If not, the app converts it to `username@puntingapp.local` for Supabase auth.
+- If not, the app looks up the matching profile email in Supabase and signs in with that account.
 
-This keeps the existing username-style UX while using Supabase Auth securely.
+For registration, users should provide:
+
+- a username
+- a real email address
+- a password
+
+This keeps the username-style UX while using Supabase Auth in the normal supported way.
 
 ### How it works
 

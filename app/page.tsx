@@ -61,10 +61,7 @@ interface ProfileRecord {
 const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
 
 const normalizeUsername = (value: string) => value.trim().toLowerCase();
-const authEmailFromInput = (value: string) => {
-  const normalized = normalizeUsername(value);
-  return normalized.includes('@') ? normalized : `${normalized}@puntingapp.local`;
-};
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const usernameFromEmail = (email: string) => email.split('@')[0] || email;
 
 export default function Home() {
@@ -85,6 +82,7 @@ export default function Home() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authUsername, setAuthUsername] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -284,8 +282,30 @@ export default function Home() {
     }
 
     const supabase = getSupabaseClient();
+    let email = normalized;
+
+    if (!normalized.includes('@')) {
+      const { data: profile, error: profileLookupError } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('username', normalized)
+        .maybeSingle();
+
+      if (profileLookupError) {
+        setAuthError(profileLookupError.message);
+        return;
+      }
+
+      if (!profile?.email) {
+        setAuthError('No account found for that username.');
+        return;
+      }
+
+      email = normalizeEmail(profile.email);
+    }
+
     const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: authEmailFromInput(normalized),
+      email,
       password: authPassword,
     });
 
@@ -300,14 +320,15 @@ export default function Home() {
 
   const register = async () => {
     const normalized = normalizeUsername(authUsername);
-    if (!normalized || !authPassword) {
-      setAuthError('Username/email and password are required.');
+    const normalizedEmail = normalizeEmail(authEmail);
+    if (!normalized || !normalizedEmail || !authPassword) {
+      setAuthError('Username, email, and password are required.');
       return;
     }
 
     const supabase = getSupabaseClient();
     const { data, error: signUpError } = await supabase.auth.signUp({
-      email: authEmailFromInput(normalized),
+      email: normalizedEmail,
       password: authPassword,
       options: {
         data: {
@@ -327,6 +348,7 @@ export default function Home() {
     }
 
     setAuthError(null);
+    setAuthEmail('');
     setAuthPassword('');
   };
 
@@ -596,6 +618,17 @@ export default function Home() {
                 className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
               />
             </div>
+            {authMode === 'register' ? (
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+                />
+              </div>
+            ) : null}
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Password</label>
               <input
