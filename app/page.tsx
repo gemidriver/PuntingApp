@@ -217,21 +217,15 @@ export default function Home() {
     setAllUsers(mapProfiles(data || []));
   };
 
-  const loadSubmissionRows = async (currentUserId?: string, currentIsAdmin?: boolean) => {
+  const loadSubmissionRows = async () => {
     setSubmissionsLoading(true);
     try {
       const supabase = getSupabaseClient();
-      const targetUserId = currentUserId ?? userId ?? undefined;
-      const targetIsAdmin = currentIsAdmin ?? isAdmin;
 
-      let query = supabase
+      const query = supabase
         .from('user_submissions')
         .select('user_id,username,selections,wildcard,submitted,submitted_at')
         .order('submitted_at', { ascending: false });
-
-      if (!targetIsAdmin && targetUserId) {
-        query = query.eq('user_id', targetUserId);
-      }
 
       const { data, error: submissionsError } = await query;
 
@@ -331,7 +325,7 @@ export default function Home() {
       setSubmittedSelections(null);
     }
 
-    await loadSubmissionRows(authUser.id, Boolean(ownProfile?.is_admin));
+    await loadSubmissionRows();
   };
 
   const clearUserState = () => {
@@ -480,7 +474,7 @@ export default function Home() {
         submitted: true,
         submittedAt: new Date().toISOString(),
       });
-      await loadSubmissionRows(userId, isAdmin);
+      await loadSubmissionRows();
       setShowSubmitConfirm(false);
     } finally {
       setIsSubmitting(false);
@@ -1208,7 +1202,7 @@ export default function Home() {
               onClick={() => setActiveScreen('submissions')}
               className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'submissions' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
             >
-              My Submissions
+              User Submissions
             </button>
           </div>
         </aside>
@@ -1216,12 +1210,12 @@ export default function Home() {
         <div className="flex-1">
         <header className="mb-8">
           <h1 className="text-3xl font-bold">
-            {activeScreen === 'main' ? 'My Picks' : 'My Submissions'}
+            {activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
           </h1>
           <p className="mt-2 text-slate-600">
             {activeScreen === 'main'
               ? 'Pick one horse per race in the last four races of two selected meets for tomorrow, then choose a wildcard horse for double points.'
-              : 'Review your saved and submitted selections.'}
+              : 'Review all user submissions.'}
           </p>
         </header>
 
@@ -1385,7 +1379,7 @@ export default function Home() {
 
         {activeScreen === 'submissions' ? (
           <section className="mb-10">
-            <h2 className="text-xl font-semibold mb-3">My Submissions</h2>
+            <h2 className="text-xl font-semibold mb-3">User Submissions</h2>
             {submissionsLoading ? (
               <div className="rounded-lg bg-white p-4 shadow-sm text-sm text-slate-500">Loading submissions...</div>
             ) : submissionRows.length === 0 ? (
