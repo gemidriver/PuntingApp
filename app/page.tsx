@@ -1,6 +1,8 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { User } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../lib/supabase';
 
 interface Meet {
   meet_id: string;
@@ -36,6 +38,11 @@ interface Selection {
   horseName: string;
 }
 
+interface Wildcard {
+  meetId: string;
+  raceId: string;
+}
+
 interface UserSelections {
   username: string;
   selections: Selection[];
@@ -44,10 +51,21 @@ interface UserSelections {
   submittedAt?: string;
 }
 
-interface Wildcard {
-  meetId: string;
-  raceId: string;
+interface ProfileRecord {
+  id: string;
+  email: string;
+  username: string;
+  isAdmin: boolean;
 }
+
+const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
+
+const normalizeUsername = (value: string) => value.trim().toLowerCase();
+const authEmailFromInput = (value: string) => {
+  const normalized = normalizeUsername(value);
+  return normalized.includes('@') ? normalized : `${normalized}@puntingapp.local`;
+};
+const usernameFromEmail = (email: string) => email.split('@')[0] || email;
 
 export default function Home() {
   const [meets, setMeets] = useState<Meet[]>([]);
@@ -57,148 +75,196 @@ export default function Home() {
   const [raceDebug, setRaceDebug] = useState<{ [meetId: string]: unknown }>({});
   const [selections, setSelections] = useState<Selection[]>([]);
   const [wildcard, setWildcard] = useState<Wildcard | null>(null);
-  const [selectedRunnerDetails, setSelectedRunnerDetails] = useState<{runner: any, meetId: string, raceId: string, raceName: string} | null>(null);
+  const [selectedRunnerDetails, setSelectedRunnerDetails] = useState<{ runner: any; meetId: string; raceId: string; raceName: string } | null>(null);
   const [raceExpanded, setRaceExpanded] = useState<{ [key: string]: boolean }>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [user, setUser] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authUsername, setAuthUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const [allUsers, setAllUsers] = useState<Record<string, StoredUser>>({});
+  const [allUsers, setAllUsers] = useState<Record<string, ProfileRecord>>({});
   const [globalMeets, setGlobalMeets] = useState<Meet[]>([]);
 
   const [submittedSelections, setSubmittedSelections] = useState<UserSelections | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
-  const USERS_STORAGE_KEY = 'hrsa_users';
-  const USER_SESSION_KEY = 'hrsa_user';
-  const GLOBAL_MEETS_KEY = 'hrsa_global_meets';
-  const USER_SELECTIONS_KEY = 'hrsa_user_selections';
+  const mapProfiles = (rows: Array<{ id: string; email: string; username: string; is_admin: boolean }>): Record<string, ProfileRecord> => {
+    return rows.reduce((acc, row) => {
+      const username = normalizeUsername(row.username);
+      acc[username] = {
+        id: row.id,
+        email: row.email,
+        username,
+        isAdmin: Boolean(row.is_admin),
+      };
+      return acc;
+    }, {} as Record<string, ProfileRecord>);
+  };
 
-  interface StoredUser {
-    password: string;
-    isAdmin?: boolean;
-  }
+  const persistUserSelections = async (
+    currentUserId: string,
+    username: string,
+    currentSelections: Selection[],
+    currentWildcard: Wildcard | null,
+    submitted: boolean
+  ) => {
+    const supabase = getSupabaseClient();
+    const payload = {
+      user_id: currentUserId,
+      username,
+      selections: currentSelections,
+      wildcard: currentWildcard,
+      submitted,
+      submitted_at: submitted ? new Date().toISOString() : null,
+    };
 
-  const loadUsers = () => {
-    try {
-      const raw = localStorage.getItem(USERS_STORAGE_KEY);
-      if (!raw) return {};
+    const { error: upsertError } = await supabase
+      .from('user_submissions')
+      .upsert(payload, { onConflict: 'user_id' });
 
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object') return {};
-
-      // Normalize any legacy stored values (e.g., password stored directly as string)
-      const normalized: Record<string, StoredUser> = {};
-      Object.entries(parsed).forEach(([username, entry]) => {
-        if (typeof entry === 'string') {
-          normalized[username] = { password: entry, isAdmin: false };
-        } else if (entry && typeof entry === 'object' && 'password' in entry) {
-          normalized[username] = {
-            password: (entry as any).password ?? '',
-            isAdmin: Boolean((entry as any).isAdmin),
-          };
-        }
-      });
-
-      return normalized;
-    } catch {
-      return {};
+    if (upsertError) {
+      console.error(upsertError);
+      setError('Unable to save selections to Supabase.');
     }
   };
 
-  const saveUsers = (users: Record<string, StoredUser>) => {
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-  };
+  const loadGlobalMeetsFromDb = async () => {
+    const supabase = getSupabaseClient();
+    const { data, error: settingsError } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', GLOBAL_MEETS_SETTING_KEY)
+      .maybeSingle();
 
-  const loadGlobalMeets = (): Meet[] => {
-    try {
-      const raw = localStorage.getItem(GLOBAL_MEETS_KEY);
-      return raw ? (JSON.parse(raw) as Meet[]) : [];
-    } catch {
-      return [];
+    if (settingsError) {
+      console.error(settingsError);
+      return [] as Meet[];
     }
+
+    const value = data?.value;
+    if (Array.isArray(value)) {
+      return value as Meet[];
+    }
+
+    return [] as Meet[];
   };
 
-  const saveGlobalMeets = (meetsToSave: Meet[]) => {
-    localStorage.setItem(GLOBAL_MEETS_KEY, JSON.stringify(meetsToSave));
+  const saveGlobalMeetsToDb = async (meetsToSave: Meet[]) => {
+    const supabase = getSupabaseClient();
+    const { error: upsertError } = await supabase
+      .from('app_settings')
+      .upsert({ key: GLOBAL_MEETS_SETTING_KEY, value: meetsToSave }, { onConflict: 'key' });
+
+    if (upsertError) {
+      console.error(upsertError);
+      setError('Unable to save global meets.');
+      return;
+    }
+
     setGlobalMeets(meetsToSave);
   };
 
-  const loadUserSelections = (): Record<string, UserSelections> => {
-    try {
-      const raw = localStorage.getItem(USER_SELECTIONS_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  };
+  const refreshProfiles = async () => {
+    const supabase = getSupabaseClient();
+    const { data, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id,email,username,is_admin')
+      .order('created_at', { ascending: true });
 
-  const saveUserSelections = (username: string, selections: Selection[], wildcard: Wildcard | null, submitted: boolean = false) => {
-    const allSelections = loadUserSelections();
-    allSelections[username] = {
-      username,
-      selections,
-      wildcard,
-      submitted,
-      submittedAt: submitted ? new Date().toISOString() : undefined,
-    };
-    localStorage.setItem(USER_SELECTIONS_KEY, JSON.stringify(allSelections));
-  };
-
-
-  const login = () => {
-    const users = loadUsers();
-    if (!authUsername || !authPassword) {
-      setAuthError('Username and password are required.');
-      return;
-    }
-    const userRecord = users[authUsername];
-    if (!userRecord || userRecord.password !== authPassword) {
-      setAuthError('Invalid username or password.');
-      return;
-    }
-    localStorage.setItem(USER_SESSION_KEY, authUsername);
-    setUser(authUsername);
-    setIsAdmin(Boolean(userRecord.isAdmin));
-    setAllUsers(users);
-    setAuthError(null);
-  };
-
-  const register = () => {
-    const users = loadUsers();
-    if (!authUsername || !authPassword) {
-      setAuthError('Username and password are required.');
-      return;
-    }
-    if (users[authUsername]) {
-      setAuthError('Username already exists.');
+    if (profilesError) {
+      console.error(profilesError);
       return;
     }
 
-    // First registered user becomes admin automatically.
-    const initialIsAdmin = Object.keys(users).length === 0;
-    const next = {
-      ...users,
-      [authUsername]: { password: authPassword, isAdmin: initialIsAdmin },
-    };
-
-    saveUsers(next);
-    localStorage.setItem(USER_SESSION_KEY, authUsername);
-    setUser(authUsername);
-    setIsAdmin(initialIsAdmin);
-    setAllUsers(next);
-    setAuthError(null);
+    setAllUsers(mapProfiles(data || []));
   };
 
-  const logout = () => {
-    localStorage.removeItem(USER_SESSION_KEY);
+  const hydrateForUser = async (authUser: User) => {
+    const supabase = getSupabaseClient();
+    const email = (authUser.email || '').toLowerCase();
+    const usernameMeta = typeof authUser.user_metadata?.username === 'string' ? authUser.user_metadata.username : '';
+    const username = normalizeUsername(usernameMeta || usernameFromEmail(email));
+
+    setUserId(authUser.id);
+    setUser(username);
+
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert(
+        {
+          id: authUser.id,
+          email,
+          username,
+        },
+        { onConflict: 'id' }
+      );
+
+    if (profileError) {
+      console.error(profileError);
+    }
+
+    const { data: ownProfile, error: ownProfileError } = await supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', authUser.id)
+      .maybeSingle();
+
+    if (ownProfileError) {
+      console.error(ownProfileError);
+    }
+
+    setIsAdmin(Boolean(ownProfile?.is_admin));
+
+    await refreshProfiles();
+
+    const meetsFromDb = await loadGlobalMeetsFromDb();
+    setGlobalMeets(meetsFromDb);
+    if (meetsFromDb.length) {
+      setSelectedMeets(meetsFromDb);
+    }
+
+    const { data: existingSubmission, error: submissionError } = await supabase
+      .from('user_submissions')
+      .select('selections,wildcard,submitted,submitted_at,username')
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+
+    if (submissionError) {
+      console.error(submissionError);
+    }
+
+    if (existingSubmission) {
+      const loadedSelections = Array.isArray(existingSubmission.selections)
+        ? (existingSubmission.selections as Selection[])
+        : [];
+
+      setSelections(loadedSelections);
+      setWildcard((existingSubmission.wildcard as Wildcard | null) || null);
+      setHasSubmitted(Boolean(existingSubmission.submitted));
+      setSubmittedSelections({
+        username,
+        selections: loadedSelections,
+        wildcard: (existingSubmission.wildcard as Wildcard | null) || null,
+        submitted: Boolean(existingSubmission.submitted),
+        submittedAt: existingSubmission.submitted_at || undefined,
+      });
+    } else {
+      setSelections([]);
+      setWildcard(null);
+      setHasSubmitted(false);
+      setSubmittedSelections(null);
+    }
+  };
+
+  const clearUserState = () => {
     setUser(null);
+    setUserId(null);
     setIsAdmin(false);
     setAllUsers({});
     setSelections([]);
@@ -210,30 +276,103 @@ export default function Home() {
     setHasSubmitted(false);
   };
 
-  const toggleAdmin = (username: string) => {
-    const users = loadUsers();
-    const record = users[username];
-    if (!record) return;
-    const next = {
-      ...users,
-      [username]: { ...record, isAdmin: !Boolean(record.isAdmin) },
-    };
-    saveUsers(next);
-    setAllUsers(next);
-    if (username === user) {
-      setIsAdmin(Boolean(next[username].isAdmin));
+  const login = async () => {
+    const normalized = normalizeUsername(authUsername);
+    if (!normalized || !authPassword) {
+      setAuthError('Username/email and password are required.');
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: authEmailFromInput(normalized),
+      password: authPassword,
+    });
+
+    if (signInError) {
+      setAuthError(signInError.message);
+      return;
+    }
+
+    setAuthError(null);
+    setAuthPassword('');
+  };
+
+  const register = async () => {
+    const normalized = normalizeUsername(authUsername);
+    if (!normalized || !authPassword) {
+      setAuthError('Username/email and password are required.');
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email: authEmailFromInput(normalized),
+      password: authPassword,
+      options: {
+        data: {
+          username: normalized,
+        },
+      },
+    });
+
+    if (signUpError) {
+      setAuthError(signUpError.message);
+      return;
+    }
+
+    if (!data.session) {
+      setAuthError('Account created. Check your inbox to confirm your email before signing in.');
+      return;
+    }
+
+    setAuthError(null);
+    setAuthPassword('');
+  };
+
+  const logout = async () => {
+    const supabase = getSupabaseClient();
+    await supabase.auth.signOut();
+    clearUserState();
+  };
+
+  const toggleAdmin = async (username: string) => {
+    const target = allUsers[username];
+    if (!target) return;
+
+    const supabase = getSupabaseClient();
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ is_admin: !target.isAdmin })
+      .eq('id', target.id);
+
+    if (updateError) {
+      console.error(updateError);
+      setError('Unable to update admin role. Ensure your SQL policies are applied.');
+      return;
+    }
+
+    await refreshProfiles();
+
+    if (username === user && userId) {
+      const { data: ownProfile } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', userId)
+        .maybeSingle();
+      setIsAdmin(Boolean(ownProfile?.is_admin));
     }
   };
 
-  const setGlobalMeetSelection = (meetsToSet: Meet[]) => {
-    saveGlobalMeets(meetsToSet);
+  const setGlobalMeetSelection = async (meetsToSet: Meet[]) => {
+    await saveGlobalMeetsToDb(meetsToSet);
     setSelectedMeets(meetsToSet);
   };
 
-  const submitSelections = () => {
-    if (!user) return;
+  const submitSelections = async () => {
+    if (!user || !userId) return;
 
-    saveUserSelections(user, selections, wildcard, true);
+    await persistUserSelections(userId, user, selections, wildcard, true);
     setHasSubmitted(true);
     setSubmittedSelections({
       username: user,
@@ -247,39 +386,44 @@ export default function Home() {
   const canSubmit = () => {
     if (!globalMeets.length || hasSubmitted) return false;
 
-    // Check if user has selected horses for all required races
-    const requiredRaces = globalMeets.length * 4; // 4 races per meet
+    const requiredRaces = globalMeets.length * 4;
     return selections.length >= requiredRaces;
   };
 
   useEffect(() => {
-    const stored = localStorage.getItem(USER_SESSION_KEY);
-    if (stored) {
-      setUser(stored);
-      const users = loadUsers();
-      setAllUsers(users);
-      // TEMPORARY: Force admin for gemidriver
-      const isAdminValue = Boolean(users[stored]?.isAdmin) || stored === 'gemidriver';
-      setIsAdmin(isAdminValue);
+    const supabase = getSupabaseClient();
+    let active = true;
 
-      // Load user's previous selections
-      const allSelections = loadUserSelections();
-      const userSelections = allSelections[stored];
-      if (userSelections) {
-        setSelections(userSelections.selections);
-        setWildcard(userSelections.wildcard);
-        setHasSubmitted(userSelections.submitted);
-        if (userSelections.submitted) {
-          setSubmittedSelections(userSelections);
-        }
+    const bootstrap = async () => {
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        console.error(sessionError);
       }
 
-      const global = loadGlobalMeets();
-      setGlobalMeets(global);
-      if (global.length) {
-        setSelectedMeets(global);
+      if (!active) return;
+
+      if (data.session?.user) {
+        await hydrateForUser(data.session.user);
+      } else {
+        clearUserState();
       }
-    }
+    };
+
+    void bootstrap();
+
+    const { data: authSubscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      if (session?.user) {
+        void hydrateForUser(session.user);
+      } else {
+        clearUserState();
+      }
+    });
+
+    return () => {
+      active = false;
+      authSubscription.subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -303,10 +447,8 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // If we have global meets pre-configured, load their races (for non-admins).
     if (user && !isAdmin && globalMeets.length) {
       setSelectedMeets(globalMeets);
-      // Load races sequentially to avoid overwhelming the API
       const loadRacesSequentially = async () => {
         for (const meet of globalMeets) {
           if (!races[meet.meet_id]) {
@@ -314,43 +456,23 @@ export default function Home() {
           }
         }
       };
-      loadRacesSequentially();
+      void loadRacesSequentially();
     }
   }, [user, isAdmin, globalMeets]);
 
-  useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === GLOBAL_MEETS_KEY) {
-        const next = event.newValue ? (JSON.parse(event.newValue) as Meet[]) : [];
-        setGlobalMeets(next);
-        if (user && !isAdmin) {
-          setSelectedMeets(next);
-        }
-      }
-    };
-
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, [user, isAdmin]);
-
   const loadRacesForMeet = async (meet: Meet) => {
-    console.log('loadRacesForMeet: called with meet=', meet);
     setRaceLoading(prev => ({ ...prev, [meet.meet_id]: true }));
 
     try {
-      console.log('loadRacesForMeet: fetching /api/races?courseId=', meet.meet_id, '&date=', meet.date);
       const res = await fetch(
         `/api/races?courseId=${encodeURIComponent(meet.meet_id)}&date=${encodeURIComponent(meet.date)}`
       );
-      console.log('loadRacesForMeet: fetch response ok=', res.ok, 'status=', res.status);
       if (!res.ok) {
         throw new Error('Unable to load races');
       }
       const data = await res.json();
-      console.log('loadRacesForMeet: received data with', data.races?.length || 0, 'races');
       setRaces(prev => ({ ...prev, [meet.meet_id]: data.races || [] }));
 
-      // Expand races by default when they first load.
       setRaceExpanded(prev => {
         const next = { ...prev };
         (data.races || []).forEach((race: Race) => {
@@ -360,8 +482,7 @@ export default function Home() {
         return next;
       });
     } catch (err) {
-      console.error('loadRacesForMeet: error loading races for meet', meet, err);
-      // Don't show error to user, just log it and set empty races
+      console.error('loadRacesForMeet error', err);
       setRaces(prev => ({ ...prev, [meet.meet_id]: [] }));
     } finally {
       setRaceLoading(prev => ({ ...prev, [meet.meet_id]: false }));
@@ -374,7 +495,6 @@ export default function Home() {
     }
 
     setSelectedMeets(prev => [...prev, meet]);
-    // Scroll down to the races section once a meet is selected.
     setTimeout(() => {
       document.getElementById('races-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 100);
@@ -399,33 +519,17 @@ export default function Home() {
   };
 
   const selectHorse = (meetId: string, raceId: string, raceName: string, horseId: string, horseName: string) => {
-    setSelections(prev => {
-      const existing = prev.find(s => s.meetId === meetId && s.raceId === raceId);
-      const newSelection: Selection = { meetId, raceId, raceName, horseId, horseName };
-      if (existing) {
-        return prev.map(s => (s.meetId === meetId && s.raceId === raceId ? newSelection : s));
-      }
-      return [...prev, newSelection];
-    });
+    const existing = selections.find(s => s.meetId === meetId && s.raceId === raceId);
+    const newSelection: Selection = { meetId, raceId, raceName, horseId, horseName };
+    const updatedSelections = existing
+      ? selections.map(s => (s.meetId === meetId && s.raceId === raceId ? newSelection : s))
+      : [...selections, newSelection];
 
-    // Auto-collapse the race card once a horse is selected.
+    setSelections(updatedSelections);
     setRaceExpanded(prev => ({ ...prev, [`${meetId}|${raceId}`]: false }));
 
-    // If the wildcard was selected for a different race, keep it.
-    // If it was selected for the same race, update to the new horse.
-    setWildcard(prev => {
-      if (!prev) return null;
-      if (prev.meetId === meetId && prev.raceId === raceId) {
-        return prev;
-      }
-      return prev;
-    });
-
-    // Auto-save selections (but not submitted yet)
-    if (user && !hasSubmitted) {
-      const newSelections = selections.filter(s => !(s.meetId === meetId && s.raceId === raceId));
-      newSelections.push({ meetId, raceId, raceName, horseId, horseName });
-      saveUserSelections(user, newSelections, wildcard, false);
+    if (user && userId && !hasSubmitted) {
+      void persistUserSelections(userId, user, updatedSelections, wildcard, false);
     }
   };
 
@@ -437,7 +541,7 @@ export default function Home() {
     return wildcard?.meetId === meetId && wildcard?.raceId === raceId;
   };
 
-  const wildcardOptions = selections.map(sel => {
+  const wildcardOptions = useMemo(() => selections.map(sel => {
     const course = selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId;
     const race = races[sel.meetId]?.find(r => r.id === sel.raceId);
     const runner = race?.runners.find(r => r.id === sel.horseId);
@@ -447,7 +551,7 @@ export default function Home() {
       value: `${sel.meetId}|${sel.raceId}`,
       label: `${sel.horseName}${oddsLabel} ; (${sel.raceName} @ ${course})`,
     };
-  });
+  }), [selections, selectedMeets, races]);
 
   if (!user) {
     return (
@@ -485,7 +589,7 @@ export default function Home() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Username</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Username or Email</label>
               <input
                 value={authUsername}
                 onChange={(e) => setAuthUsername(e.target.value)}
@@ -510,7 +614,13 @@ export default function Home() {
           ) : null}
 
           <button
-            onClick={authMode === 'login' ? login : register}
+            onClick={() => {
+              if (authMode === 'login') {
+                void login();
+              } else {
+                void register();
+              }
+            }}
             className="mt-6 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             {authMode === 'login' ? 'Sign In' : 'Create Account'}
@@ -533,7 +643,9 @@ export default function Home() {
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong></span>
               <button
-                onClick={logout}
+                onClick={() => {
+                  void logout();
+                }}
                 className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300"
               >
                 Log out
@@ -545,7 +657,9 @@ export default function Home() {
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">Global Meet Selection</h2>
               <button
-                onClick={() => setGlobalMeetSelection(selectedMeets)}
+                onClick={() => {
+                  void setGlobalMeetSelection(selectedMeets);
+                }}
                 disabled={selectedMeets.length !== 2}
                 className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
@@ -570,7 +684,9 @@ export default function Home() {
                     <h3 className="text-lg font-semibold">{meet.course} ({meet.state})</h3>
                     <p className="text-sm text-slate-500">{meet.date}</p>
                     <button
-                      onClick={() => selectMeet(meet)}
+                      onClick={() => {
+                        void selectMeet(meet);
+                      }}
                       disabled={selectedMeets.length >= 2 && !isSelectedMeet}
                       className={`mt-4 inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium shadow-sm transition ${
                         isSelectedMeet
@@ -605,10 +721,12 @@ export default function Home() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-medium">{username}</p>
-                      <p className="text-xs text-slate-500">{record.isAdmin ? 'Admin' : 'User'}</p>
+                      <p className="text-xs text-slate-500">{record.isAdmin ? 'Admin' : 'User'} • {record.email}</p>
                     </div>
                     <button
-                      onClick={() => toggleAdmin(username)}
+                      onClick={() => {
+                        void toggleAdmin(username);
+                      }}
                       className="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-300"
                     >
                       {record.isAdmin ? 'Revoke Admin' : 'Make Admin'}
@@ -619,24 +737,23 @@ export default function Home() {
             </div>
           </section>
 
-          {/* Admin Horse Selection Section */}
           {globalMeets.length > 0 && (
             <section className="mb-10">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold">My Horse Selections</h2>
                 {hasSubmitted ? (
-                  <span className="text-sm text-green-600 font-medium">✓ Submitted</span>
+                  <span className="text-sm text-green-600 font-medium">Submitted</span>
                 ) : canSubmit() ? (
                   <button
-                    onClick={submitSelections}
+                    onClick={() => {
+                      void submitSelections();
+                    }}
                     className="rounded-full bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700"
                   >
                     Submit Selections
                   </button>
                 ) : (
-                  <span className="text-sm text-slate-500">
-                    Select horses for all races to submit
-                  </span>
+                  <span className="text-sm text-slate-500">Select horses for all races to submit</span>
                 )}
               </div>
 
@@ -651,22 +768,17 @@ export default function Home() {
                 </div>
               ) : null}
 
-              {/* Include the horse selection interface for admins */}
               <div id="races-section">
                 {selectedMeets.map(meet => (
                   <div key={meet.meet_id} className="mb-10">
-                    <h3 className="text-lg font-semibold mb-3">
-                      {meet.course} - Last 4 Races
-                    </h3>
+                    <h3 className="text-lg font-semibold mb-3">{meet.course} - Last 4 Races</h3>
                     {raceLoading[meet.meet_id] ? (
                       <div className="rounded-lg bg-white p-4 shadow-sm">
-                        <p className="text-sm text-slate-500">Loading races…</p>
+                        <p className="text-sm text-slate-500">Loading races...</p>
                       </div>
                     ) : (races[meet.meet_id] || []).length === 0 ? (
                       <div className="rounded-lg bg-white p-6 shadow-sm">
-                        <p className="text-sm text-slate-600">
-                          No races were found for this meet.
-                        </p>
+                        <p className="text-sm text-slate-600">No races were found for this meet.</p>
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -702,7 +814,7 @@ export default function Home() {
                                     <li key={runner.id}>
                                       <button
                                         onClick={() => {
-                                          setSelectedRunnerDetails({runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name});
+                                          setSelectedRunnerDetails({ runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name });
                                         }}
                                         className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
                                           isSelected(meet.meet_id, race.id, runner.id)
@@ -737,17 +849,18 @@ export default function Home() {
                     const value = e.target.value;
                     if (!value) {
                       setWildcard(null);
-                      if (user && !hasSubmitted) {
-                        saveUserSelections(user, selections, null, false);
+                      if (user && userId && !hasSubmitted) {
+                        void persistUserSelections(userId, user, selections, null, false);
                       }
                       return;
                     }
                     const [meetId, raceId] = value.split('|');
                     const sel = selections.find(s => s.meetId === meetId && s.raceId === raceId);
                     if (!sel) return;
-                    setWildcard({ meetId, raceId });
-                    if (user && !hasSubmitted) {
-                      saveUserSelections(user, selections, { meetId, raceId }, false);
+                    const nextWildcard = { meetId, raceId };
+                    setWildcard(nextWildcard);
+                    if (user && userId && !hasSubmitted) {
+                      void persistUserSelections(userId, user, selections, nextWildcard, false);
                     }
                   }}
                   className="w-full max-w-xs rounded border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
@@ -799,16 +912,16 @@ export default function Home() {
         </header>
 
         {error ? (
-          <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">
-            {error}
-          </div>
+          <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">{error}</div>
         ) : null}
 
         <div className="mb-8">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Global Meets</h2>
             <button
-              onClick={logout}
+              onClick={() => {
+                void logout();
+              }}
               className="rounded-full bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300"
             >
               Log out
@@ -817,12 +930,8 @@ export default function Home() {
 
           {globalMeets.length === 0 ? (
             <div className="mt-4 rounded-lg bg-white p-6 shadow-sm">
-              <p className="text-sm text-slate-600">
-                Waiting for an admin to select the two race meets for this session.
-              </p>
-              <p className="mt-2 text-sm text-slate-500">
-                Once an admin has chosen the meets, they will appear here automatically.
-              </p>
+              <p className="text-sm text-slate-600">Waiting for an admin to select the two race meets for this session.</p>
+              <p className="mt-2 text-sm text-slate-500">Once an admin has chosen the meets, they will appear here automatically.</p>
             </div>
           ) : (
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -839,91 +948,86 @@ export default function Home() {
         <div id="races-section">
           {selectedMeets.map(meet => (
             <div key={meet.meet_id} className="mb-10">
-              <h2 className="text-xl font-semibold mb-3">
-                {meet.course} - Last 4 Races
-              </h2>
-            {raceLoading[meet.meet_id] ? (
-              <div className="rounded-lg bg-white p-4 shadow-sm">
-                <p className="text-sm text-slate-500">Loading races…</p>
-              </div>
-            ) : (races[meet.meet_id] || []).length === 0 ? (
-              <div className="rounded-lg bg-white p-6 shadow-sm">
-                <p className="text-sm text-slate-600">
-                  No races were found for this meet. This can happen if the API returned no racecards for the selected course or if the course ID format differs from what the API expects.
-                </p>
-                <p className="mt-3 text-sm text-slate-500">
-                  Try selecting a different meet or enabling mock mode (set <code>USE_MOCK_DATA=true</code> in <code>.env.local</code>).
-                </p>
-                <button
-                  onClick={() => loadRaceDebug(meet)}
-                  className="mt-4 inline-flex items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-600"
-                >
-                  Show API Response (Debug)
-                </button>
-                {raceDebug[meet.meet_id] ? (
-                  <pre className="mt-4 max-h-64 overflow-auto rounded border border-slate-200 bg-slate-50 p-3 text-xs">
-                    {JSON.stringify(raceDebug[meet.meet_id], null, 2)}
-                  </pre>
-                ) : null}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {(races[meet.meet_id] || []).slice(-4).map(race => {
-                  const raceKey = `${meet.meet_id}|${race.id}`;
-                  const selected = selections.find(s => s.meetId === meet.meet_id && s.raceId === race.id);
-                  const expanded = raceExpanded[raceKey] ?? true;
-                  const selectedRunner = selected ? race.runners.find(r => r.id === selected.horseId) : null;
+              <h2 className="text-xl font-semibold mb-3">{meet.course} - Last 4 Races</h2>
+              {raceLoading[meet.meet_id] ? (
+                <div className="rounded-lg bg-white p-4 shadow-sm">
+                  <p className="text-sm text-slate-500">Loading races...</p>
+                </div>
+              ) : (races[meet.meet_id] || []).length === 0 ? (
+                <div className="rounded-lg bg-white p-6 shadow-sm">
+                  <p className="text-sm text-slate-600">
+                    No races were found for this meet. This can happen if the API returned no racecards for the selected course or if the course ID format differs from what the API expects.
+                  </p>
+                  <p className="mt-3 text-sm text-slate-500">Try selecting a different meet or enabling mock mode (set USE_MOCK_DATA=true in .env.local).</p>
+                  <button
+                    onClick={() => {
+                      void loadRaceDebug(meet);
+                    }}
+                    className="mt-4 inline-flex items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-600"
+                  >
+                    Show API Response (Debug)
+                  </button>
+                  {raceDebug[meet.meet_id] ? (
+                    <pre className="mt-4 max-h-64 overflow-auto rounded border border-slate-200 bg-slate-50 p-3 text-xs">
+                      {JSON.stringify(raceDebug[meet.meet_id], null, 2)}
+                    </pre>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {(races[meet.meet_id] || []).slice(-4).map(race => {
+                    const raceKey = `${meet.meet_id}|${race.id}`;
+                    const selected = selections.find(s => s.meetId === meet.meet_id && s.raceId === race.id);
+                    const expanded = raceExpanded[raceKey] ?? true;
+                    const selectedRunner = selected ? race.runners.find(r => r.id === selected.horseId) : null;
 
-                  return (
-                    <div key={race.id} className="bg-white p-4 rounded-lg shadow-sm">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold">{race.name}</h3>
-                        {selected ? (
-                          <button
-                            type="button"
-                            onClick={() => setRaceExpanded(prev => ({ ...prev, [raceKey]: true }))}
-                            className="text-xs font-medium text-blue-600 hover:underline"
-                          >
-                            Change
-                          </button>
-                        ) : null}
-                      </div>
-
-                      {selected && !expanded && selectedRunner ? (
-                        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                          <p className="text-sm font-medium">Selected: {selectedRunner.name}</p>
-                          <p className="text-xs text-slate-500">Odds: {selectedRunner.odds || 'N/A'}</p>
+                    return (
+                      <div key={race.id} className="bg-white p-4 rounded-lg shadow-sm">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-lg font-semibold">{race.name}</h3>
+                          {selected ? (
+                            <button
+                              type="button"
+                              onClick={() => setRaceExpanded(prev => ({ ...prev, [raceKey]: true }))}
+                              className="text-xs font-medium text-blue-600 hover:underline"
+                            >
+                              Change
+                            </button>
+                          ) : null}
                         </div>
-                      ) : (
-                        <ul className="mt-3 space-y-2">
-                          {race.runners.map(runner => (
-                            <li key={runner.id}>
-                              <button
-                                onClick={() => {
-                                  setSelectedRunnerDetails({runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name});
-                                }}
-                                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
-                                  isSelected(meet.meet_id, race.id, runner.id)
-                                    ? 'bg-green-100 text-green-900'
-                                    : 'bg-slate-50 text-slate-900 hover:bg-slate-100'
-                                } ${
-                                  selectedWildcards(meet.meet_id, race.id)
-                                    ? 'ring-2 ring-amber-400'
-                                    : ''
-                                }`}
-                              >
-                                {runner.name}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  );
-                })}              </div>
-            )}
-          </div>
-        ))}
+
+                        {selected && !expanded && selectedRunner ? (
+                          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-sm font-medium">Selected: {selectedRunner.name}</p>
+                            <p className="text-xs text-slate-500">Odds: {selectedRunner.odds || 'N/A'}</p>
+                          </div>
+                        ) : (
+                          <ul className="mt-3 space-y-2">
+                            {race.runners.map(runner => (
+                              <li key={runner.id}>
+                                <button
+                                  onClick={() => {
+                                    setSelectedRunnerDetails({ runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name });
+                                  }}
+                                  className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+                                    isSelected(meet.meet_id, race.id, runner.id)
+                                      ? 'bg-green-100 text-green-900'
+                                      : 'bg-slate-50 text-slate-900 hover:bg-slate-100'
+                                  } ${selectedWildcards(meet.meet_id, race.id) ? 'ring-2 ring-amber-400' : ''}`}
+                                >
+                                  {runner.name}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
 
         {globalMeets.length > 0 && (
@@ -931,18 +1035,18 @@ export default function Home() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">My Horse Selections</h2>
               {hasSubmitted ? (
-                <span className="text-sm text-green-600 font-medium">✓ Submitted</span>
+                <span className="text-sm text-green-600 font-medium">Submitted</span>
               ) : canSubmit() ? (
                 <button
-                  onClick={submitSelections}
+                  onClick={() => {
+                    void submitSelections();
+                  }}
                   className="rounded-full bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700"
                 >
                   Submit Selections
                 </button>
               ) : (
-                <span className="text-sm text-slate-500">
-                  Select horses for all races to submit
-                </span>
+                <span className="text-sm text-slate-500">Select horses for all races to submit</span>
               )}
             </div>
 
@@ -967,12 +1071,19 @@ export default function Home() {
               const value = e.target.value;
               if (!value) {
                 setWildcard(null);
+                if (user && userId && !hasSubmitted) {
+                  void persistUserSelections(userId, user, selections, null, false);
+                }
                 return;
               }
               const [meetId, raceId] = value.split('|');
               const sel = selections.find(s => s.meetId === meetId && s.raceId === raceId);
               if (!sel) return;
-              setWildcard({ meetId, raceId });
+              const nextWildcard = { meetId, raceId };
+              setWildcard(nextWildcard);
+              if (user && userId && !hasSubmitted) {
+                void persistUserSelections(userId, user, selections, nextWildcard, false);
+              }
             }}
             className="w-full max-w-xs rounded border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
           >
@@ -983,9 +1094,7 @@ export default function Home() {
               </option>
             ))}
           </select>
-          <p className="mt-2 text-sm text-slate-500">
-            The wildcard can only be assigned to one race; it will double the points for that race.
-          </p>
+          <p className="mt-2 text-sm text-slate-500">The wildcard can only be assigned to one race; it will double the points for that race.</p>
         </div>
 
         <section>
@@ -1049,3 +1158,4 @@ export default function Home() {
     </div>
   );
 }
+

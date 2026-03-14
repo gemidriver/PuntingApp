@@ -61,6 +61,47 @@ If the Sportbex API is unreachable or the key is invalid, the app falls back to 
 
 Set `USE_MOCK_DATA=true` in `.env.local` to run the app with built-in mock meets and races (no API credentials needed). This is helpful when the API credentials are missing or the API is unreachable.
 
+## Supabase Persistence (Accounts + Selections)
+
+This project now uses Supabase for:
+
+- account authentication
+- persistent admin/user profiles
+- shared global meet selection
+- persistent user selections and submitted picks
+
+### 1) Create a Supabase project
+
+Create a new project in Supabase and keep your project URL and anon key.
+
+### 2) Run database schema
+
+Open the Supabase SQL editor and run:
+
+- `supabase/schema.sql`
+
+This creates `profiles`, `app_settings`, and `user_submissions` tables, plus RLS policies.
+
+### 3) Add environment variables
+
+Use `.env.example` as a template and add values in `.env.local`:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+For Vercel, add the same variables in Project Settings -> Environment Variables.
+
+### 4) Username vs email login
+
+You can type a username or an email on the login form:
+
+- If it already contains `@`, it is used as email.
+- If not, the app converts it to `username@puntingapp.local` for Supabase auth.
+
+This keeps the existing username-style UX while using Supabase Auth securely.
+
 ### How it works
 
 - The client (browser) fetches `/api/meets?date=YYYY-MM-DD`.
