@@ -107,9 +107,20 @@ Use `.env.example` as a template and add values in `.env.local`:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+NEXT_PUBLIC_SITE_URL=https://your-production-domain.vercel.app
 ```
 
 For Vercel, add the same variables in Project Settings -> Environment Variables.
+
+In Supabase Authentication -> URL Configuration, also set:
+
+- Site URL = your production app URL
+- Additional Redirect URLs = your production URL and any local dev URL you use
+
+Example:
+
+- `https://your-production-domain.vercel.app`
+- `http://localhost:3000`
 
 ### 4) Username vs email login
 

@@ -63,6 +63,17 @@ const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
 const normalizeUsername = (value: string) => value.trim().toLowerCase();
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const usernameFromEmail = (email: string) => email.split('@')[0] || email;
+const getAuthRedirectUrl = () => {
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return process.env.NEXT_PUBLIC_SITE_URL;
+  }
+
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+
+  return undefined;
+};
 
 export default function Home() {
   const [meets, setMeets] = useState<Meet[]>([]);
@@ -331,6 +342,7 @@ export default function Home() {
       email: normalizedEmail,
       password: authPassword,
       options: {
+        emailRedirectTo: getAuthRedirectUrl(),
         data: {
           username: normalized,
         },
