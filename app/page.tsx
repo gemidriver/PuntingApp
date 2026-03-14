@@ -225,6 +225,11 @@ export default function Home() {
     }
   };
 
+  const setGlobalMeetSelection = (meetsToSet: Meet[]) => {
+    saveGlobalMeets(meetsToSet);
+    setSelectedMeets(meetsToSet);
+  };
+
   const submitSelections = () => {
     if (!user) return;
 
