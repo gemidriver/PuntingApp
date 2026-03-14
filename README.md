@@ -82,6 +82,24 @@ Open the Supabase SQL editor and run:
 
 This creates `profiles`, `app_settings`, and `user_submissions` tables, plus RLS policies.
 
+It also creates race outcomes and scoring tables:
+
+- `race_results`: one row per horse result in each race
+- `user_selection_scores`: per-user scored selections for leaderboard math
+
+After importing race results for a meet, run this SQL function to compute points:
+
+```sql
+select public.recalculate_scores_for_meet('YOUR_MEET_ID');
+```
+
+Points model used by the function:
+
+- 1st = 4 points
+- 2nd = 2 points
+- 3rd = 1 point
+- Wildcard doubles points for the selected race
+
 ### 3) Add environment variables
 
 Use `.env.example` as a template and add values in `.env.local`:
