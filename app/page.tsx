@@ -810,34 +810,27 @@ export default function Home() {
   if (user && isAdmin) {
     const usersList = Object.entries(allUsers);
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
-        {mobileNavOpen ? (
-          <button
-            type="button"
-            aria-label="Close navigation"
-            onClick={() => setMobileNavOpen(false)}
-            className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-          />
-        ) : null}
-        <div className="mx-auto max-w-6xl lg:flex lg:gap-6">
+      <div className="min-h-screen bg-slate-50 text-slate-900">
+        {/* Mobile sticky top bar */}
+        <header className="sticky top-0 z-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 py-3 lg:hidden">
+          <span className="font-bold text-base">🏇 Braddo&apos;s Punting</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 max-w-[110px] truncate">{user}</span>
+            <button onClick={() => { void logout(); }} className="rounded-lg bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-200">Log out</button>
+          </div>
+        </header>
+        <div className="lg:flex lg:gap-6 lg:max-w-6xl lg:mx-auto lg:p-6">
           <aside
-            className={`fixed inset-y-0 left-0 z-40 w-72 transform bg-white p-4 shadow-xl transition-transform duration-200 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:shrink-0 lg:rounded-xl lg:shadow-sm ${mobileNavOpen ? 'translate-x-0' : '-translate-x-full'} ${sidebarCollapsed ? 'lg:w-20' : 'lg:w-64'} lg:translate-x-0`}
+            className={`hidden lg:flex lg:flex-col lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:shrink-0 lg:rounded-xl lg:bg-white lg:p-4 lg:shadow-sm ${sidebarCollapsed ? 'lg:w-20' : 'lg:w-64'}`}
           >
             <div className="mb-3 flex items-center justify-between">
               <h2 className={`text-sm font-semibold text-slate-700 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>Navigation</h2>
               <button
                 type="button"
                 onClick={() => setSidebarCollapsed(prev => !prev)}
-                className="hidden rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 lg:inline-flex"
+                className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
               >
-                {sidebarCollapsed ? 'Expand' : 'Collapse'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMobileNavOpen(false)}
-                className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 lg:hidden"
-              >
-                Close
+                {sidebarCollapsed ? '→' : '←'}
               </button>
             </div>
             <div className="space-y-2">
@@ -865,17 +858,10 @@ export default function Home() {
             </div>
           </aside>
 
-          <div className="flex-1">
-          <header className="mb-8 flex items-start justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <button
-                type="button"
-                onClick={() => setMobileNavOpen(true)}
-                className="rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 lg:hidden"
-              >
-                Menu
-              </button>
-              <div>
+          <div className="flex-1 px-4 py-4 pb-24 lg:px-0 lg:py-0 lg:pb-0">
+          {/* Desktop header */}
+          <header className="mb-8 hidden lg:flex items-start justify-between gap-3">
+            <div>
               <h1 className="text-3xl font-bold">
                 {activeScreen === 'main' && 'Main Picks'}
                 {activeScreen === 'admin' && 'Admin'}
@@ -886,20 +872,25 @@ export default function Home() {
                 {activeScreen === 'admin' && 'Manage global meets and user permissions.'}
                 {activeScreen === 'submissions' && 'Review all user submissions.'}
               </p>
-              </div>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong></span>
               <button
-                onClick={() => {
-                  void logout();
-                }}
+                onClick={() => { void logout(); }}
                 className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300"
               >
                 Log out
               </button>
             </div>
           </header>
+          {/* Mobile page title */}
+          <div className="mb-5 lg:hidden">
+            <h1 className="text-2xl font-bold">
+              {activeScreen === 'main' && 'Main Picks'}
+              {activeScreen === 'admin' && 'Admin'}
+              {activeScreen === 'submissions' && 'User Submissions'}
+            </h1>
+          </div>
 
           <section className={`mb-10 ${activeScreen === 'admin' ? '' : 'hidden'}`}>
             <div className="flex items-center justify-between">
@@ -1026,7 +1017,8 @@ export default function Home() {
                         <p className="text-sm text-slate-600">No races were found for this meet.</p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="-mx-4 px-4 lg:mx-0 lg:px-0">
+                      <div className="flex gap-3 overflow-x-auto pb-3 snap-x snap-mandatory lg:grid lg:grid-cols-4 lg:overflow-visible lg:snap-none">
                         {(races[meet.meet_id] || []).slice(-4).map(race => {
                           const raceKey = `${meet.meet_id}|${race.id}`;
                           const selected = selections.find(s => s.meetId === meet.meet_id && s.raceId === race.id);
@@ -1034,7 +1026,7 @@ export default function Home() {
                           const selectedRunner = selected ? race.runners.find(r => r.id === selected.horseId) : null;
 
                           return (
-                            <div key={race.id} className="bg-white p-4 rounded-lg shadow-sm">
+                            <div key={race.id} className="bg-white p-4 rounded-lg shadow-sm shrink-0 w-[82vw] sm:w-80 snap-start lg:w-auto lg:shrink">
                               <div className="flex items-center justify-between">
                                 <div>
                                   <h3 className="text-lg font-semibold">{race.name}</h3>
@@ -1083,6 +1075,7 @@ export default function Home() {
                             </div>
                           );
                         })}
+                      </div>
                       </div>
                     )}
                   </div>
@@ -1226,39 +1219,49 @@ export default function Home() {
           )}
           </div>
         </div>
+        {/* Mobile bottom tab bar */}
+        <nav className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 flex lg:hidden">
+          <button onClick={() => setActiveScreen('main')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'main' ? 'text-blue-600' : 'text-slate-500'}`}>
+            <span className="text-xl leading-none">🏇</span>
+            <span>Picks</span>
+          </button>
+          <button onClick={() => setActiveScreen('submissions')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'submissions' ? 'text-blue-600' : 'text-slate-500'}`}>
+            <span className="text-xl leading-none">📋</span>
+            <span>Submissions</span>
+          </button>
+          <button onClick={() => setActiveScreen('admin')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'admin' ? 'text-blue-600' : 'text-slate-500'}`}>
+            <span className="text-xl leading-none">⚙️</span>
+            <span>Admin</span>
+          </button>
+        </nav>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
-      {mobileNavOpen ? (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      {/* Mobile sticky top bar */}
+      <div className="sticky top-0 z-20 flex items-center justify-between bg-white px-4 py-3 shadow-sm lg:hidden">
+        <span className="text-base font-bold tracking-tight">🏇 Braddo&apos;s Punting</span>
         <button
-          type="button"
-          aria-label="Close navigation"
-          onClick={() => setMobileNavOpen(false)}
-          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-        />
-      ) : null}
-      <div className="mx-auto max-w-6xl lg:flex lg:gap-6">
+          onClick={() => { void logout(); }}
+          className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
+        >
+          Log out
+        </button>
+      </div>
+      <div className="lg:flex lg:gap-6 lg:max-w-6xl lg:mx-auto lg:p-6">
         <aside
-          className={`fixed inset-y-0 left-0 z-40 w-72 transform bg-white p-4 shadow-xl transition-transform duration-200 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:shrink-0 lg:rounded-xl lg:shadow-sm ${mobileNavOpen ? 'translate-x-0' : '-translate-x-full'} ${sidebarCollapsed ? 'lg:w-20' : 'lg:w-64'} lg:translate-x-0`}
+          className={`hidden lg:flex lg:flex-col lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:shrink-0 lg:rounded-xl lg:bg-white lg:p-4 lg:shadow-sm ${sidebarCollapsed ? 'lg:w-20' : 'lg:w-64'}`}
         >
           <div className="mb-3 flex items-center justify-between">
             <h2 className={`text-sm font-semibold text-slate-700 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>Navigation</h2>
             <button
               type="button"
               onClick={() => setSidebarCollapsed(prev => !prev)}
-              className="hidden rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 lg:inline-flex"
+              className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
             >
-              {sidebarCollapsed ? 'Expand' : 'Collapse'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileNavOpen(false)}
-              className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 lg:hidden"
-            >
-              Close
+              {sidebarCollapsed ? '→' : '←'}
             </button>
           </div>
           <div className="space-y-2">
@@ -1279,26 +1282,17 @@ export default function Home() {
           </div>
         </aside>
 
-        <div className="flex-1">
-        <header className="mb-8 flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <button
-              type="button"
-              onClick={() => setMobileNavOpen(true)}
-              className="rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 lg:hidden"
-            >
-              Menu
-            </button>
-            <div>
-              <h1 className="text-3xl font-bold">
-                {activeScreen === 'main' ? 'Main Picks' : 'User Submissions'}
-              </h1>
-              <p className="mt-2 text-slate-600">
-                {activeScreen === 'main'
-                  ? 'Pick one horse per race in the last four races of two selected meets for tomorrow, then choose a wildcard horse for double points.'
-                  : 'Review all user submissions.'}
-              </p>
-            </div>
+        <div className="flex-1 px-4 py-4 pb-24 lg:px-0 lg:py-0 lg:pb-0">
+        <header className="mb-8 hidden lg:flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-bold">
+              {activeScreen === 'main' ? 'Main Picks' : 'User Submissions'}
+            </h1>
+            <p className="mt-2 text-slate-600">
+              {activeScreen === 'main'
+                ? 'Pick one horse per race in the last four races of two selected meets for tomorrow, then choose a wildcard horse for double points.'
+                : 'Review all user submissions.'}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong></span>
@@ -1312,6 +1306,12 @@ export default function Home() {
             </button>
           </div>
         </header>
+        <div className="mb-5 lg:hidden">
+          <h1 className="text-2xl font-bold">
+            {activeScreen === 'main' ? 'Main Picks' : 'User Submissions'}
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">Signed in as <strong>{user}</strong></p>
+        </div>
 
         {error ? (
           <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">{error}</div>
@@ -1368,7 +1368,8 @@ export default function Home() {
                   ) : null}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="-mx-4 px-4 lg:mx-0 lg:px-0">
+                <div className="flex gap-3 overflow-x-auto pb-3 snap-x snap-mandatory lg:grid lg:grid-cols-4 lg:overflow-visible lg:snap-none">
                   {(races[meet.meet_id] || []).slice(-4).map(race => {
                     const raceKey = `${meet.meet_id}|${race.id}`;
                     const selected = selections.find(s => s.meetId === meet.meet_id && s.raceId === race.id);
@@ -1376,7 +1377,7 @@ export default function Home() {
                     const selectedRunner = selected ? race.runners.find(r => r.id === selected.horseId) : null;
 
                     return (
-                      <div key={race.id} className="bg-white p-4 rounded-lg shadow-sm">
+                      <div key={race.id} className="shrink-0 w-[82vw] sm:w-80 snap-start lg:w-auto lg:shrink bg-white p-4 rounded-lg shadow-sm">
                         <div className="flex items-center justify-between">
                           <div>
                             <h3 className="text-lg font-semibold">{race.name}</h3>
@@ -1421,6 +1422,7 @@ export default function Home() {
                       </div>
                     );
                   })}
+                </div>
                 </div>
               )}
             </div>
@@ -1554,6 +1556,28 @@ export default function Home() {
             </section>
           </>
         ) : null}
+
+        {/* Bottom tab nav — mobile only */}
+        <nav className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 flex lg:hidden">
+          <button
+            onClick={() => setActiveScreen('main')}
+            className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-xs font-medium ${
+              activeScreen === 'main' ? 'text-blue-600' : 'text-slate-500'
+            }`}
+          >
+            <span className="text-lg">🏇</span>
+            <span>Picks</span>
+          </button>
+          <button
+            onClick={() => setActiveScreen('submissions')}
+            className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-xs font-medium ${
+              activeScreen === 'submissions' ? 'text-blue-600' : 'text-slate-500'
+            }`}
+          >
+            <span className="text-lg">📋</span>
+            <span>Submissions</span>
+          </button>
+        </nav>
 
         {activeScreen === 'main' && selectedRunnerDetails && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
