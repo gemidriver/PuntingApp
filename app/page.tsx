@@ -125,6 +125,8 @@ export default function Home() {
   const [activeScreen, setActiveScreen] = useState<'main' | 'admin' | 'submissions'>('main');
   const [submissionRows, setSubmissionRows] = useState<SubmissionRow[]>([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const mapProfiles = (rows: Array<{ id: string; email: string; username: string; is_admin: boolean }>): Record<string, ProfileRecord> => {
     return rows.reduce((acc, row) => {
@@ -574,6 +576,10 @@ export default function Home() {
     }
   }, [isAdmin, activeScreen]);
 
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [activeScreen]);
+
   const loadRacesForMeet = async (meet: Meet) => {
     setRaceLoading(prev => ({ ...prev, [meet.meet_id]: true }));
 
@@ -805,36 +811,73 @@ export default function Home() {
     const usersList = Object.entries(allUsers);
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
-        <div className="mx-auto max-w-6xl flex gap-6">
-          <aside className="w-64 shrink-0 rounded-xl bg-white p-4 shadow-sm h-fit">
-            <h2 className="text-sm font-semibold text-slate-700 mb-3">Navigation</h2>
+        {mobileNavOpen ? (
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={() => setMobileNavOpen(false)}
+            className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          />
+        ) : null}
+        <div className="mx-auto max-w-6xl lg:flex lg:gap-6">
+          <aside
+            className={`fixed inset-y-0 left-0 z-40 w-72 transform bg-white p-4 shadow-xl transition-transform duration-200 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:shrink-0 lg:rounded-xl lg:shadow-sm ${mobileNavOpen ? 'translate-x-0' : '-translate-x-full'} ${sidebarCollapsed ? 'lg:w-20' : 'lg:w-64'} lg:translate-x-0`}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className={`text-sm font-semibold text-slate-700 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>Navigation</h2>
+              <button
+                type="button"
+                onClick={() => setSidebarCollapsed(prev => !prev)}
+                className="hidden rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 lg:inline-flex"
+              >
+                {sidebarCollapsed ? 'Expand' : 'Collapse'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen(false)}
+                className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 lg:hidden"
+              >
+                Close
+              </button>
+            </div>
             <div className="space-y-2">
               <button
                 onClick={() => setActiveScreen('main')}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
               >
-                My Picks
+                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Main Picks</span>
+                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>M</span>
               </button>
               <button
                 onClick={() => setActiveScreen('admin')}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'admin' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'admin' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
               >
-                Admin
+                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Admin</span>
+                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>A</span>
               </button>
               <button
                 onClick={() => setActiveScreen('submissions')}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'submissions' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'submissions' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
               >
-                User Submissions
+                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>User Submissions</span>
+                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>U</span>
               </button>
             </div>
           </aside>
 
           <div className="flex-1">
-          <header className="mb-8 flex items-center justify-between">
-            <div>
+          <header className="mb-8 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen(true)}
+                className="rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 lg:hidden"
+              >
+                Menu
+              </button>
+              <div>
               <h1 className="text-3xl font-bold">
-                {activeScreen === 'main' && 'My Picks'}
+                {activeScreen === 'main' && 'Main Picks'}
                 {activeScreen === 'admin' && 'Admin'}
                 {activeScreen === 'submissions' && 'User Submissions'}
               </h1>
@@ -843,6 +886,7 @@ export default function Home() {
                 {activeScreen === 'admin' && 'Manage global meets and user permissions.'}
                 {activeScreen === 'submissions' && 'Review all user submissions.'}
               </p>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong></span>
@@ -993,7 +1037,7 @@ export default function Home() {
                             <div key={race.id} className="bg-white p-4 rounded-lg shadow-sm">
                               <div className="flex items-center justify-between">
                                 <div>
-                                  <h3 className="text-sm font-semibold">{race.name}</h3>
+                                  <h3 className="text-lg font-semibold">{race.name}</h3>
                                   <p className="text-xs text-slate-500">{formatRaceTime(race.time)}</p>
                                 </div>
                                 {selected ? (
@@ -1188,35 +1232,85 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
-      <div className="mx-auto max-w-6xl flex gap-6">
-        <aside className="w-64 shrink-0 rounded-xl bg-white p-4 shadow-sm h-fit">
-          <h2 className="text-sm font-semibold text-slate-700 mb-3">Navigation</h2>
+      {mobileNavOpen ? (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setMobileNavOpen(false)}
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+        />
+      ) : null}
+      <div className="mx-auto max-w-6xl lg:flex lg:gap-6">
+        <aside
+          className={`fixed inset-y-0 left-0 z-40 w-72 transform bg-white p-4 shadow-xl transition-transform duration-200 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:shrink-0 lg:rounded-xl lg:shadow-sm ${mobileNavOpen ? 'translate-x-0' : '-translate-x-full'} ${sidebarCollapsed ? 'lg:w-20' : 'lg:w-64'} lg:translate-x-0`}
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className={`text-sm font-semibold text-slate-700 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>Navigation</h2>
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed(prev => !prev)}
+              className="hidden rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 lg:inline-flex"
+            >
+              {sidebarCollapsed ? 'Expand' : 'Collapse'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(false)}
+              className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 lg:hidden"
+            >
+              Close
+            </button>
+          </div>
           <div className="space-y-2">
             <button
               onClick={() => setActiveScreen('main')}
-              className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+              className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
             >
-              My Picks
+              <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Main Picks</span>
+              <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>M</span>
             </button>
             <button
               onClick={() => setActiveScreen('submissions')}
-              className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'submissions' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+              className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'submissions' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
             >
-              User Submissions
+              <span className={sidebarCollapsed ? 'lg:hidden' : ''}>User Submissions</span>
+              <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>U</span>
             </button>
           </div>
         </aside>
 
         <div className="flex-1">
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold">
-            {activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
-          </h1>
-          <p className="mt-2 text-slate-600">
-            {activeScreen === 'main'
-              ? 'Pick one horse per race in the last four races of two selected meets for tomorrow, then choose a wildcard horse for double points.'
-              : 'Review all user submissions.'}
-          </p>
+        <header className="mb-8 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 lg:hidden"
+            >
+              Menu
+            </button>
+            <div>
+              <h1 className="text-3xl font-bold">
+                {activeScreen === 'main' ? 'Main Picks' : 'User Submissions'}
+              </h1>
+              <p className="mt-2 text-slate-600">
+                {activeScreen === 'main'
+                  ? 'Pick one horse per race in the last four races of two selected meets for tomorrow, then choose a wildcard horse for double points.'
+                  : 'Review all user submissions.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong></span>
+            <button
+              onClick={() => {
+                void logout();
+              }}
+              className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300"
+            >
+              Log out
+            </button>
+          </div>
         </header>
 
         {error ? (
@@ -1226,17 +1320,7 @@ export default function Home() {
         {activeScreen === 'main' ? (
         <>
         <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Global Meets</h2>
-            <button
-              onClick={() => {
-                void logout();
-              }}
-              className="rounded-full bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300"
-            >
-              Log out
-            </button>
-          </div>
+          <h2 className="text-xl font-semibold">Global Meets</h2>
 
           {globalMeets.length === 0 ? (
             <div className="mt-4 rounded-lg bg-white p-6 shadow-sm">
