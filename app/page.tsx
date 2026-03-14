@@ -32,6 +32,7 @@ interface Race {
 
 interface Selection {
   meetId: string;
+  meetCourse?: string;
   raceId: string;
   raceName: string;
   horseId: string;
@@ -72,6 +73,14 @@ const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
 const normalizeUsername = (value: string) => value.trim().toLowerCase();
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const usernameFromEmail = (email: string) => email.split('@')[0] || email;
+const formatRaceTime = (value: string) => {
+  if (!value) return 'Time TBC';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
 const getAuthRedirectUrl = () => {
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL;
@@ -488,8 +497,11 @@ export default function Home() {
   const canSubmit = () => {
     if (!globalMeets.length || hasSubmitted) return false;
 
-    const requiredRaces = globalMeets.length * 4;
-    return selections.length >= requiredRaces;
+    const totalRaces = selectedMeets.reduce((sum, meet) => {
+      return sum + (races[meet.meet_id] || []).slice(-4).length;
+    }, 0);
+
+    return totalRaces > 0 && selections.length >= totalRaces;
   };
 
   useEffect(() => {
@@ -628,7 +640,8 @@ export default function Home() {
 
   const selectHorse = (meetId: string, raceId: string, raceName: string, horseId: string, horseName: string) => {
     const existing = selections.find(s => s.meetId === meetId && s.raceId === raceId);
-    const newSelection: Selection = { meetId, raceId, raceName, horseId, horseName };
+    const meetCourse = selectedMeets.find(m => m.meet_id === meetId)?.course ?? meetId;
+    const newSelection: Selection = { meetId, meetCourse, raceId, raceName, horseId, horseName };
     const updatedSelections = existing
       ? selections.map(s => (s.meetId === meetId && s.raceId === raceId ? newSelection : s))
       : [...selections, newSelection];
@@ -660,6 +673,10 @@ export default function Home() {
       label: `${sel.horseName}${oddsLabel} ; (${sel.raceName} @ ${course})`,
     };
   }), [selections, selectedMeets, races]);
+
+  const getSelectionLocation = (sel: Selection) => {
+    return sel.meetCourse ?? selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId;
+  };
 
   const submitConfirmationModal = showSubmitConfirm ? (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -802,7 +819,7 @@ export default function Home() {
                 onClick={() => setActiveScreen('main')}
                 className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
               >
-                Main Picks
+                My Picks
               </button>
               <button
                 onClick={() => setActiveScreen('admin')}
@@ -822,7 +839,11 @@ export default function Home() {
           <div className="flex-1">
           <header className="mb-8 flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+              <h1 className="text-3xl font-bold">
+                {activeScreen === 'main' && 'My Picks'}
+                {activeScreen === 'admin' && 'Admin'}
+                {activeScreen === 'submissions' && 'User Submissions'}
+              </h1>
               <p className="mt-2 text-slate-600">
                 {activeScreen === 'main' && 'Pick horses and submit selections.'}
                 {activeScreen === 'admin' && 'Manage global meets and user permissions.'}
@@ -977,7 +998,10 @@ export default function Home() {
                           return (
                             <div key={race.id} className="bg-white p-4 rounded-lg shadow-sm">
                               <div className="flex items-center justify-between">
-                                <h3 className="text-sm font-semibold">{race.name}</h3>
+                                <div>
+                                  <h3 className="text-sm font-semibold">{race.name}</h3>
+                                  <p className="text-xs text-slate-500">{formatRaceTime(race.time)}</p>
+                                </div>
                                 {selected ? (
                                   <button
                                     type="button"
@@ -1104,12 +1128,15 @@ export default function Home() {
                         {row.submitted_at ? `Submitted at ${new Date(row.submitted_at).toLocaleString()}` : 'Not submitted yet'}
                       </p>
                       <ul className="mt-3 space-y-1 text-sm text-slate-700">
-                        {row.selections.map((sel, idx) => (
-                          <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`}>
-                            {sel.meetId} Race {sel.raceId}: {sel.horseName}
-                            {row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId ? ' (Wildcard)' : ''}
-                          </li>
-                        ))}
+                        {row.selections.map((sel, idx) => {
+                          const isWildcard = row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId;
+                          return (
+                            <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`} className={`rounded px-2 py-0.5 ${isWildcard ? 'bg-yellow-100 text-yellow-900 font-semibold' : ''}`}>
+                              {getSelectionLocation(sel)} - {sel.raceName}: {sel.horseName}
+                              {isWildcard ? ' ⭐ Wildcard' : ''}
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   ))}
@@ -1175,7 +1202,7 @@ export default function Home() {
               onClick={() => setActiveScreen('main')}
               className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
             >
-              Main Picks
+              My Picks
             </button>
             <button
               onClick={() => setActiveScreen('submissions')}
@@ -1188,7 +1215,9 @@ export default function Home() {
 
         <div className="flex-1">
         <header className="mb-8">
-          <h1 className="text-3xl font-bold">Horse Racing Syndicate App</h1>
+          <h1 className="text-3xl font-bold">
+            {activeScreen === 'main' ? 'My Picks' : 'My Submissions'}
+          </h1>
           <p className="mt-2 text-slate-600">
             {activeScreen === 'main'
               ? 'Pick one horse per race in the last four races of two selected meets for tomorrow, then choose a wildcard horse for double points.'
@@ -1271,7 +1300,10 @@ export default function Home() {
                     return (
                       <div key={race.id} className="bg-white p-4 rounded-lg shadow-sm">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-lg font-semibold">{race.name}</h3>
+                          <div>
+                            <h3 className="text-lg font-semibold">{race.name}</h3>
+                            <p className="text-xs text-slate-500">{formatRaceTime(race.time)}</p>
+                          </div>
                           {selected ? (
                             <button
                               type="button"
@@ -1372,12 +1404,15 @@ export default function Home() {
                       {row.submitted_at ? `Submitted at ${new Date(row.submitted_at).toLocaleString()}` : 'Not submitted yet'}
                     </p>
                     <ul className="mt-3 space-y-1 text-sm text-slate-700">
-                      {row.selections.map((sel, idx) => (
-                        <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`}>
-                          {sel.meetId} Race {sel.raceId}: {sel.horseName}
-                          {row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId ? ' (Wildcard)' : ''}
-                        </li>
-                      ))}
+                      {row.selections.map((sel, idx) => {
+                        const isWildcard = row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId;
+                        return (
+                          <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`} className={`rounded px-2 py-0.5 ${isWildcard ? 'bg-yellow-100 text-yellow-900 font-semibold' : ''}`}>
+                            {getSelectionLocation(sel)} - {sel.raceName}: {sel.horseName}
+                            {isWildcard ? ' ⭐ Wildcard' : ''}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 ))}

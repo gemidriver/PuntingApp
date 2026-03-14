@@ -162,6 +162,20 @@ export async function fetchRacesForCourse(
           });
 
           const lastMarkets = sortedMarkets.slice(-4);
+
+          const getMarketTime = (market: any) => {
+            return (
+              market.marketStartTime ??
+              market.startTime ??
+              market.start ??
+              market.market?.marketStartTime ??
+              market.market?.startTime ??
+              market.description?.marketTime ??
+              market.description?.marketStartTime ??
+              ''
+            );
+          };
+
           const races: Race[] = lastMarkets.map((market: any, idx: number) => {
             const marketName = String(market.marketName ?? market.name ?? `Race ${idx + 1}`);
             const bookRunners = bookMap.get(market.marketId ?? market.id) || [];
@@ -171,7 +185,7 @@ export async function fetchRacesForCourse(
             return {
               id: String(market.marketId ?? market.id ?? `${courseId}-${idx + 1}`),
               name: marketName,
-              time: market.marketStartTime ?? market.startTime ?? '',
+              time: String(getMarketTime(market) ?? ''),
               courseId,
               runners: market.runners.map((runner: any) => {
                 const bookRunner = runnerMap.get(parseInt(runner.selectionId ?? runner.id ?? '0'));
