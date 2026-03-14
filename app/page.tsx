@@ -58,6 +58,15 @@ interface ProfileRecord {
   isAdmin: boolean;
 }
 
+interface SubmissionRow {
+  user_id: string;
+  username: string;
+  selections: Selection[];
+  wildcard: Wildcard | null;
+  submitted: boolean;
+  submitted_at: string | null;
+}
+
 const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
 
 const normalizeUsername = (value: string) => value.trim().toLowerCase();
@@ -104,6 +113,9 @@ export default function Home() {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeScreen, setActiveScreen] = useState<'main' | 'admin' | 'submissions'>('main');
+  const [submissionRows, setSubmissionRows] = useState<SubmissionRow[]>([]);
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
 
   const mapProfiles = (rows: Array<{ id: string; email: string; username: string; is_admin: boolean }>): Record<string, ProfileRecord> => {
     return rows.reduce((acc, row) => {
@@ -196,6 +208,44 @@ export default function Home() {
     setAllUsers(mapProfiles(data || []));
   };
 
+  const loadSubmissionRows = async (currentUserId?: string, currentIsAdmin?: boolean) => {
+    setSubmissionsLoading(true);
+    try {
+      const supabase = getSupabaseClient();
+      const targetUserId = currentUserId ?? userId ?? undefined;
+      const targetIsAdmin = currentIsAdmin ?? isAdmin;
+
+      let query = supabase
+        .from('user_submissions')
+        .select('user_id,username,selections,wildcard,submitted,submitted_at')
+        .order('submitted_at', { ascending: false });
+
+      if (!targetIsAdmin && targetUserId) {
+        query = query.eq('user_id', targetUserId);
+      }
+
+      const { data, error: submissionsError } = await query;
+
+      if (submissionsError) {
+        console.error(submissionsError);
+        return;
+      }
+
+      const rows: SubmissionRow[] = (data || []).map((row: any) => ({
+        user_id: row.user_id,
+        username: row.username,
+        selections: Array.isArray(row.selections) ? row.selections : [],
+        wildcard: row.wildcard || null,
+        submitted: Boolean(row.submitted),
+        submitted_at: row.submitted_at || null,
+      }));
+
+      setSubmissionRows(rows);
+    } finally {
+      setSubmissionsLoading(false);
+    }
+  };
+
   const hydrateForUser = async (authUser: User) => {
     const supabase = getSupabaseClient();
     const email = (authUser.email || '').toLowerCase();
@@ -271,6 +321,8 @@ export default function Home() {
       setHasSubmitted(false);
       setSubmittedSelections(null);
     }
+
+    await loadSubmissionRows(authUser.id, Boolean(ownProfile?.is_admin));
   };
 
   const clearUserState = () => {
@@ -419,6 +471,7 @@ export default function Home() {
         submitted: true,
         submittedAt: new Date().toISOString(),
       });
+      await loadSubmissionRows(userId, isAdmin);
       setShowSubmitConfirm(false);
     } finally {
       setIsSubmitting(false);
@@ -508,6 +561,12 @@ export default function Home() {
       void loadRacesSequentially();
     }
   }, [user, isAdmin, globalMeets]);
+
+  useEffect(() => {
+    if (!isAdmin && activeScreen === 'admin') {
+      setActiveScreen('main');
+    }
+  }, [isAdmin, activeScreen]);
 
   const loadRacesForMeet = async (meet: Meet) => {
     setRaceLoading(prev => ({ ...prev, [meet.meet_id]: true }));
@@ -735,11 +794,40 @@ export default function Home() {
     const usersList = Object.entries(allUsers);
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
-        <div className="mx-auto max-w-5xl">
+        <div className="mx-auto max-w-6xl flex gap-6">
+          <aside className="w-64 shrink-0 rounded-xl bg-white p-4 shadow-sm h-fit">
+            <h2 className="text-sm font-semibold text-slate-700 mb-3">Navigation</h2>
+            <div className="space-y-2">
+              <button
+                onClick={() => setActiveScreen('main')}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+              >
+                Main Picks
+              </button>
+              <button
+                onClick={() => setActiveScreen('admin')}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'admin' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+              >
+                Admin
+              </button>
+              <button
+                onClick={() => setActiveScreen('submissions')}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'submissions' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+              >
+                User Submissions
+              </button>
+            </div>
+          </aside>
+
+          <div className="flex-1">
           <header className="mb-8 flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-              <p className="mt-2 text-slate-600">Select the two meets that all users will use.</p>
+              <p className="mt-2 text-slate-600">
+                {activeScreen === 'main' && 'Pick horses and submit selections.'}
+                {activeScreen === 'admin' && 'Manage global meets and user permissions.'}
+                {activeScreen === 'submissions' && 'Review all user submissions.'}
+              </p>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong></span>
@@ -754,7 +842,7 @@ export default function Home() {
             </div>
           </header>
 
-          <section className="mb-10">
+          <section className={`mb-10 ${activeScreen === 'admin' ? '' : 'hidden'}`}>
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">Global Meet Selection</h2>
               <button
@@ -814,7 +902,7 @@ export default function Home() {
             ) : null}
           </section>
 
-          <section className="mb-10">
+          <section className={`mb-10 ${activeScreen === 'admin' ? '' : 'hidden'}`}>
             <h2 className="text-xl font-semibold mb-3">User Management</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {usersList.map(([username, record]) => (
@@ -838,7 +926,7 @@ export default function Home() {
             </div>
           </section>
 
-          {globalMeets.length > 0 && (
+          {activeScreen === 'main' && globalMeets.length > 0 && (
             <section className="mb-10">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold">My Horse Selections</h2>
@@ -995,9 +1083,44 @@ export default function Home() {
             </section>
           )}
 
-          {submitConfirmationModal}
+          {activeScreen === 'submissions' ? (
+            <section className="mb-10">
+              <h2 className="text-xl font-semibold mb-3">User Submissions</h2>
+              {submissionsLoading ? (
+                <div className="rounded-lg bg-white p-4 shadow-sm text-sm text-slate-500">Loading submissions...</div>
+              ) : submissionRows.length === 0 ? (
+                <div className="rounded-lg bg-white p-4 shadow-sm text-sm text-slate-500">No submissions found yet.</div>
+              ) : (
+                <div className="space-y-3">
+                  {submissionRows.map(row => (
+                    <div key={row.user_id} className="rounded-lg bg-white p-4 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold">{row.username}</p>
+                        <p className={`text-xs font-medium ${row.submitted ? 'text-green-600' : 'text-amber-600'}`}>
+                          {row.submitted ? 'Submitted' : 'Draft'}
+                        </p>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {row.submitted_at ? `Submitted at ${new Date(row.submitted_at).toLocaleString()}` : 'Not submitted yet'}
+                      </p>
+                      <ul className="mt-3 space-y-1 text-sm text-slate-700">
+                        {row.selections.map((sel, idx) => (
+                          <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`}>
+                            {sel.meetId} Race {sel.raceId}: {sel.horseName}
+                            {row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId ? ' (Wildcard)' : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
 
-          {selectedRunnerDetails && (
+          {activeScreen === 'main' ? submitConfirmationModal : null}
+
+          {activeScreen === 'main' && selectedRunnerDetails && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                 <h3 className="text-lg font-semibold mb-4">{selectedRunnerDetails.runner.name}</h3>
@@ -1036,6 +1159,7 @@ export default function Home() {
               </div>
             </div>
           )}
+          </div>
         </div>
       </div>
     );
@@ -1043,11 +1167,32 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
-      <div className="mx-auto max-w-5xl">
+      <div className="mx-auto max-w-6xl flex gap-6">
+        <aside className="w-64 shrink-0 rounded-xl bg-white p-4 shadow-sm h-fit">
+          <h2 className="text-sm font-semibold text-slate-700 mb-3">Navigation</h2>
+          <div className="space-y-2">
+            <button
+              onClick={() => setActiveScreen('main')}
+              className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+            >
+              Main Picks
+            </button>
+            <button
+              onClick={() => setActiveScreen('submissions')}
+              className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'submissions' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+            >
+              My Submissions
+            </button>
+          </div>
+        </aside>
+
+        <div className="flex-1">
         <header className="mb-8">
           <h1 className="text-3xl font-bold">Horse Racing Syndicate App</h1>
           <p className="mt-2 text-slate-600">
-            Pick one horse per race in the last four races of two selected meets for tomorrow, then choose a wildcard horse for double points.
+            {activeScreen === 'main'
+              ? 'Pick one horse per race in the last four races of two selected meets for tomorrow, then choose a wildcard horse for double points.'
+              : 'Review your saved and submitted selections.'}
           </p>
         </header>
 
@@ -1055,6 +1200,8 @@ export default function Home() {
           <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">{error}</div>
         ) : null}
 
+        {activeScreen === 'main' ? (
+        <>
         <div className="mb-8">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Global Meets</h2>
@@ -1200,6 +1347,45 @@ export default function Home() {
           </div>
         )}
 
+        {submitConfirmationModal}
+        </>
+        ) : null}
+
+        {activeScreen === 'submissions' ? (
+          <section className="mb-10">
+            <h2 className="text-xl font-semibold mb-3">My Submissions</h2>
+            {submissionsLoading ? (
+              <div className="rounded-lg bg-white p-4 shadow-sm text-sm text-slate-500">Loading submissions...</div>
+            ) : submissionRows.length === 0 ? (
+              <div className="rounded-lg bg-white p-4 shadow-sm text-sm text-slate-500">No submissions found yet.</div>
+            ) : (
+              <div className="space-y-3">
+                {submissionRows.map(row => (
+                  <div key={row.user_id} className="rounded-lg bg-white p-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold">{row.username}</p>
+                      <p className={`text-xs font-medium ${row.submitted ? 'text-green-600' : 'text-amber-600'}`}>
+                        {row.submitted ? 'Submitted' : 'Draft'}
+                      </p>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {row.submitted_at ? `Submitted at ${new Date(row.submitted_at).toLocaleString()}` : 'Not submitted yet'}
+                    </p>
+                    <ul className="mt-3 space-y-1 text-sm text-slate-700">
+                      {row.selections.map((sel, idx) => (
+                        <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`}>
+                          {sel.meetId} Race {sel.raceId}: {sel.horseName}
+                          {row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId ? ' (Wildcard)' : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
+
         <div className="mb-10">
           <h2 className="text-xl font-semibold mb-3">Select Wildcard Horse</h2>
           <select
@@ -1252,7 +1438,7 @@ export default function Home() {
           </ul>
         </section>
 
-        {selectedRunnerDetails && (
+        {activeScreen === 'main' && selectedRunnerDetails && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
               <h3 className="text-lg font-semibold mb-4">{selectedRunnerDetails.runner.name}</h3>
@@ -1292,7 +1478,7 @@ export default function Home() {
           </div>
         )}
 
-        {submitConfirmationModal}
+        </div>
       </div>
     </div>
   );
