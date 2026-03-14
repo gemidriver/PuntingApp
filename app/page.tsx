@@ -1499,57 +1499,61 @@ export default function Home() {
           </section>
         ) : null}
 
-        <div className="mb-10">
-          <h2 className="text-xl font-semibold mb-3">Select Wildcard Horse</h2>
-          <select
-            value={wildcard ? `${wildcard.meetId}|${wildcard.raceId}` : ''}
-            onChange={(e) => {
-              const value = e.target.value;
-              if (!value) {
-                setWildcard(null);
-                if (user && userId && !hasSubmitted) {
-                  void persistUserSelections(userId, user, selections, null, false);
-                }
-                return;
-              }
-              const [meetId, raceId] = value.split('|');
-              const sel = selections.find(s => s.meetId === meetId && s.raceId === raceId);
-              if (!sel) return;
-              const nextWildcard = { meetId, raceId };
-              setWildcard(nextWildcard);
-              if (user && userId && !hasSubmitted) {
-                void persistUserSelections(userId, user, selections, nextWildcard, false);
-              }
-            }}
-            className="w-full max-w-xs rounded border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
-          >
-            <option value="">Choose Wildcard</option>
-            {wildcardOptions.map(opt => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <p className="mt-2 text-sm text-slate-500">The wildcard can only be assigned to one race; it will double the points for that race.</p>
-        </div>
+        {activeScreen === 'main' ? (
+          <>
+            <div className="mb-10">
+              <h2 className="text-xl font-semibold mb-3">Select Wildcard Horse</h2>
+              <select
+                value={wildcard ? `${wildcard.meetId}|${wildcard.raceId}` : ''}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (!value) {
+                    setWildcard(null);
+                    if (user && userId && !hasSubmitted) {
+                      void persistUserSelections(userId, user, selections, null, false);
+                    }
+                    return;
+                  }
+                  const [meetId, raceId] = value.split('|');
+                  const sel = selections.find(s => s.meetId === meetId && s.raceId === raceId);
+                  if (!sel) return;
+                  const nextWildcard = { meetId, raceId };
+                  setWildcard(nextWildcard);
+                  if (user && userId && !hasSubmitted) {
+                    void persistUserSelections(userId, user, selections, nextWildcard, false);
+                  }
+                }}
+                className="w-full max-w-xs rounded border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
+              >
+                <option value="">Choose Wildcard</option>
+                {wildcardOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-sm text-slate-500">The wildcard can only be assigned to one race; it will double the points for that race.</p>
+            </div>
 
-        <section>
-          <h2 className="text-xl font-semibold mb-3">Your Selections</h2>
-          <ul className="space-y-2">
-            {selections.length === 0 ? (
-              <li className="text-sm text-slate-500">No selections yet.</li>
-            ) : (
-              selections.map(sel => (
-                <li key={`${sel.meetId}-${sel.raceId}`} className="rounded-lg bg-white p-3 shadow-sm">
-                  <span className="font-medium">{selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
-                  {wildcard?.meetId === sel.meetId && wildcard?.raceId === sel.raceId ? (
-                    <span className="text-sm font-semibold text-emerald-600">(Wildcard)</span>
-                  ) : null}
-                </li>
-              ))
-            )}
-          </ul>
-        </section>
+            <section>
+              <h2 className="text-xl font-semibold mb-3">Your Selections</h2>
+              <ul className="space-y-2">
+                {selections.length === 0 ? (
+                  <li className="text-sm text-slate-500">No selections yet.</li>
+                ) : (
+                  selections.map(sel => (
+                    <li key={`${sel.meetId}-${sel.raceId}`} className="rounded-lg bg-white p-3 shadow-sm">
+                      <span className="font-medium">{selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
+                      {wildcard?.meetId === sel.meetId && wildcard?.raceId === sel.raceId ? (
+                        <span className="text-sm font-semibold text-emerald-600">(Wildcard)</span>
+                      ) : null}
+                    </li>
+                  ))
+                )}
+              </ul>
+            </section>
+          </>
+        ) : null}
 
         {activeScreen === 'main' && selectedRunnerDetails && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
