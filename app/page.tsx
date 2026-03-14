@@ -102,6 +102,8 @@ export default function Home() {
 
   const [submittedSelections, setSubmittedSelections] = useState<UserSelections | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const mapProfiles = (rows: Array<{ id: string; email: string; username: string; is_admin: boolean }>): Record<string, ProfileRecord> => {
     return rows.reduce((acc, row) => {
@@ -406,15 +408,28 @@ export default function Home() {
   const submitSelections = async () => {
     if (!user || !userId) return;
 
-    await persistUserSelections(userId, user, selections, wildcard, true);
-    setHasSubmitted(true);
-    setSubmittedSelections({
-      username: user,
-      selections,
-      wildcard,
-      submitted: true,
-      submittedAt: new Date().toISOString(),
-    });
+    setIsSubmitting(true);
+    try {
+      await persistUserSelections(userId, user, selections, wildcard, true);
+      setHasSubmitted(true);
+      setSubmittedSelections({
+        username: user,
+        selections,
+        wildcard,
+        submitted: true,
+        submittedAt: new Date().toISOString(),
+      });
+      setShowSubmitConfirm(false);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const openSubmitConfirmation = () => {
+    if (!canSubmit()) {
+      return;
+    }
+    setShowSubmitConfirm(true);
   };
 
   const canSubmit = () => {
@@ -586,6 +601,47 @@ export default function Home() {
       label: `${sel.horseName}${oddsLabel} ; (${sel.raceName} @ ${course})`,
     };
   }), [selections, selectedMeets, races]);
+
+  const submitConfirmationModal = showSubmitConfirm ? (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-auto">
+        <h3 className="text-lg font-semibold mb-2">Confirm Your Selections</h3>
+        <p className="text-sm text-slate-600 mb-4">
+          You are about to submit {selections.length} selection{selections.length === 1 ? '' : 's'}. You will not be able to edit after submitting.
+        </p>
+
+        <ul className="space-y-2 mb-4">
+          {selections.map(sel => (
+            <li key={`confirm-${sel.meetId}-${sel.raceId}`} className="rounded-lg bg-slate-50 p-3 text-sm">
+              <span className="font-medium">{selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
+              {wildcard?.meetId === sel.meetId && wildcard?.raceId === sel.raceId ? (
+                <span className="text-sm font-semibold text-emerald-600">(Wildcard)</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              void submitSelections();
+            }}
+            disabled={isSubmitting}
+            className="flex-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {isSubmitting ? 'Submitting...' : 'Confirm and Submit'}
+          </button>
+          <button
+            onClick={() => setShowSubmitConfirm(false)}
+            disabled={isSubmitting}
+            className="flex-1 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 disabled:cursor-not-allowed"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   if (!user) {
     return (
@@ -788,17 +844,14 @@ export default function Home() {
                 <h2 className="text-xl font-semibold">My Horse Selections</h2>
                 {hasSubmitted ? (
                   <span className="text-sm text-green-600 font-medium">Submitted</span>
-                ) : canSubmit() ? (
-                  <button
-                    onClick={() => {
-                      void submitSelections();
-                    }}
-                    className="rounded-full bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700"
-                  >
-                    Submit Selections
-                  </button>
                 ) : (
-                  <span className="text-sm text-slate-500">Select horses for all races to submit</span>
+                  <button
+                    onClick={openSubmitConfirmation}
+                    disabled={!canSubmit() || isSubmitting}
+                    className="rounded-full bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    {canSubmit() ? 'Review and Submit' : 'Complete all race picks to submit'}
+                  </button>
                 )}
               </div>
 
@@ -941,6 +994,8 @@ export default function Home() {
               </section>
             </section>
           )}
+
+          {submitConfirmationModal}
 
           {selectedRunnerDetails && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1121,17 +1176,14 @@ export default function Home() {
               <h2 className="text-xl font-semibold">My Horse Selections</h2>
               {hasSubmitted ? (
                 <span className="text-sm text-green-600 font-medium">Submitted</span>
-              ) : canSubmit() ? (
-                <button
-                  onClick={() => {
-                    void submitSelections();
-                  }}
-                  className="rounded-full bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700"
-                >
-                  Submit Selections
-                </button>
               ) : (
-                <span className="text-sm text-slate-500">Select horses for all races to submit</span>
+                <button
+                  onClick={openSubmitConfirmation}
+                  disabled={!canSubmit() || isSubmitting}
+                  className="rounded-full bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {canSubmit() ? 'Review and Submit' : 'Complete all race picks to submit'}
+                </button>
               )}
             </div>
 
@@ -1239,6 +1291,8 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        {submitConfirmationModal}
       </div>
     </div>
   );
