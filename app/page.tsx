@@ -941,6 +941,46 @@ export default function Home() {
               </section>
             </section>
           )}
+
+          {selectedRunnerDetails && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                <h3 className="text-lg font-semibold mb-4">{selectedRunnerDetails.runner.name}</h3>
+                <div className="space-y-2 text-sm">
+                  <p><strong>Jockey:</strong> {selectedRunnerDetails.runner.jockey || 'N/A'}</p>
+                  <p><strong>Colours:</strong> {selectedRunnerDetails.runner.colours || 'N/A'}</p>
+                  <p><strong>Weight:</strong> {selectedRunnerDetails.runner.weight || 'N/A'}</p>
+                  <p><strong>Age:</strong> {selectedRunnerDetails.runner.age || 'N/A'}</p>
+                  <p><strong>Odds:</strong> {selectedRunnerDetails.runner.odds || 'N/A'}</p>
+                  <p><strong>Trainer:</strong> {selectedRunnerDetails.runner.trainer || 'N/A'}</p>
+                  <p><strong>Form:</strong> {selectedRunnerDetails.runner.form || 'N/A'}</p>
+                </div>
+                <div className="mt-6 flex space-x-3">
+                  <button
+                    onClick={() => {
+                      selectHorse(
+                        selectedRunnerDetails.meetId,
+                        selectedRunnerDetails.raceId,
+                        selectedRunnerDetails.raceName,
+                        selectedRunnerDetails.runner.id,
+                        selectedRunnerDetails.runner.name
+                      );
+                      setSelectedRunnerDetails(null);
+                    }}
+                    className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                  >
+                    Select Horse
+                  </button>
+                  <button
+                    onClick={() => setSelectedRunnerDetails(null)}
+                    className="flex-1 bg-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-400"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
