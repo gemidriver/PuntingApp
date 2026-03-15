@@ -8,6 +8,9 @@ A Next.js application for managing horse racing syndicate selections. Users can 
 - View last 4 races per meet with horse lists
 - Select one horse per race
 - Choose a wildcard horse for double points
+- Automatically hides expired race-day data once the meet date has passed
+- Admin can clear the finished race day and publish a new pair of global meets for everyone
+- Publishing new global meets resets all user selections, wildcard picks, and stored results
 - Mock data integration (ready for theracingapi.com API)
 
 ## Getting Started

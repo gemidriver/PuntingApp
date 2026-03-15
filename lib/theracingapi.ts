@@ -222,3 +222,30 @@ export async function fetchRacesForCourse(
   return { races: [] };
 }
 
+export interface RaceResult {
+  marketId: string;
+  winnerId: string | null;
+  settled: boolean;
+}
+
+export async function fetchMarketResults(marketIds: string[]): Promise<RaceResult[]> {
+  if (!marketIds.length) return [];
+
+  if (!SPORTBEX_API_KEY) {
+    throw new Error('SPORTBEX_API_KEY is not configured on the server. Add it to .env.local and restart the app.');
+  }
+
+  const books = await fetchSportbexMarketBook(marketIds);
+  return (Array.isArray(books) ? books : [])
+    .filter((book: any) => book && (book.marketId ?? book.id))
+    .map((book: any) => {
+    const runners: any[] = Array.isArray(book.runners) ? book.runners : [];
+    const winner = runners.find((r: any) => String(r.status ?? '').toUpperCase() === 'WINNER');
+    return {
+      marketId: String(book.marketId ?? book.id),
+      winnerId: winner ? String(winner.selectionId) : null,
+      settled: ['CLOSED', 'SETTLED'].includes(String(book.status ?? '').toUpperCase()),
+    };
+  });
+}
+
