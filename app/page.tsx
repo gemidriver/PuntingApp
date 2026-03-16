@@ -1131,37 +1131,46 @@ export default function Home() {
           {submissionRows.map(row => {
             const rowScore = scoreboard.find(e => e.username === row.username)?.score ?? null;
             const rowRank = rankByUsername.get(row.username) ?? 0;
+            const submittedAtLabel = row.submitted_at ? new Date(row.submitted_at).toLocaleString() : 'Not submitted yet';
             return (
-              <div key={row.user_id} className="rounded-lg bg-white p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold">{row.username}</p>
+              <details key={row.user_id} className="group rounded-lg bg-white shadow-sm" open={row.username === user}>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4">
+                  <div>
+                    <p className="font-semibold">{row.username}</p>
+                    <p className="mt-1 text-xs text-slate-500">{submittedAtLabel}</p>
+                  </div>
                   <div className="flex items-center gap-2">
                     {rowScore !== null ? (
                       <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${podiumBadgeClass(rowRank)}`}>{rowScore} pt{rowScore !== 1 ? 's' : ''}</span>
                     ) : null}
-                    <p className={`text-xs font-medium ${row.submitted ? 'text-green-600' : 'text-amber-600'}`}>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${row.submitted ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
                       {row.submitted ? 'Submitted' : 'Draft'}
-                    </p>
+                    </span>
+                    <span className="text-xs text-slate-400 transition group-open:rotate-180">▼</span>
                   </div>
+                </summary>
+
+                <div className="border-t border-slate-100 px-4 pb-4 pt-3">
+                  {row.selections.length === 0 ? (
+                    <p className="text-sm text-slate-500">No selections yet.</p>
+                  ) : (
+                    <ul className="space-y-1 text-sm text-slate-700">
+                      {row.selections.map((sel, idx) => {
+                        const isWildcard = row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId;
+                        const result = raceResults[sel.raceId];
+                        const isWinner = result?.winnerId === sel.horseId;
+                        return (
+                          <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`} className={`rounded px-2 py-0.5 ${isWinner ? 'bg-green-100 text-green-900 font-semibold' : isWildcard ? 'bg-yellow-100 text-yellow-900 font-semibold' : ''}`}>
+                            {getSelectionLocation(sel)} - {sel.raceName}: {sel.horseName}
+                            {isWildcard ? ' \u2b50 Wildcard' : ''}
+                            {isWinner ? ' \u2705' : (result && !isWinner ? ' \u274c' : '')}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  {row.submitted_at ? `Submitted at ${new Date(row.submitted_at).toLocaleString()}` : 'Not submitted yet'}
-                </p>
-                <ul className="mt-3 space-y-1 text-sm text-slate-700">
-                  {row.selections.map((sel, idx) => {
-                    const isWildcard = row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId;
-                    const result = raceResults[sel.raceId];
-                    const isWinner = result?.winnerId === sel.horseId;
-                    return (
-                      <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`} className={`rounded px-2 py-0.5 ${isWinner ? 'bg-green-100 text-green-900 font-semibold' : isWildcard ? 'bg-yellow-100 text-yellow-900 font-semibold' : ''}`}>
-                        {getSelectionLocation(sel)} - {sel.raceName}: {sel.horseName}
-                        {isWildcard ? ' \u2b50 Wildcard' : ''}
-                        {isWinner ? ' \u2705' : (result && !isWinner ? ' \u274c' : '')}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
+              </details>
             );
           })}
         </div>
