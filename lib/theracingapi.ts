@@ -228,6 +228,12 @@ export interface RaceResult {
   settled: boolean;
 }
 
+export interface MarketRunner {
+  id: string;
+  name: string;
+  number: number | null;
+}
+
 export async function fetchMarketResults(marketIds: string[]): Promise<RaceResult[]> {
   if (!marketIds.length) return [];
 
@@ -247,5 +253,29 @@ export async function fetchMarketResults(marketIds: string[]): Promise<RaceResul
       settled: ['CLOSED', 'SETTLED'].includes(String(book.status ?? '').toUpperCase()),
     };
   });
+}
+
+export async function fetchMarketRunners(marketId: string): Promise<MarketRunner[]> {
+  const id = String(marketId || '').trim();
+  if (!id) return [];
+
+  if (!SPORTBEX_API_KEY) {
+    throw new Error('SPORTBEX_API_KEY is not configured on the server. Add it to .env.local and restart the app.');
+  }
+
+  const books = await fetchSportbexMarketBook([id]);
+  const book = (Array.isArray(books) ? books : []).find((item: any) => String(item?.marketId ?? item?.id ?? '') === id);
+  const runners: any[] = Array.isArray(book?.runners) ? book.runners : [];
+
+  return runners
+    .map((runner: any, idx: number) => {
+      const numberValue = Number.parseInt(String(runner?.sortPriority ?? runner?.metadata?.CLOTH_NUMBER ?? ''), 10);
+      return {
+        id: String(runner?.selectionId ?? runner?.id ?? ''),
+        name: String(runner?.runnerName ?? runner?.name ?? `Runner ${idx + 1}`),
+        number: Number.isNaN(numberValue) ? null : numberValue,
+      };
+    })
+    .filter((runner: MarketRunner) => Boolean(runner.id));
 }
 

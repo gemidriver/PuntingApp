@@ -135,6 +135,8 @@ export default function Home() {
   const [resultsFetching, setResultsFetching] = useState(false);
   const [manualResultRaceId, setManualResultRaceId] = useState('');
   const [manualResultHorseId, setManualResultHorseId] = useState('');
+  const [manualRunnersByRaceId, setManualRunnersByRaceId] = useState<Record<string, Array<{ horseId: string; horseName: string }>>>({});
+  const [manualRunnersLoading, setManualRunnersLoading] = useState(false);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
 
   const mapProfiles = (rows: Array<{ id: string; email: string; username: string; is_admin: boolean }>): Record<string, ProfileRecord> => {
@@ -753,6 +755,48 @@ export default function Home() {
     setMobileNavOpen(false);
   }, [activeScreen]);
 
+  useEffect(() => {
+    if (!manualResultRaceId || manualRunnersByRaceId[manualResultRaceId]) {
+      return;
+    }
+
+    let active = true;
+    const loadManualRunners = async () => {
+      setManualRunnersLoading(true);
+      try {
+        const res = await fetch(`/api/market-runners?marketId=${encodeURIComponent(manualResultRaceId)}`);
+        if (!res.ok) {
+          return;
+        }
+
+        const data = await res.json() as { runners?: Array<{ id: string; name: string; number: number | null }> };
+        const options = Array.isArray(data.runners)
+          ? data.runners.map((runner) => ({
+              horseId: runner.id,
+              horseName: runner.number ? `${runner.number}. ${runner.name}` : runner.name,
+            }))
+          : [];
+
+        if (!active || !options.length) {
+          return;
+        }
+
+        setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
+      } catch {
+        // Keep silent and let existing fallbacks provide options.
+      } finally {
+        if (active) {
+          setManualRunnersLoading(false);
+        }
+      }
+    };
+
+    void loadManualRunners();
+    return () => {
+      active = false;
+    };
+  }, [manualResultRaceId, manualRunnersByRaceId]);
+
   const loadRacesForMeet = async (meet: Meet) => {
     setRaceLoading(prev => ({ ...prev, [meet.meet_id]: true }));
 
@@ -917,6 +961,11 @@ export default function Home() {
   const manualHorseOptions = useMemo(() => {
     if (!manualResultRaceId) return [] as Array<{ horseId: string; horseName: string }>;
 
+    const marketRunners = manualRunnersByRaceId[manualResultRaceId];
+    if (marketRunners?.length) {
+      return marketRunners;
+    }
+
     const horseMap = new Map<string, string>();
 
     selectedMeets.forEach(meet => {
@@ -942,7 +991,7 @@ export default function Home() {
     }
 
     return [...horseMap.entries()].map(([horseId, horseName]) => ({ horseId, horseName }));
-  }, [manualResultRaceId, selectedMeets, races, submissionRows]);
+  }, [manualResultRaceId, manualRunnersByRaceId, selectedMeets, races, submissionRows]);
 
   const rankByUsername = useMemo(() => {
     const map = new Map<string, number>();
@@ -1118,10 +1167,10 @@ export default function Home() {
             <select
               value={manualResultHorseId}
               onChange={(e) => setManualResultHorseId(e.target.value)}
-              disabled={!manualResultRaceId}
+              disabled={!manualResultRaceId || manualRunnersLoading}
               className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
             >
-              <option value="">Select winning horse</option>
+              <option value="">{manualRunnersLoading ? 'Loading horses...' : 'Select winning horse'}</option>
               {manualHorseOptions.map(opt => (
                 <option key={opt.horseId} value={opt.horseId}>{opt.horseName}</option>
               ))}
