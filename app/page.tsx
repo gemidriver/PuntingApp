@@ -736,14 +736,14 @@ export default function Home() {
       setSelectedMeets(globalMeets);
       const loadRacesSequentially = async () => {
         for (const meet of globalMeets) {
-          if (!races[meet.meet_id]) {
+          if (!(races[meet.meet_id]?.length)) {
             await loadRacesForMeet(meet);
           }
         }
       };
       void loadRacesSequentially();
     }
-  }, [user, isAdmin, globalMeets]);
+  }, [user, isAdmin, globalMeets, activeScreen]);
 
   useEffect(() => {
     if (!isAdmin && activeScreen === 'admin') {
@@ -1592,6 +1592,14 @@ export default function Home() {
                     ) : (races[meet.meet_id] || []).length === 0 ? (
                       <div className="rounded-lg bg-white p-6 shadow-sm">
                         <p className="text-sm text-slate-600">No races were found for this meet.</p>
+                        <button
+                          onClick={() => {
+                            void loadRacesForMeet(meet);
+                          }}
+                          className="mt-4 inline-flex items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
+                        >
+                          Retry Loading Races
+                        </button>
                       </div>
                     ) : (
                       <div className="-mx-4 px-4 lg:mx-0 lg:px-0">
