@@ -121,6 +121,7 @@ export default function Home() {
 
   const [allUsers, setAllUsers] = useState<Record<string, ProfileRecord>>({});
   const [globalMeets, setGlobalMeets] = useState<Meet[]>([]);
+  const [adminSelectedMeets, setAdminSelectedMeets] = useState<Meet[]>([]);
 
   const [submittedSelections, setSubmittedSelections] = useState<UserSelections | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
@@ -212,6 +213,7 @@ export default function Home() {
   const clearMeetState = () => {
     setGlobalMeets([]);
     setSelectedMeets([]);
+    setAdminSelectedMeets([]);
     setRaces({});
     setRaceLoading({});
     setRaceDebug({});
@@ -412,6 +414,7 @@ export default function Home() {
 
     const meetsFromDb = await loadGlobalMeetsFromDb();
     setGlobalMeets(meetsFromDb);
+    setAdminSelectedMeets(meetsFromDb);
     if (meetsFromDb.length) {
       setSelectedMeets(meetsFromDb);
     }
@@ -622,12 +625,12 @@ export default function Home() {
   };
 
   const publishGlobalMeetSelection = async () => {
-    if (selectedMeets.length !== 2) {
+    if (adminSelectedMeets.length !== 2) {
       setError('Choose exactly two meets before publishing them.');
       return;
     }
 
-    const meetsToPublish = [...selectedMeets];
+    const meetsToPublish = [...adminSelectedMeets];
     const didReset = await resetRaceDayState(meetsToPublish);
     if (!didReset) {
       return;
@@ -746,6 +749,12 @@ export default function Home() {
   }, [user, isAdmin, globalMeets, activeScreen]);
 
   useEffect(() => {
+    if (isAdmin) {
+      setAdminSelectedMeets(globalMeets);
+    }
+  }, [isAdmin, globalMeets]);
+
+  useEffect(() => {
     if (!isAdmin && activeScreen === 'admin') {
       setActiveScreen('main');
     }
@@ -827,11 +836,11 @@ export default function Home() {
   };
 
   const selectMeet = async (meet: Meet) => {
-    if (selectedMeets.length >= 2 || selectedMeets.some(m => m.meet_id === meet.meet_id)) {
+    if (adminSelectedMeets.length >= 2 || adminSelectedMeets.some(m => m.meet_id === meet.meet_id)) {
       return;
     }
 
-    setSelectedMeets(prev => [...prev, meet]);
+    setAdminSelectedMeets(prev => [...prev, meet]);
     setTimeout(() => {
       document.getElementById('races-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 100);
@@ -840,7 +849,7 @@ export default function Home() {
   };
 
   const removeSelectedMeet = (meetId: string) => {
-    setSelectedMeets((prev) => prev.filter((meet) => meet.meet_id !== meetId));
+    setAdminSelectedMeets((prev) => prev.filter((meet) => meet.meet_id !== meetId));
     setRaces((prev) => {
       const next = { ...prev };
       delete next[meetId];
@@ -1468,7 +1477,7 @@ export default function Home() {
                   onClick={() => {
                     void publishGlobalMeetSelection();
                   }}
-                  disabled={selectedMeets.length !== 2}
+                  disabled={adminSelectedMeets.length !== 2}
                   className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   Publish Meets for New Day
@@ -1484,7 +1493,7 @@ export default function Home() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               {meets.map(meet => {
-                const isSelectedMeet = selectedMeets.some(m => m.meet_id === meet.meet_id);
+                const isSelectedMeet = adminSelectedMeets.some(m => m.meet_id === meet.meet_id);
                 return (
                   <div
                     key={meet.meet_id}
@@ -1503,7 +1512,7 @@ export default function Home() {
 
                         void selectMeet(meet);
                       }}
-                      disabled={selectedMeets.length >= 2 && !isSelectedMeet}
+                      disabled={adminSelectedMeets.length >= 2 && !isSelectedMeet}
                       className={`mt-4 inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium shadow-sm transition ${
                         isSelectedMeet
                           ? 'bg-emerald-600 text-white hover:bg-emerald-700'
