@@ -730,7 +730,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (user && !isAdmin && globalMeets.length) {
+    if (user && globalMeets.length) {
       setSelectedMeets(globalMeets);
       const loadRacesSequentially = async () => {
         for (const meet of globalMeets) {
@@ -883,6 +883,20 @@ export default function Home() {
 
   const manualRaceOptions = useMemo(() => {
     const raceMap = new Map<string, { raceName: string; location: string }>();
+
+    selectedMeets.forEach(meet => {
+      const location = meet.course ?? meet.meet_id;
+      (races[meet.meet_id] || []).forEach(race => {
+        if (!raceMap.has(race.id)) {
+          raceMap.set(race.id, {
+            raceName: race.name,
+            location,
+          });
+        }
+      });
+    });
+
+    // Fallback for races only seen in submissions (for example, older data that is no longer loaded).
     submissionRows.forEach(row => {
       row.selections.forEach(sel => {
         if (!raceMap.has(sel.raceId)) {
@@ -893,26 +907,42 @@ export default function Home() {
         }
       });
     });
+
     return [...raceMap.entries()].map(([raceId, info]) => ({
       raceId,
       label: `${info.location} - ${info.raceName} (${raceId})`,
     }));
-  }, [submissionRows, selectedMeets]);
+  }, [selectedMeets, races, submissionRows]);
 
   const manualHorseOptions = useMemo(() => {
     if (!manualResultRaceId) return [] as Array<{ horseId: string; horseName: string }>;
+
     const horseMap = new Map<string, string>();
-    submissionRows.forEach(row => {
-      row.selections
-        .filter(sel => sel.raceId === manualResultRaceId)
-        .forEach(sel => {
-          if (!horseMap.has(sel.horseId)) {
-            horseMap.set(sel.horseId, sel.horseName);
-          }
-        });
+
+    selectedMeets.forEach(meet => {
+      const race = (races[meet.meet_id] || []).find(r => r.id === manualResultRaceId);
+      race?.runners.forEach(runner => {
+        if (!horseMap.has(runner.id)) {
+          horseMap.set(runner.id, runner.name);
+        }
+      });
     });
+
+    // Fallback to submitted picks if race runners are unavailable.
+    if (horseMap.size === 0) {
+      submissionRows.forEach(row => {
+        row.selections
+          .filter(sel => sel.raceId === manualResultRaceId)
+          .forEach(sel => {
+            if (!horseMap.has(sel.horseId)) {
+              horseMap.set(sel.horseId, sel.horseName);
+            }
+          });
+      });
+    }
+
     return [...horseMap.entries()].map(([horseId, horseName]) => ({ horseId, horseName }));
-  }, [submissionRows, manualResultRaceId]);
+  }, [manualResultRaceId, selectedMeets, races, submissionRows]);
 
   const rankByUsername = useMemo(() => {
     const map = new Map<string, number>();
