@@ -1144,7 +1144,7 @@ export default function Home() {
                       <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${podiumBadgeClass(rowRank)}`}>{rowScore} pt{rowScore !== 1 ? 's' : ''}</span>
                     ) : null}
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${row.submitted ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                      {row.submitted ? 'Submitted' : 'Draft'}
+                      {row.submitted ? 'Submitted' : 'Not Submitted'}
                     </span>
                     <span className="text-xs text-slate-400 transition group-open:rotate-180">▼</span>
                   </div>
@@ -1709,12 +1709,15 @@ export default function Home() {
       {/* Mobile sticky top bar */}
       <div className="sticky top-0 z-20 flex items-center justify-between bg-white px-4 py-3 shadow-sm lg:hidden">
         <span className="text-base font-bold tracking-tight">🏇 Braddo&apos;s Punting</span>
-        <button
-          onClick={() => { void logout(); }}
-          className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
-        >
-          Log out
-        </button>
+        <div className="flex items-center gap-2">
+          <span className="max-w-[110px] truncate text-xs text-slate-500">{user}</span>
+          <button
+            onClick={() => { void logout(); }}
+            className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
+          >
+            Log out
+          </button>
+        </div>
       </div>
       <div className="lg:flex lg:gap-6 lg:max-w-6xl lg:mx-auto lg:p-6">
         <aside
@@ -1783,7 +1786,6 @@ export default function Home() {
           <h1 className="text-2xl font-bold">
             {activeScreen === 'home' ? 'Home' : activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
           </h1>
-          <p className="mt-1 text-sm text-slate-500">Signed in as <strong>{user}</strong></p>
         </div>
 
         {error ? (
