@@ -1062,53 +1062,50 @@ export default function Home() {
 
   const submissionsContent = (
     <section className="mb-10">
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <h2 className="text-xl font-semibold">User Submissions</h2>
-        {isAdmin ? (
-          <div className="flex flex-col gap-2 lg:items-end">
-            <button
-              onClick={() => { void fetchAndSaveResults(); }}
-              disabled={resultsFetching || submissionRows.length === 0}
-              className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+      {isAdmin ? (
+        <div className="mb-4 flex flex-col gap-2 lg:items-end">
+          <button
+            onClick={() => { void fetchAndSaveResults(); }}
+            disabled={resultsFetching || submissionRows.length === 0}
+            className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {resultsFetching ? 'Fetching...' : 'Fetch Results'}
+          </button>
+          <div className="flex flex-col gap-2 rounded-lg bg-white p-3 shadow-sm lg:flex-row lg:items-center">
+            <select
+              value={manualResultRaceId}
+              onChange={(e) => {
+                setManualResultRaceId(e.target.value);
+                setManualResultHorseId('');
+              }}
+              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
             >
-              {resultsFetching ? 'Fetching...' : 'Fetch Results'}
+              <option value="">Select race</option>
+              {manualRaceOptions.map(opt => (
+                <option key={opt.raceId} value={opt.raceId}>{opt.label}</option>
+              ))}
+            </select>
+            <select
+              value={manualResultHorseId}
+              onChange={(e) => setManualResultHorseId(e.target.value)}
+              disabled={!manualResultRaceId}
+              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+            >
+              <option value="">Select winning horse</option>
+              {manualHorseOptions.map(opt => (
+                <option key={opt.horseId} value={opt.horseId}>{opt.horseName}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => { void applyManualResult(); }}
+              disabled={!manualResultRaceId || !manualResultHorseId}
+              className="rounded bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              Apply Manual Winner
             </button>
-            <div className="flex flex-col gap-2 rounded-lg bg-white p-3 shadow-sm lg:flex-row lg:items-center">
-              <select
-                value={manualResultRaceId}
-                onChange={(e) => {
-                  setManualResultRaceId(e.target.value);
-                  setManualResultHorseId('');
-                }}
-                className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
-              >
-                <option value="">Select race</option>
-                {manualRaceOptions.map(opt => (
-                  <option key={opt.raceId} value={opt.raceId}>{opt.label}</option>
-                ))}
-              </select>
-              <select
-                value={manualResultHorseId}
-                onChange={(e) => setManualResultHorseId(e.target.value)}
-                disabled={!manualResultRaceId}
-                className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
-              >
-                <option value="">Select winning horse</option>
-                {manualHorseOptions.map(opt => (
-                  <option key={opt.horseId} value={opt.horseId}>{opt.horseName}</option>
-                ))}
-              </select>
-              <button
-                onClick={() => { void applyManualResult(); }}
-                disabled={!manualResultRaceId || !manualResultHorseId}
-                className="rounded bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                Apply Manual Winner
-              </button>
-            </div>
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       {scoreboard.length > 0 ? (
         <div className="mb-6 rounded-lg bg-white p-4 shadow-sm">
           <h3 className="text-sm font-semibold text-slate-700 mb-3">\ud83c\udfc6 Leaderboard</h3>
