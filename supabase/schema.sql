@@ -221,11 +221,14 @@ using (public.is_admin_user(auth.uid()))
 with check (public.is_admin_user(auth.uid()));
 
 -- Submissions
-create policy if not exists "submissions_select_own_or_admin"
+drop policy if exists "submissions_select_own_or_admin" on public.user_submissions;
+drop policy if exists "submissions_select_authenticated" on public.user_submissions;
+
+create policy "submissions_select_authenticated"
 on public.user_submissions
 for select
 to authenticated
-using (auth.uid() = user_id or public.is_admin_user(auth.uid()));
+using (true);
 
 create policy if not exists "submissions_insert_own"
 on public.user_submissions

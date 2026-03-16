@@ -77,13 +77,6 @@ const getTodayDate = () => new Date().toISOString().slice(0, 10);
 const normalizeUsername = (value: string) => value.trim().toLowerCase();
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const usernameFromEmail = (email: string) => email.split('@')[0] || email;
-const isMeetSessionExpired = (meets: Meet[], date = getTodayDate()) => {
-  if (!meets.length) {
-    return false;
-  }
-
-  return meets.some((meet) => meet.date !== date);
-};
 const formatRaceTime = (value: string) => {
   if (!value) return 'Time TBC';
   const parsed = new Date(value);
@@ -133,7 +126,7 @@ export default function Home() {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeScreen, setActiveScreen] = useState<'main' | 'admin' | 'submissions'>('main');
+  const [activeScreen, setActiveScreen] = useState<'home' | 'main' | 'admin' | 'submissions'>('home');
   const [submissionRows, setSubmissionRows] = useState<SubmissionRow[]>([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -416,21 +409,9 @@ export default function Home() {
     await refreshProfiles();
 
     const meetsFromDb = await loadGlobalMeetsFromDb();
-    const staleMeetSession = isMeetSessionExpired(meetsFromDb);
-    const activeGlobalMeets = staleMeetSession ? [] : meetsFromDb;
-
-    if (staleMeetSession) {
-      clearMeetState();
-      setSessionNotice('The previous race day has finished. Meet selections and horse picks have been cleared for the next set of meets.');
-
-      if (Boolean(ownProfile?.is_admin)) {
-        await resetRaceDayState([]);
-      }
-    } else {
-      setGlobalMeets(activeGlobalMeets);
-      if (activeGlobalMeets.length) {
-        setSelectedMeets(activeGlobalMeets);
-      }
+    setGlobalMeets(meetsFromDb);
+    if (meetsFromDb.length) {
+      setSelectedMeets(meetsFromDb);
     }
 
     const { data: existingSubmission, error: submissionError } = await supabase
@@ -443,16 +424,11 @@ export default function Home() {
       console.error(submissionError);
     }
 
-    if (existingSubmission && !staleMeetSession) {
-      const allowedMeetIds = new Set(activeGlobalMeets.map((meet) => meet.meet_id));
-      const loadedSelections = (Array.isArray(existingSubmission.selections)
+    if (existingSubmission) {
+      const loadedSelections = Array.isArray(existingSubmission.selections)
         ? (existingSubmission.selections as Selection[])
-        : []).filter((selection) => allowedMeetIds.has(selection.meetId));
-      const loadedWildcard =
-        existingSubmission.wildcard &&
-        allowedMeetIds.has((existingSubmission.wildcard as Wildcard).meetId)
-          ? ((existingSubmission.wildcard as Wildcard | null) || null)
-          : null;
+        : [];
+      const loadedWildcard = (existingSubmission.wildcard as Wildcard | null) || null;
 
       setSelections(loadedSelections);
       setWildcard(loadedWildcard);
@@ -466,12 +442,6 @@ export default function Home() {
       });
     } else {
       clearSelectionState();
-    }
-
-    if (staleMeetSession) {
-      setSubmissionRows([]);
-      setRaceResults({});
-      return;
     }
 
     await loadSubmissionRows();
@@ -641,8 +611,8 @@ export default function Home() {
     setSelectedMeets(nextGlobalMeets);
     setSessionNotice(
       nextGlobalMeets.length
-        ? 'A new race day has been published. All previous meet data and horse selections were cleared.'
-        : 'The previous race day has been cleared. Admin can now publish a new pair of meets.'
+        ? 'New meets have been published. Ready to pick horses for the next race day!'
+        : 'Meet closed. All selections and results have been cleared. Select two new meets and publish them when ready.'
     );
     setError(null);
     await loadSubmissionRows();
@@ -772,19 +742,6 @@ export default function Home() {
       void loadRacesSequentially();
     }
   }, [user, isAdmin, globalMeets]);
-
-  useEffect(() => {
-    if (!user || isAdmin || globalMeets.length > 0) {
-      return;
-    }
-
-    clearSelectionState();
-    setSelectedMeets([]);
-    setRaces({});
-    setRaceExpanded({});
-    setSubmissionRows([]);
-    setRaceResults({});
-  }, [user, isAdmin, globalMeets.length]);
 
   useEffect(() => {
     if (!isAdmin && activeScreen === 'admin') {
@@ -994,6 +951,73 @@ export default function Home() {
   const getSelectionLocation = (sel: Selection) => {
     return sel.meetCourse ?? selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId;
   };
+
+  const lastRoundRaceResults = useMemo(() => {
+    const raceMeta = new Map<string, { raceName: string; location: string }>();
+    submissionRows.forEach((row) => {
+      row.selections.forEach((sel) => {
+        if (!raceMeta.has(sel.raceId)) {
+          raceMeta.set(sel.raceId, {
+            raceName: sel.raceName,
+            location: getSelectionLocation(sel),
+          });
+        }
+      });
+    });
+
+    return Object.entries(raceResults).map(([raceId, result]) => {
+      const meta = raceMeta.get(raceId);
+      return {
+        raceId,
+        raceName: meta?.raceName || raceId,
+        location: meta?.location || 'Unknown Meet',
+        winnerName: result.winnerName || result.winnerId,
+      };
+    });
+  }, [raceResults, submissionRows, selectedMeets]);
+
+  const homeContent = (
+    <section className="mb-10 space-y-6">
+      <div className="rounded-xl bg-gradient-to-r from-sky-600 to-blue-700 p-6 text-white shadow-sm">
+        <h2 className="text-2xl font-bold">Welcome {user}</h2>
+        <p className="mt-2 text-sm text-blue-100">
+          Track the latest round outcomes, review winners, and see points won across all users.
+        </p>
+      </div>
+
+      <div className="rounded-lg bg-white p-4 shadow-sm">
+        <h3 className="text-lg font-semibold">Last Round Points Won</h3>
+        {scoreboard.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">No scored results yet for the current round.</p>
+        ) : (
+          <ol className="mt-3 space-y-2">
+            {scoreboard.map((entry, i) => (
+              <li key={`home-score-${entry.username}`} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-sm">
+                <span className="font-medium">{i + 1}. {entry.username}</span>
+                <span className="font-semibold text-slate-700">{entry.score} pt{entry.score !== 1 ? 's' : ''}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+
+      <div className="rounded-lg bg-white p-4 shadow-sm">
+        <h3 className="text-lg font-semibold">Last Round Results</h3>
+        {lastRoundRaceResults.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">Race results are not available yet.</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {lastRoundRaceResults.map((result) => (
+              <li key={`home-result-${result.raceId}`} className="rounded-md bg-slate-50 px-3 py-2 text-sm">
+                <span className="font-medium">{result.location} - {result.raceName}</span>
+                <span className="ml-2 text-slate-700">Winner: {result.winnerName || 'TBC'}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
 
   const submitConfirmationModal = showSubmitConfirm ? (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1264,6 +1288,13 @@ export default function Home() {
             </div>
             <div className="space-y-2">
               <button
+                onClick={() => setActiveScreen('home')}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'home' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
+              >
+                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Home</span>
+                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>H</span>
+              </button>
+              <button
                 onClick={() => setActiveScreen('main')}
                 className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
               >
@@ -1292,11 +1323,13 @@ export default function Home() {
           <header className="mb-8 hidden lg:flex items-start justify-between gap-3">
             <div>
               <h1 className="text-3xl font-bold">
+                {activeScreen === 'home' && 'Home'}
                 {activeScreen === 'main' && 'My Picks'}
                 {activeScreen === 'admin' && 'Admin'}
                 {activeScreen === 'submissions' && 'User Submissions'}
               </h1>
               <p className="mt-2 text-slate-600">
+                {activeScreen === 'home' && 'Welcome and round summary.'}
                 {activeScreen === 'main' && 'Pick horses and submit selections.'}
                 {activeScreen === 'admin' && 'Manage global meets and user permissions.'}
                 {activeScreen === 'submissions' && 'Review all user submissions.'}
@@ -1315,6 +1348,7 @@ export default function Home() {
           {/* Mobile page title */}
           <div className="mb-5 lg:hidden">
             <h1 className="text-2xl font-bold">
+              {activeScreen === 'home' && 'Home'}
               {activeScreen === 'main' && 'My Picks'}
               {activeScreen === 'admin' && 'Admin'}
               {activeScreen === 'submissions' && 'User Submissions'}
@@ -1331,6 +1365,8 @@ export default function Home() {
             </div>
           ) : null}
 
+          {activeScreen === 'home' ? homeContent : null}
+
           <section className={`mb-10 ${activeScreen === 'admin' ? '' : 'hidden'}`}>
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">Global Meet Selection</h2>
@@ -1339,9 +1375,9 @@ export default function Home() {
                   onClick={() => {
                     void resetRaceDayState([]);
                   }}
-                  className="rounded-full bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-300"
+                  className="rounded-full bg-red-100 px-4 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-200"
                 >
-                  Clear Current Race Day
+                  Close Meet &amp; Start New Day
                 </button>
                 <button
                   onClick={() => {
@@ -1350,13 +1386,15 @@ export default function Home() {
                   disabled={selectedMeets.length !== 2}
                   className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  Publish New Global Meets
+                  Publish Meets for New Day
                 </button>
               </div>
             </div>
 
             <p className="mt-2 text-sm text-slate-500">
-              Publishing a new pair of meets clears the previous race day, removes old results, and resets every user selection.
+              Races, runners, and user picks remain visible after a race day ends so you can assign results and view the scoreboard.
+              When you are ready to start the next race day, click <strong>Close Meet &amp; Start New Day</strong> — this clears all selections and results.
+              Then select two new meets and click <strong>Publish Meets for New Day</strong>.
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -1639,6 +1677,10 @@ export default function Home() {
         </div>
         {/* Mobile bottom tab bar */}
         <nav className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 flex lg:hidden">
+          <button onClick={() => setActiveScreen('home')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'home' ? 'text-blue-600' : 'text-slate-500'}`}>
+            <span className="text-xl leading-none">🏠</span>
+            <span>Home</span>
+          </button>
           <button onClick={() => setActiveScreen('main')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'main' ? 'text-blue-600' : 'text-slate-500'}`}>
             <span className="text-xl leading-none">🏇</span>
             <span>Picks</span>
@@ -1684,6 +1726,13 @@ export default function Home() {
           </div>
           <div className="space-y-2">
             <button
+              onClick={() => setActiveScreen('home')}
+              className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'home' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
+            >
+              <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Home</span>
+              <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>H</span>
+            </button>
+            <button
               onClick={() => setActiveScreen('main')}
               className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
             >
@@ -1704,10 +1753,12 @@ export default function Home() {
         <header className="mb-8 hidden lg:flex items-start justify-between gap-3">
           <div>
             <h1 className="text-3xl font-bold">
-              {activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
+              {activeScreen === 'home' ? 'Home' : activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
             </h1>
             <p className="mt-2 text-slate-600">
-              {activeScreen === 'main'
+              {activeScreen === 'home'
+                ? 'Welcome and round summary.'
+                : activeScreen === 'main'
                 ? 'Pick one horse per race in the last four races of two selected meets for tomorrow, then choose a wildcard horse for double points.'
                 : 'Review all user submissions.'}
             </p>
@@ -1724,7 +1775,7 @@ export default function Home() {
         </header>
         <div className="mb-5 lg:hidden">
           <h1 className="text-2xl font-bold">
-            {activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
+            {activeScreen === 'home' ? 'Home' : activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
           </h1>
           <p className="mt-1 text-sm text-slate-500">Signed in as <strong>{user}</strong></p>
         </div>
@@ -1738,6 +1789,8 @@ export default function Home() {
             {sessionNotice}
           </div>
         ) : null}
+
+        {activeScreen === 'home' ? homeContent : null}
 
         {activeScreen === 'main' ? (
         <>
@@ -1943,6 +1996,15 @@ export default function Home() {
 
         {/* Bottom tab nav — mobile only */}
         <nav className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 flex lg:hidden">
+          <button
+            onClick={() => setActiveScreen('home')}
+            className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-xs font-medium ${
+              activeScreen === 'home' ? 'text-blue-600' : 'text-slate-500'
+            }`}
+          >
+            <span className="text-lg">🏠</span>
+            <span>Home</span>
+          </button>
           <button
             onClick={() => setActiveScreen('main')}
             className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-xs font-medium ${

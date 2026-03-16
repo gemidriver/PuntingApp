@@ -72,6 +72,7 @@ This project now uses Supabase for:
 - persistent admin/user profiles
 - shared global meet selection
 - persistent user selections and submitted picks
+- shared submissions view for all signed-in users
 
 ### 1) Create a Supabase project
 
@@ -84,6 +85,8 @@ Open the Supabase SQL editor and run:
 - `supabase/schema.sql`
 
 This creates `profiles`, `app_settings`, and `user_submissions` tables, plus RLS policies.
+
+If your Supabase project already exists, rerun the SQL after pulling changes so the `user_submissions` select policy is updated to allow all authenticated users to view the submissions screen.
 
 It also creates race outcomes and scoring tables:
 
