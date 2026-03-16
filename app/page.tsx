@@ -140,6 +140,8 @@ export default function Home() {
   const [manualRunnersLoading, setManualRunnersLoading] = useState(false);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
 
+  const meetsForPicks = globalMeets.length ? globalMeets : selectedMeets;
+
   const mapProfiles = (rows: Array<{ id: string; email: string; username: string; is_admin: boolean }>): Record<string, ProfileRecord> => {
     return rows.reduce((acc, row) => {
       const username = normalizeUsername(row.username);
@@ -672,7 +674,7 @@ export default function Home() {
   const canSubmit = () => {
     if (!globalMeets.length || hasSubmitted) return false;
 
-    const totalRaces = selectedMeets.reduce((sum, meet) => {
+    const totalRaces = meetsForPicks.reduce((sum, meet) => {
       return sum + (races[meet.meet_id] || []).slice(-4).length;
     }, 0);
 
@@ -773,6 +775,36 @@ export default function Home() {
     const loadManualRunners = async () => {
       setManualRunnersLoading(true);
       try {
+        for (const meet of globalMeets) {
+          const candidateDates = Array.from(new Set([meet.date, getTodayDate()].filter(Boolean)));
+          for (const date of candidateDates) {
+            const res = await fetch(
+              `/api/races?courseId=${encodeURIComponent(meet.meet_id)}&date=${encodeURIComponent(date)}`
+            );
+            if (!res.ok) {
+              continue;
+            }
+
+            const data = await res.json() as { races?: Race[] };
+            const race = (Array.isArray(data.races) ? data.races : []).find((item) => item.id === manualResultRaceId);
+            if (!race || !Array.isArray(race.runners) || !race.runners.length) {
+              continue;
+            }
+
+            const options = race.runners.map((runner) => ({
+              horseId: runner.id,
+              horseName: runner.number ? `${runner.number}. ${runner.name}` : runner.name,
+            }));
+
+            if (!active) {
+              return;
+            }
+
+            setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
+            return;
+          }
+        }
+
         const res = await fetch(`/api/market-runners?marketId=${encodeURIComponent(manualResultRaceId)}`);
         if (!res.ok) {
           return;
@@ -781,9 +813,9 @@ export default function Home() {
         const data = await res.json() as { runners?: Array<{ id: string; name: string; number: number | null }> };
         const options = Array.isArray(data.runners)
           ? data.runners.map((runner) => ({
-              horseId: runner.id,
-              horseName: runner.number ? `${runner.number}. ${runner.name}` : runner.name,
-            }))
+            horseId: runner.id,
+            horseName: runner.number ? `${runner.number}. ${runner.name}` : runner.name,
+          }))
           : [];
 
         if (!active || !options.length) {
@@ -804,24 +836,36 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [manualResultRaceId, manualRunnersByRaceId]);
+  }, [manualResultRaceId, manualRunnersByRaceId, globalMeets]);
 
   const loadRacesForMeet = async (meet: Meet) => {
     setRaceLoading(prev => ({ ...prev, [meet.meet_id]: true }));
 
     try {
-      const res = await fetch(
-        `/api/races?courseId=${encodeURIComponent(meet.meet_id)}&date=${encodeURIComponent(meet.date)}`
-      );
-      if (!res.ok) {
-        throw new Error('Unable to load races');
+      const candidateDates = Array.from(new Set([meet.date, getTodayDate()].filter(Boolean)));
+      let loadedRaces: Race[] = [];
+
+      for (const date of candidateDates) {
+        const res = await fetch(
+          `/api/races?courseId=${encodeURIComponent(meet.meet_id)}&date=${encodeURIComponent(date)}`
+        );
+        if (!res.ok) {
+          continue;
+        }
+
+        const data = await res.json() as { races?: Race[] };
+        const nextRaces = Array.isArray(data.races) ? data.races : [];
+        if (nextRaces.length) {
+          loadedRaces = nextRaces;
+          break;
+        }
       }
-      const data = await res.json();
-      setRaces(prev => ({ ...prev, [meet.meet_id]: data.races || [] }));
+
+      setRaces(prev => ({ ...prev, [meet.meet_id]: loadedRaces }));
 
       setRaceExpanded(prev => {
         const next = { ...prev };
-        (data.races || []).forEach((race: Race) => {
+        loadedRaces.forEach((race: Race) => {
           const key = `${meet.meet_id}|${race.id}`;
           next[key] = true;
         });
@@ -894,7 +938,7 @@ export default function Home() {
 
   const selectHorse = (meetId: string, raceId: string, raceName: string, horseId: string, horseName: string) => {
     const existing = selections.find(s => s.meetId === meetId && s.raceId === raceId);
-    const meetCourse = selectedMeets.find(m => m.meet_id === meetId)?.course ?? meetId;
+    const meetCourse = meetsForPicks.find(m => m.meet_id === meetId)?.course ?? meetId;
     const newSelection: Selection = { meetId, meetCourse, raceId, raceName, horseId, horseName };
     const updatedSelections = existing
       ? selections.map(s => (s.meetId === meetId && s.raceId === raceId ? newSelection : s))
@@ -937,7 +981,7 @@ export default function Home() {
   const manualRaceOptions = useMemo(() => {
     const raceMap = new Map<string, { raceName: string; location: string }>();
 
-    selectedMeets.forEach(meet => {
+    meetsForPicks.forEach(meet => {
       const location = meet.course ?? meet.meet_id;
       (races[meet.meet_id] || []).forEach(race => {
         if (!raceMap.has(race.id)) {
@@ -955,7 +999,7 @@ export default function Home() {
         if (!raceMap.has(sel.raceId)) {
           raceMap.set(sel.raceId, {
             raceName: sel.raceName,
-            location: sel.meetCourse ?? selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId,
+            location: sel.meetCourse ?? meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId,
           });
         }
       });
@@ -965,7 +1009,7 @@ export default function Home() {
       raceId,
       label: `${info.location} - ${info.raceName} (${raceId})`,
     }));
-  }, [selectedMeets, races, submissionRows]);
+  }, [meetsForPicks, races, submissionRows]);
 
   const manualHorseOptions = useMemo(() => {
     if (!manualResultRaceId) return [] as Array<{ horseId: string; horseName: string }>;
@@ -977,7 +1021,7 @@ export default function Home() {
 
     const horseMap = new Map<string, string>();
 
-    selectedMeets.forEach(meet => {
+    meetsForPicks.forEach(meet => {
       const race = (races[meet.meet_id] || []).find(r => r.id === manualResultRaceId);
       race?.runners.forEach(runner => {
         if (!horseMap.has(runner.id)) {
@@ -1000,7 +1044,7 @@ export default function Home() {
     }
 
     return [...horseMap.entries()].map(([horseId, horseName]) => ({ horseId, horseName }));
-  }, [manualResultRaceId, manualRunnersByRaceId, selectedMeets, races, submissionRows]);
+  }, [manualResultRaceId, manualRunnersByRaceId, meetsForPicks, races, submissionRows]);
 
   const rankByUsername = useMemo(() => {
     const map = new Map<string, number>();
@@ -1025,7 +1069,7 @@ export default function Home() {
   };
 
   const wildcardOptions = useMemo(() => selections.map(sel => {
-    const course = selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId;
+    const course = meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId;
     const race = races[sel.meetId]?.find(r => r.id === sel.raceId);
     const runner = race?.runners.find(r => r.id === sel.horseId);
     const oddsLabel = runner?.odds ? ` - $${runner.odds}` : '';
@@ -1034,10 +1078,10 @@ export default function Home() {
       value: `${sel.meetId}|${sel.raceId}`,
       label: `${sel.horseName}${oddsLabel} ; (${sel.raceName} @ ${course})`,
     };
-  }), [selections, selectedMeets, races]);
+  }), [selections, meetsForPicks, races]);
 
   const getSelectionLocation = (sel: Selection) => {
-    return sel.meetCourse ?? selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId;
+    return sel.meetCourse ?? meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId;
   };
 
   const lastRoundRaceResults = useMemo(() => {
@@ -1062,7 +1106,7 @@ export default function Home() {
         winnerName: result.winnerName || result.winnerId,
       };
     });
-  }, [raceResults, submissionRows, selectedMeets]);
+  }, [raceResults, submissionRows, meetsForPicks]);
 
   const homeContent = (
     <section className="mb-10 space-y-6">
@@ -1118,7 +1162,7 @@ export default function Home() {
         <ul className="space-y-2 mb-4">
           {selections.map(sel => (
             <li key={`confirm-${sel.meetId}-${sel.raceId}`} className="rounded-lg bg-slate-50 p-3 text-sm">
-              <span className="font-medium">{selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
+              <span className="font-medium">{meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
               {wildcard?.meetId === sel.meetId && wildcard?.raceId === sel.raceId ? (
                 <span className="text-sm font-semibold text-emerald-600">(Wildcard)</span>
               ) : null}
@@ -1562,7 +1606,7 @@ export default function Home() {
             </div>
           </section>
 
-          {activeScreen === 'main' && globalMeets.length > 0 && (
+          {activeScreen === 'main' && meetsForPicks.length > 0 && (
             <section className="mb-10">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold">My Horse Selections</h2>
@@ -1591,7 +1635,7 @@ export default function Home() {
               ) : null}
 
               <div id="races-section">
-                {selectedMeets.map(meet => (
+                {meetsForPicks.map(meet => (
                   <div key={meet.meet_id} className="mb-10">
                     <h3 className="text-lg font-semibold mb-3">{meet.course} - Last 4 Races</h3>
                     {raceLoading[meet.meet_id] ? (
@@ -1720,7 +1764,7 @@ export default function Home() {
                   ) : (
                     selections.map(sel => (
                       <li key={`${sel.meetId}-${sel.raceId}`} className="rounded-lg bg-white p-3 shadow-sm">
-                        <span className="font-medium">{selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
+                        <span className="font-medium">{meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
                         {wildcard?.meetId === sel.meetId && wildcard?.raceId === sel.raceId ? (
                           <span className="text-sm font-semibold text-emerald-600">(Wildcard)</span>
                         ) : null}
@@ -1919,7 +1963,7 @@ export default function Home() {
         </div>
 
         <div id="races-section">
-          {selectedMeets.map(meet => (
+          {meetsForPicks.map(meet => (
             <div key={meet.meet_id} className="mb-10">
               <h2 className="text-xl font-semibold mb-3">{meet.course} - Last 4 Races</h2>
               {raceLoading[meet.meet_id] ? (
@@ -2050,7 +2094,7 @@ export default function Home() {
             ) : (
               selections.map(sel => (
                 <li key={`${sel.meetId}-${sel.raceId}`} className="rounded-lg bg-white p-3 shadow-sm">
-                  <span className="font-medium">{selectedMeets.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
+                  <span className="font-medium">{meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
                   {wildcard?.meetId === sel.meetId && wildcard?.raceId === sel.raceId ? (
                     <span className="text-sm font-semibold text-emerald-600">(Wildcard)</span>
                   ) : null}
@@ -2060,7 +2104,7 @@ export default function Home() {
           </ul>
         </section>
 
-        {globalMeets.length > 0 && (
+        {meetsForPicks.length > 0 && (
           <div className="mb-10">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">My Horse Selections</h2>
