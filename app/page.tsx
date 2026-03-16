@@ -483,12 +483,12 @@ export default function Home() {
         .maybeSingle();
 
       if (profileLookupError) {
-        setAuthError(profileLookupError.message);
+        setAuthError('Username login is unavailable right now. Please sign in with your email address.');
         return;
       }
 
       if (!profile?.email) {
-        setAuthError('No account found for that username.');
+        setAuthError('No account found for that username. Try signing in with your email address.');
         return;
       }
 

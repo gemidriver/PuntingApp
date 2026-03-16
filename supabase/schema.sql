@@ -193,6 +193,12 @@ for select
 to authenticated
 using (true);
 
+create policy if not exists "profiles_select_anon_for_login"
+on public.profiles
+for select
+to anon
+using (true);
+
 create policy if not exists "profiles_insert_own"
 on public.profiles
 for insert
