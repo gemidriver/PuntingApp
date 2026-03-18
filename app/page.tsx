@@ -746,7 +746,22 @@ export default function Home() {
     try {
       const date = getTodayDate();
       const response = await fetch(`/api/health/betfair?date=${encodeURIComponent(date)}`);
-      const payload = await response.json() as BetfairHealthStatus;
+      const contentType = response.headers.get('content-type') || '';
+      const raw = await response.text();
+
+      let payload: BetfairHealthStatus | null = null;
+      if (contentType.includes('application/json')) {
+        payload = JSON.parse(raw) as BetfairHealthStatus;
+      }
+
+      if (!payload) {
+        const preview = raw.slice(0, 120).replace(/\s+/g, ' ').trim();
+        setBetfairHealth(null);
+        setBetfairHealthError(
+          `Health endpoint returned non-JSON (${response.status}). This usually means a cloud routing/protection error page. Preview: ${preview}`
+        );
+        return;
+      }
 
       if (!response.ok) {
         setBetfairHealth(payload);
@@ -757,7 +772,8 @@ export default function Home() {
       setBetfairHealth(payload);
       setBetfairHealthError(null);
       setBetfairHealthCheckedAt(new Date().toISOString());
-    } catch {
+    } catch (err) {
+      console.error('runBetfairHealthCheck failed', err);
       setBetfairHealthError('Unable to run Betfair health check right now.');
     } finally {
       setBetfairHealthLoading(false);
