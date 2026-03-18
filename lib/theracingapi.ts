@@ -259,10 +259,6 @@ export async function fetchMarketRunners(marketId: string): Promise<MarketRunner
   const id = String(marketId || '').trim();
   if (!id) return [];
 
-  if (!SPORTBEX_API_KEY) {
-    throw new Error('SPORTBEX_API_KEY is not configured on the server. Add it to .env.local and restart the app.');
-  }
-
   const books = await fetchSportbexMarketBook([id]);
   const book = (Array.isArray(books) ? books : []).find((item: any) => String(item?.marketId ?? item?.id ?? '') === id);
   const runners: any[] = Array.isArray(book?.runners) ? book.runners : [];

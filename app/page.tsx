@@ -70,8 +70,10 @@ interface SubmissionRow {
 
 const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
 const RACE_RESULTS_SETTING_KEY = 'race_results';
+const RACE_RUNNERS_SETTING_KEY = 'race_runners';
 
 type RaceResultsMap = Record<string, { winnerId: string; winnerName: string | null }>;
+type RaceRunnersMap = Record<string, Array<{ horseId: string; horseName: string }>>;
 
 const getTodayDate = () => new Date().toISOString().slice(0, 10);
 const normalizeUsername = (value: string) => value.trim().toLowerCase();
@@ -133,6 +135,7 @@ export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [raceResults, setRaceResults] = useState<RaceResultsMap>({});
+  const [raceRunnersCache, setRaceRunnersCache] = useState<RaceRunnersMap>({});
   const [resultsFetching, setResultsFetching] = useState(false);
   const [manualResultRaceId, setManualResultRaceId] = useState('');
   const [manualResultHorseId, setManualResultHorseId] = useState('');
@@ -221,6 +224,7 @@ export default function Home() {
     setRaceDebug({});
     setRaceExpanded({});
     setRaceResults({});
+    setRaceRunnersCache({});
     setSubmissionRows([]);
   };
 
@@ -281,6 +285,26 @@ export default function Home() {
     if (data?.value && typeof data.value === 'object') {
       setRaceResults(data.value as RaceResultsMap);
     }
+  };
+
+  const loadRaceRunnersCache = async () => {
+    const supabase = getSupabaseClient();
+    const { data } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', RACE_RUNNERS_SETTING_KEY)
+      .maybeSingle();
+    if (data?.value && typeof data.value === 'object') {
+      setRaceRunnersCache(data.value as RaceRunnersMap);
+    }
+  };
+
+  const persistRaceRunnersCache = async (nextCache: RaceRunnersMap) => {
+    const supabase = getSupabaseClient();
+    await supabase.from('app_settings').upsert(
+      { key: RACE_RUNNERS_SETTING_KEY, value: nextCache },
+      { onConflict: 'key' }
+    );
   };
 
   const fetchAndSaveResults = async () => {
@@ -453,6 +477,7 @@ export default function Home() {
 
     await loadSubmissionRows();
     await loadRaceResults();
+    await loadRaceRunnersCache();
   };
 
   const clearUserState = () => {
@@ -586,6 +611,7 @@ export default function Home() {
         [
           { key: GLOBAL_MEETS_SETTING_KEY, value: nextGlobalMeets },
           { key: RACE_RESULTS_SETTING_KEY, value: {} },
+          { key: RACE_RUNNERS_SETTING_KEY, value: {} },
         ],
         { onConflict: 'key' }
       );
@@ -763,6 +789,20 @@ export default function Home() {
   }, [isAdmin, activeScreen]);
 
   useEffect(() => {
+    if (!user || !isAdmin || activeScreen !== 'main' || !globalMeets.length) {
+      return;
+    }
+
+    const refreshAdminRaces = async () => {
+      for (const meet of globalMeets) {
+        await loadRacesForMeet(meet);
+      }
+    };
+
+    void refreshAdminRaces();
+  }, [user, isAdmin, activeScreen, globalMeets]);
+
+  useEffect(() => {
     setMobileNavOpen(false);
   }, [activeScreen]);
 
@@ -805,8 +845,26 @@ export default function Home() {
           }
         }
 
-        const res = await fetch(`/api/market-runners?marketId=${encodeURIComponent(manualResultRaceId)}`);
+        const res = await fetch(`/api/results?marketId=${encodeURIComponent(manualResultRaceId)}`);
         if (!res.ok) {
+          const fallbackRes = await fetch(`/api/market-runners?marketId=${encodeURIComponent(manualResultRaceId)}`);
+          if (!fallbackRes.ok) {
+            return;
+          }
+
+          const fallbackData = await fallbackRes.json() as { runners?: Array<{ id: string; name: string; number: number | null }> };
+          const fallbackOptions = Array.isArray(fallbackData.runners)
+            ? fallbackData.runners.map((runner) => ({
+              horseId: runner.id,
+              horseName: runner.number ? `${runner.number}. ${runner.name}` : runner.name,
+            }))
+            : [];
+
+          if (!active || !fallbackOptions.length) {
+            return;
+          }
+
+          setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: fallbackOptions }));
           return;
         }
 
@@ -861,7 +919,32 @@ export default function Home() {
         }
       }
 
-      setRaces(prev => ({ ...prev, [meet.meet_id]: loadedRaces }));
+      setRaces(prev => {
+        const existing = prev[meet.meet_id] || [];
+        // Avoid wiping already-loaded races if a later retry returns nothing.
+        if (loadedRaces.length === 0 && existing.length > 0) {
+          return prev;
+        }
+        return { ...prev, [meet.meet_id]: loadedRaces };
+      });
+
+      if (loadedRaces.length > 0) {
+        const updates: RaceRunnersMap = {};
+        loadedRaces.forEach((race) => {
+          updates[race.id] = (race.runners || []).map((runner) => ({
+            horseId: runner.id,
+            horseName: runner.number ? `${runner.number}. ${runner.name}` : runner.name,
+          }));
+        });
+
+        if (Object.keys(updates).length) {
+          setRaceRunnersCache(prev => {
+            const next = { ...prev, ...updates };
+            void persistRaceRunnersCache(next);
+            return next;
+          });
+        }
+      }
 
       setRaceExpanded(prev => {
         const next = { ...prev };
@@ -873,7 +956,8 @@ export default function Home() {
       });
     } catch (err) {
       console.error('loadRacesForMeet error', err);
-      setRaces(prev => ({ ...prev, [meet.meet_id]: [] }));
+      // Keep current races on transient fetch failures.
+      setRaces(prev => prev);
     } finally {
       setRaceLoading(prev => ({ ...prev, [meet.meet_id]: false }));
     }
@@ -1019,6 +1103,11 @@ export default function Home() {
       return marketRunners;
     }
 
+    const cachedRunners = raceRunnersCache[manualResultRaceId];
+    if (cachedRunners?.length) {
+      return cachedRunners;
+    }
+
     const horseMap = new Map<string, string>();
 
     meetsForPicks.forEach(meet => {
@@ -1044,7 +1133,7 @@ export default function Home() {
     }
 
     return [...horseMap.entries()].map(([horseId, horseName]) => ({ horseId, horseName }));
-  }, [manualResultRaceId, manualRunnersByRaceId, meetsForPicks, races, submissionRows]);
+  }, [manualResultRaceId, manualRunnersByRaceId, raceRunnersCache, meetsForPicks, races, submissionRows]);
 
   const rankByUsername = useMemo(() => {
     const map = new Map<string, number>();
@@ -1608,6 +1697,26 @@ export default function Home() {
 
           {activeScreen === 'main' && meetsForPicks.length > 0 && (
             <section className="mb-10">
+              <div className="mb-8">
+                <h2 className="text-xl font-semibold">Global Meets</h2>
+
+                {meetsForPicks.length === 0 ? (
+                  <div className="mt-4 rounded-lg bg-white p-6 shadow-sm">
+                    <p className="text-sm text-slate-600">Waiting for an admin to select the two race meets for this session.</p>
+                    <p className="mt-2 text-sm text-slate-500">Once meets are published, they will appear here automatically.</p>
+                  </div>
+                ) : (
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {meetsForPicks.map(meet => (
+                      <div key={`admin-main-meet-${meet.meet_id}`} className="bg-white p-4 rounded-lg shadow-sm">
+                        <h3 className="text-lg font-semibold">{meet.course} ({meet.state})</h3>
+                        <p className="text-sm text-slate-500">{meet.date}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold">My Horse Selections</h2>
                 {hasSubmitted ? (
