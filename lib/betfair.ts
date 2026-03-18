@@ -183,15 +183,34 @@ async function betfairRpc<T>(method: string, params: Record<string, unknown>): P
     cache: 'no-store',
   });
 
+  const contentType = response.headers.get('content-type') || '';
   const rawText = await response.text();
-  const payload = rawText
-    ? (JSON.parse(rawText) as BetfairRpcEnvelope<T> | BetfairRpcEnvelope<T>[])
-    : null;
+  let payload: BetfairRpcEnvelope<T> | BetfairRpcEnvelope<T>[] | null = null;
+  let parseError: Error | null = null;
+
+  if (rawText) {
+    try {
+      payload = JSON.parse(rawText) as BetfairRpcEnvelope<T> | BetfairRpcEnvelope<T>[];
+    } catch (error) {
+      parseError = error as Error;
+    }
+  }
+
+  const preview = rawText.slice(0, 180).replace(/\s+/g, ' ').trim();
 
   if (!response.ok) {
     const rpcError = Array.isArray(payload) ? payload[0]?.error : payload?.error;
-    const statusMessage = rpcError?.message || rawText || 'Betfair request failed';
-    throw new Error(`Betfair HTTP ${response.status}: ${statusMessage}`);
+    const statusMessage = rpcError?.message || preview || 'Betfair request failed';
+    throw new Error(
+      `Betfair HTTP ${response.status} (${contentType || 'unknown content-type'}): ${statusMessage}`
+    );
+  }
+
+  if (parseError || !payload) {
+    throw new Error(
+      `Betfair returned a non-JSON response (${response.status}, ${contentType || 'unknown content-type'}). ` +
+      `Preview: ${preview || '[empty response]'}. This usually indicates a cloud egress/routing block or upstream HTML challenge page.`
+    );
   }
 
   const rpcEnvelope = Array.isArray(payload) ? payload[0] : payload;
