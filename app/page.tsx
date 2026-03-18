@@ -68,6 +68,34 @@ interface SubmissionRow {
   submitted_at: string | null;
 }
 
+interface BetfairHealthStatus {
+  ok: boolean;
+  date: string;
+  env?: {
+    appKeyConfigured: boolean;
+    sessionTokenConfigured: boolean;
+  };
+  checks?: {
+    eventTypeCount: number;
+    competitionCount: number;
+    marketCount: number;
+    marketWithCompetitionCount: number;
+    marketWithEventCount: number;
+  };
+  samples?: {
+    firstCompetition: { id: string; name: string } | null;
+    firstMarket: {
+      marketId: string;
+      marketName: string;
+      competitionId: string | null;
+      competitionName: string | null;
+      eventId: string | null;
+      eventName: string | null;
+    } | null;
+  };
+  error?: string;
+}
+
 const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
 const RACE_RESULTS_SETTING_KEY = 'race_results';
 const RACE_RUNNERS_SETTING_KEY = 'race_runners';
@@ -137,11 +165,17 @@ export default function Home() {
   const [raceResults, setRaceResults] = useState<RaceResultsMap>({});
   const [raceRunnersCache, setRaceRunnersCache] = useState<RaceRunnersMap>({});
   const [resultsFetching, setResultsFetching] = useState(false);
+  const [resultsAutoRefresh, setResultsAutoRefresh] = useState(false);
+  const [resultsLastRefreshedAt, setResultsLastRefreshedAt] = useState<string | null>(null);
   const [manualResultRaceId, setManualResultRaceId] = useState('');
   const [manualResultHorseId, setManualResultHorseId] = useState('');
   const [manualRunnersByRaceId, setManualRunnersByRaceId] = useState<Record<string, Array<{ horseId: string; horseName: string }>>>({});
   const [manualRunnersLoading, setManualRunnersLoading] = useState(false);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const [betfairHealth, setBetfairHealth] = useState<BetfairHealthStatus | null>(null);
+  const [betfairHealthLoading, setBetfairHealthLoading] = useState(false);
+  const [betfairHealthError, setBetfairHealthError] = useState<string | null>(null);
+  const [betfairHealthCheckedAt, setBetfairHealthCheckedAt] = useState<string | null>(null);
 
   const meetsForPicks = globalMeets.length ? globalMeets : selectedMeets;
 
@@ -707,6 +741,29 @@ export default function Home() {
     return totalRaces > 0 && selections.length >= totalRaces;
   };
 
+  const runBetfairHealthCheck = async () => {
+    setBetfairHealthLoading(true);
+    try {
+      const date = getTodayDate();
+      const response = await fetch(`/api/health/betfair?date=${encodeURIComponent(date)}`);
+      const payload = await response.json() as BetfairHealthStatus;
+
+      if (!response.ok) {
+        setBetfairHealth(payload);
+        setBetfairHealthError(payload.error || 'Betfair health check failed.');
+        return;
+      }
+
+      setBetfairHealth(payload);
+      setBetfairHealthError(null);
+      setBetfairHealthCheckedAt(new Date().toISOString());
+    } catch {
+      setBetfairHealthError('Unable to run Betfair health check right now.');
+    } finally {
+      setBetfairHealthLoading(false);
+    }
+  };
+
   useEffect(() => {
     const supabase = getSupabaseClient();
     let active = true;
@@ -760,6 +817,10 @@ export default function Home() {
         setError('Unable to load meets. Check your API credentials and network.');
       })
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    void runBetfairHealthCheck();
   }, []);
 
   useEffect(() => {
@@ -895,6 +956,26 @@ export default function Home() {
       active = false;
     };
   }, [manualResultRaceId, manualRunnersByRaceId, globalMeets]);
+
+  useEffect(() => {
+    if (!isAdmin || activeScreen !== 'submissions' || !resultsAutoRefresh || submissionRows.length === 0) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      if (resultsFetching) {
+        return;
+      }
+
+      void fetchAndSaveResults().then(() => {
+        setResultsLastRefreshedAt(new Date().toISOString());
+      });
+    }, 90000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [isAdmin, activeScreen, resultsAutoRefresh, submissionRows.length, resultsFetching]);
 
   const loadRacesForMeet = async (meet: Meet) => {
     setRaceLoading(prev => ({ ...prev, [meet.meet_id]: true }));
@@ -1173,6 +1254,110 @@ export default function Home() {
     return sel.meetCourse ?? meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId;
   };
 
+  const runnerNameByRaceId = useMemo(() => {
+    const map = new Map<string, Map<string, string>>();
+
+    const setRunner = (raceId: string, horseId: string, horseName: string) => {
+      if (!raceId || !horseId || !horseName) return;
+      if (!map.has(raceId)) {
+        map.set(raceId, new Map<string, string>());
+      }
+      map.get(raceId)?.set(horseId, horseName);
+    };
+
+    Object.entries(raceRunnersCache).forEach(([raceId, runners]) => {
+      (runners || []).forEach((runner) => {
+        setRunner(raceId, runner.horseId, runner.horseName);
+      });
+    });
+
+    Object.values(races).forEach((raceList) => {
+      (raceList || []).forEach((race) => {
+        (race.runners || []).forEach((runner) => {
+          const name = runner.number ? `${runner.number}. ${runner.name}` : runner.name;
+          setRunner(race.id, runner.id, name);
+        });
+      });
+    });
+
+    submissionRows.forEach((row) => {
+      row.selections.forEach((sel) => {
+        setRunner(sel.raceId, sel.horseId, sel.horseName);
+      });
+    });
+
+    return map;
+  }, [raceRunnersCache, races, submissionRows]);
+
+  const activeSelections = hasSubmitted && submittedSelections ? submittedSelections.selections : selections;
+  const activeWildcard = hasSubmitted && submittedSelections ? submittedSelections.wildcard : wildcard;
+
+  const myRaceResults = useMemo(() => {
+    return activeSelections.map((sel) => {
+      const result = raceResults[sel.raceId];
+      const isWildcardPick = activeWildcard?.meetId === sel.meetId && activeWildcard?.raceId === sel.raceId;
+      const isSettled = Boolean(result?.winnerId);
+      const isWinner = result?.winnerId === sel.horseId;
+      const resolvedWinnerName = result?.winnerId
+        ? result.winnerName ?? runnerNameByRaceId.get(sel.raceId)?.get(result.winnerId) ?? null
+        : null;
+
+      return {
+        ...sel,
+        isWildcardPick,
+        isSettled,
+        isWinner,
+        winnerId: result?.winnerId ?? null,
+        winnerName: resolvedWinnerName,
+      };
+    });
+  }, [activeSelections, activeWildcard, raceResults, runnerNameByRaceId]);
+
+  const myRaceResultsPanel = (
+    <section className="mb-10 rounded-lg bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-lg font-semibold">Race Results for Your Picks</h3>
+        <span className="text-xs text-slate-500">
+          Settled: {myRaceResults.filter((item) => item.isSettled).length}/{myRaceResults.length}
+        </span>
+      </div>
+
+      {myRaceResults.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">Make your race selections first to see result status here.</p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {myRaceResults.map((item) => (
+            <li key={`my-result-${item.meetId}-${item.raceId}`} className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-medium text-slate-900">
+                  {getSelectionLocation(item)} - {item.raceName}
+                </p>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    !item.isSettled
+                      ? 'bg-amber-100 text-amber-700'
+                      : item.isWinner
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-red-100 text-red-700'
+                  }`}
+                >
+                  {!item.isSettled ? 'Pending' : item.isWinner ? 'Win' : 'Did not win'}
+                </span>
+              </div>
+              <p className="mt-1 text-slate-700">
+                Your pick: {item.horseName}
+                {item.isWildcardPick ? ' (Wildcard)' : ''}
+              </p>
+              <p className="mt-1 text-slate-600">
+                Winner: {item.winnerName ?? item.winnerId ?? 'Waiting for result'}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+
   const lastRoundRaceResults = useMemo(() => {
     const raceMeta = new Map<string, { raceName: string; location: string }>();
     submissionRows.forEach((row) => {
@@ -1188,14 +1373,17 @@ export default function Home() {
 
     return Object.entries(raceResults).map(([raceId, result]) => {
       const meta = raceMeta.get(raceId);
+      const resolvedWinnerName = result.winnerId
+        ? result.winnerName ?? runnerNameByRaceId.get(raceId)?.get(result.winnerId) ?? result.winnerId
+        : null;
       return {
         raceId,
         raceName: meta?.raceName || raceId,
         location: meta?.location || 'Unknown Meet',
-        winnerName: result.winnerName || result.winnerId,
+        winnerName: resolvedWinnerName,
       };
     });
-  }, [raceResults, submissionRows, meetsForPicks]);
+  }, [raceResults, submissionRows, runnerNameByRaceId]);
 
   const homeContent = (
     <section className="mb-10 space-y-6">
@@ -1286,12 +1474,30 @@ export default function Home() {
       {isAdmin ? (
         <div className="mb-4 flex flex-col gap-2 lg:items-end">
           <button
-            onClick={() => { void fetchAndSaveResults(); }}
+            onClick={() => {
+              void fetchAndSaveResults().then(() => {
+                setResultsLastRefreshedAt(new Date().toISOString());
+              });
+            }}
             disabled={resultsFetching || submissionRows.length === 0}
             className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {resultsFetching ? 'Fetching...' : 'Fetch Results'}
           </button>
+          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={resultsAutoRefresh}
+              onChange={(e) => setResultsAutoRefresh(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            Auto-refresh every 90 seconds
+          </label>
+          {resultsLastRefreshedAt ? (
+            <p className="text-xs text-slate-500">
+              Last results refresh: {new Date(resultsLastRefreshedAt).toLocaleTimeString()}
+            </p>
+          ) : null}
           <div className="flex flex-col gap-2 rounded-lg bg-white p-3 shadow-sm lg:flex-row lg:items-center">
             <select
               value={manualResultRaceId}
@@ -1329,7 +1535,7 @@ export default function Home() {
       ) : null}
       {scoreboard.length > 0 ? (
         <div className="mb-6 rounded-lg bg-white p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-700 mb-3">\ud83c\udfc6 Leaderboard</h3>
+          <h3 className="text-sm font-semibold text-slate-700 mb-3">Leaderboard</h3>
           <ol className="space-y-1">
             {scoreboard.map((entry, i) => (
               <li key={entry.username} className="flex items-center justify-between text-sm">
@@ -1396,6 +1602,77 @@ export default function Home() {
           })}
         </div>
       )}
+    </section>
+  );
+
+  const betfairStatusPanel = (
+    <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Betfair Connection Status</h2>
+          <p className="text-xs text-slate-500">Live health check for app key, session token, and AU horse market visibility.</p>
+        </div>
+        <button
+          onClick={() => {
+            void runBetfairHealthCheck();
+          }}
+          disabled={betfairHealthLoading}
+          className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          {betfairHealthLoading ? 'Checking...' : 'Refresh Status'}
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className={`rounded-full px-2.5 py-1 font-semibold ${betfairHealth?.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+          {betfairHealth?.ok ? 'API Reachable' : 'API Error'}
+        </span>
+        <span className={`rounded-full px-2.5 py-1 font-semibold ${betfairHealth?.env?.appKeyConfigured ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+          App Key: {betfairHealth?.env?.appKeyConfigured ? 'Set' : 'Missing'}
+        </span>
+        <span className={`rounded-full px-2.5 py-1 font-semibold ${betfairHealth?.env?.sessionTokenConfigured ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+          Session Token: {betfairHealth?.env?.sessionTokenConfigured ? 'Set' : 'Missing'}
+        </span>
+        {betfairHealthCheckedAt ? (
+          <span className="text-slate-500">Last checked: {new Date(betfairHealthCheckedAt).toLocaleTimeString()}</span>
+        ) : null}
+      </div>
+
+      {betfairHealthError ? (
+        <p className="mt-3 text-sm text-red-600">{betfairHealthError}</p>
+      ) : null}
+
+      {betfairHealth?.checks ? (
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+          <div className="rounded border border-slate-200 bg-slate-50 p-2">
+            <p className="text-slate-500">Event Types</p>
+            <p className="text-sm font-semibold text-slate-900">{betfairHealth.checks.eventTypeCount}</p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-2">
+            <p className="text-slate-500">Competitions</p>
+            <p className="text-sm font-semibold text-slate-900">{betfairHealth.checks.competitionCount}</p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-2">
+            <p className="text-slate-500">Markets</p>
+            <p className="text-sm font-semibold text-slate-900">{betfairHealth.checks.marketCount}</p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-2">
+            <p className="text-slate-500">With Competition</p>
+            <p className="text-sm font-semibold text-slate-900">{betfairHealth.checks.marketWithCompetitionCount}</p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-2">
+            <p className="text-slate-500">With Event</p>
+            <p className="text-sm font-semibold text-slate-900">{betfairHealth.checks.marketWithEventCount}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {betfairHealth?.samples?.firstMarket ? (
+        <p className="mt-3 text-xs text-slate-600">
+          Sample market: <span className="font-medium">{betfairHealth.samples.firstMarket.marketName}</span>
+          {betfairHealth.samples.firstMarket.eventName ? ` (${betfairHealth.samples.firstMarket.eventName})` : ''}
+        </p>
+      ) : null}
     </section>
   );
 
@@ -1591,6 +1868,8 @@ export default function Home() {
               {sessionNotice}
             </div>
           ) : null}
+
+          {betfairStatusPanel}
 
           {activeScreen === 'home' ? homeContent : null}
 
@@ -1882,6 +2161,8 @@ export default function Home() {
                   )}
                 </ul>
               </section>
+
+              {myRaceResultsPanel}
             </section>
           )}
 
@@ -2046,6 +2327,8 @@ export default function Home() {
             {sessionNotice}
           </div>
         ) : null}
+
+        {betfairStatusPanel}
 
         {activeScreen === 'home' ? homeContent : null}
 
@@ -2212,6 +2495,8 @@ export default function Home() {
             )}
           </ul>
         </section>
+
+        {myRaceResultsPanel}
 
         {meetsForPicks.length > 0 && (
           <div className="mb-10">

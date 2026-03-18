@@ -37,32 +37,35 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 ## API Integration
 
-This app can fetch race meets and runner lists from Sportbex (trial API) when you provide an API key.
+This app now fetches race meets, races, runners, and market outcomes from Betfair API-NG.
 
 ### Setting credentials
 
-Create a file named `.env.local` in the project root with the Sportbex API key:
+Create or update `.env.local` in the project root with:
 
 ```env
-SPORTBEX_API_KEY=your_sportbex_api_key_here
+BETFAIR_APP_KEY=your_betfair_app_key_here
+BETFAIR_SESSION_TOKEN=your_betfair_session_token_here
 ```
 
-Optionally, you can override the base URL used for Sportbex calls (default is the trial API):
+Optional override (default should be fine):
 
 ```env
-SPORTBEX_BASE_URL=https://trial-api.sportbex.com/api/betfair
+BETFAIR_BETTING_API_URL=https://api.betfair.com/exchange/betting/json-rpc/v1
 ```
+
+Notes:
+
+- `BETFAIR_APP_KEY` is your Betfair application key.
+- `BETFAIR_SESSION_TOKEN` is typically required for API-NG requests (header `X-Authentication`).
+- If you see invalid session errors, refresh your Betfair login/session token and restart the app.
 
 The server-side API routes used by the app are:
 
-- `/api/meets` — fetches competitions (meets)
-- `/api/races` — fetches race markets and runners for a selected meet
-
-If the Sportbex API is unreachable or the key is invalid, the app falls back to a hardcoded list of AU race meets and placeholder races.
-
-### Mock data mode
-
-Set `USE_MOCK_DATA=true` in `.env.local` to run the app with built-in mock meets and races (no API credentials needed). This is helpful when the API credentials are missing or the API is unreachable.
+- `/api/meets` — list AU horse racing meets (derived from `listMarketCatalogue`)
+- `/api/races` — list WIN markets and runners for a selected meet (`competitionId`)
+- `/api/results` — fetch market winners/settled state (`listMarketBook`)
+- `/api/market-runners` — fetch runner names for a market
 
 ## Supabase Persistence (Accounts + Selections)
 
@@ -146,8 +149,8 @@ This keeps the username-style UX while using Supabase Auth in the normal support
 ### How it works
 
 - The client (browser) fetches `/api/meets?date=YYYY-MM-DD`.
-- The server-side route uses the credentials and calls `https://api.theracingapi.com/v1/racecards/basic`.
-- The server returns meet data to the client for display.
+- The server-side route calls Betfair JSON-RPC (`SportsAPING/v1.0/listMarketCatalogue`) using your app key/session headers.
+- The server normalizes Betfair responses to the app's meet/race runner format.
 
 ## Technologies Used
 

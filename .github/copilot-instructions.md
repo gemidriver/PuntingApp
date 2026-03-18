@@ -4,11 +4,10 @@ This repository contains a small Next.js (App Router) project that helps users p
 
 ## Key Points
 
-- The app fetches meet data from The Racing API via server-side proxy routes.
-- For local development, set `USE_MOCK_DATA=true` in `.env.local` to use built-in mock meets/races.
+- The app fetches meet/race/result data from Betfair API-NG via server-side proxy routes.
 - Real API credentials are stored in `.env.local`:
-  - `RACING_API_USERNAME`
-  - `RACING_API_PASSWORD`
+  - `BETFAIR_APP_KEY`
+  - `BETFAIR_SESSION_TOKEN`
 
 ## Useful Commands
 
