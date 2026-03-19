@@ -75,6 +75,11 @@ interface BetfairHealthStatus {
     appKeyConfigured: boolean;
     sessionTokenConfigured: boolean;
   };
+  auth?: {
+    autoLoginConfigured: boolean;
+    autoLoginUsedDuringCheck: boolean;
+    lastAutoLoginAt: string | null;
+  };
   checks?: {
     eventTypeCount: number;
     competitionCount: number;
@@ -1652,10 +1657,22 @@ export default function Home() {
         <span className={`rounded-full px-2.5 py-1 font-semibold ${betfairHealth?.env?.sessionTokenConfigured ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
           Session Token: {betfairHealth?.env?.sessionTokenConfigured ? 'Set' : 'Missing'}
         </span>
+        <span className={`rounded-full px-2.5 py-1 font-semibold ${betfairHealth?.auth?.autoLoginConfigured ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>
+          Auto-login: {betfairHealth?.auth?.autoLoginConfigured ? 'Enabled' : 'Off'}
+        </span>
+        <span className={`rounded-full px-2.5 py-1 font-semibold ${betfairHealth?.auth?.autoLoginUsedDuringCheck ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+          Token refresh this check: {betfairHealth?.auth?.autoLoginUsedDuringCheck ? 'Yes' : 'No'}
+        </span>
         {betfairHealthCheckedAt ? (
           <span className="text-slate-500">Last checked: {new Date(betfairHealthCheckedAt).toLocaleTimeString()}</span>
         ) : null}
       </div>
+
+      {betfairHealth?.auth?.lastAutoLoginAt ? (
+        <p className="mt-2 text-xs text-slate-500">
+          Last token refresh: {new Date(betfairHealth.auth.lastAutoLoginAt).toLocaleTimeString()}
+        </p>
+      ) : null}
 
       {betfairHealthError ? (
         <p className="mt-3 text-sm text-red-600">{betfairHealthError}</p>

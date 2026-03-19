@@ -43,6 +43,11 @@ export interface BetfairHealthCheckResult {
     appKeyConfigured: boolean;
     sessionTokenConfigured: boolean;
   };
+  auth: {
+    autoLoginConfigured: boolean;
+    autoLoginUsedDuringCheck: boolean;
+    lastAutoLoginAt: string | null;
+  };
   checks: {
     eventTypeCount: number;
     competitionCount: number;
@@ -114,7 +119,14 @@ type BetfairRpcError = {
 const BETFAIR_BETTING_API_URL =
   process.env.BETFAIR_BETTING_API_URL ?? 'https://api-au.betfair.com/exchange/betting/json-rpc/v1';
 const BETFAIR_APP_KEY = process.env.BETFAIR_APP_KEY;
-const BETFAIR_SESSION_TOKEN = process.env.BETFAIR_SESSION_TOKEN;
+const BETFAIR_USERNAME = process.env.BETFAIR_USERNAME;
+const BETFAIR_PASSWORD = process.env.BETFAIR_PASSWORD;
+const BETFAIR_LOGIN_URL = process.env.BETFAIR_LOGIN_URL ?? 'https://identitysso.betfair.com.au/api/login';
+
+let currentSessionToken = process.env.BETFAIR_SESSION_TOKEN;
+let loginPromise: Promise<string> | null = null;
+let autoLoginRefreshCount = 0;
+let lastAutoLoginAt: string | null = null;
 
 function requireBetfairAppKey() {
   if (!BETFAIR_APP_KEY) {
@@ -156,7 +168,73 @@ function formatBetfairError(error: BetfairRpcError, fallbackMessage: string) {
   return message;
 }
 
-async function betfairRpc<T>(method: string, params: Record<string, unknown>): Promise<T> {
+function canAutoLogin() {
+  return Boolean(BETFAIR_APP_KEY && BETFAIR_USERNAME && BETFAIR_PASSWORD);
+}
+
+async function loginBetfairInteractive(): Promise<string> {
+  if (!canAutoLogin()) {
+    throw new Error(
+      'BETFAIR_SESSION_TOKEN is invalid or expired, and automatic refresh is unavailable. Set BETFAIR_USERNAME and BETFAIR_PASSWORD for local auto-login, or refresh BETFAIR_SESSION_TOKEN manually.'
+    );
+  }
+
+  const body = new URLSearchParams({
+    username: BETFAIR_USERNAME as string,
+    password: BETFAIR_PASSWORD as string,
+  });
+
+  const response = await fetch(BETFAIR_LOGIN_URL, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Application': BETFAIR_APP_KEY as string,
+    },
+    body: body.toString(),
+    cache: 'no-store',
+  });
+
+  const contentType = response.headers.get('content-type') || '';
+  const rawText = await response.text();
+  const preview = rawText.slice(0, 180).replace(/\s+/g, ' ').trim();
+
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      `Betfair login returned non-JSON (${response.status}, ${contentType || 'unknown content-type'}). Preview: ${preview || '[empty response]'}`
+    );
+  }
+
+  const payload = JSON.parse(rawText) as {
+    token?: string;
+    status?: string;
+    error?: string;
+    product?: string;
+  };
+
+  if (!response.ok || !payload.token || !['SUCCESS', 'LIMITED_ACCESS'].includes(String(payload.status ?? '').toUpperCase())) {
+    throw new Error(
+      `Betfair login failed (${response.status}): ${payload.status ?? 'UNKNOWN'}${payload.error ? ` - ${payload.error}` : ''}`
+    );
+  }
+
+  currentSessionToken = payload.token;
+  autoLoginRefreshCount += 1;
+  lastAutoLoginAt = new Date().toISOString();
+  return payload.token;
+}
+
+async function ensureFreshSessionToken() {
+  if (!loginPromise) {
+    loginPromise = loginBetfairInteractive().finally(() => {
+      loginPromise = null;
+    });
+  }
+
+  return loginPromise;
+}
+
+async function betfairRpc<T>(method: string, params: Record<string, unknown>, allowRetry = true): Promise<T> {
   requireBetfairAppKey();
 
   const requestBody = {
@@ -172,8 +250,8 @@ async function betfairRpc<T>(method: string, params: Record<string, unknown>): P
     'X-Application': BETFAIR_APP_KEY as string,
   };
 
-  if (BETFAIR_SESSION_TOKEN) {
-    headers['X-Authentication'] = BETFAIR_SESSION_TOKEN;
+  if (currentSessionToken) {
+    headers['X-Authentication'] = currentSessionToken;
   }
 
   const response = await fetch(BETFAIR_BETTING_API_URL, {
@@ -201,6 +279,12 @@ async function betfairRpc<T>(method: string, params: Record<string, unknown>): P
   if (!response.ok) {
     const rpcError = Array.isArray(payload) ? payload[0]?.error : payload?.error;
     const statusMessage = rpcError?.message || preview || 'Betfair request failed';
+
+    if (allowRetry && /ANGX-0003|INVALID_SESSION_INFORMATION|NO_SESSION/i.test(statusMessage)) {
+      await ensureFreshSessionToken();
+      return betfairRpc<T>(method, params, false);
+    }
+
     throw new Error(
       `Betfair HTTP ${response.status} (${contentType || 'unknown content-type'}): ${statusMessage}`
     );
@@ -215,6 +299,10 @@ async function betfairRpc<T>(method: string, params: Record<string, unknown>): P
 
   const rpcEnvelope = Array.isArray(payload) ? payload[0] : payload;
   if (rpcEnvelope?.error) {
+    if (allowRetry && /ANGX-0003|INVALID_SESSION_INFORMATION|NO_SESSION/i.test(String(rpcEnvelope.error.message ?? ''))) {
+      await ensureFreshSessionToken();
+      return betfairRpc<T>(method, params, false);
+    }
     throw new Error(formatBetfairError(rpcEnvelope.error as BetfairRpcError, 'Betfair RPC error'));
   }
 
@@ -252,6 +340,7 @@ function isThoroughbredMarket(market: BetfairMarketCatalogue): boolean {
 
 export async function runBetfairHealthCheck(date: string): Promise<BetfairHealthCheckResult> {
   const window = toIsoDateWindow(date);
+  const refreshCountAtStart = autoLoginRefreshCount;
 
   const eventTypes = await betfairRpc<Array<{ eventType?: { id?: string; name?: string } }>>(
     'listEventTypes',
@@ -301,7 +390,12 @@ export async function runBetfairHealthCheck(date: string): Promise<BetfairHealth
     date,
     env: {
       appKeyConfigured: Boolean(BETFAIR_APP_KEY),
-      sessionTokenConfigured: Boolean(BETFAIR_SESSION_TOKEN),
+      sessionTokenConfigured: Boolean(currentSessionToken || canAutoLogin()),
+    },
+    auth: {
+      autoLoginConfigured: canAutoLogin(),
+      autoLoginUsedDuringCheck: autoLoginRefreshCount > refreshCountAtStart,
+      lastAutoLoginAt,
     },
     checks: {
       eventTypeCount: Array.isArray(eventTypes) ? eventTypes.length : 0,
