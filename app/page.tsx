@@ -821,16 +821,19 @@ export default function Home() {
 
     setLoading(true);
     fetch(`/api/meets?date=${date}`)
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to load meets');
-        return res.json();
+      .then(async (res) => {
+        const payload = await res.json().catch(() => ({} as { error?: string; meets?: Meet[] }));
+        if (!res.ok) {
+          throw new Error(payload.error || 'Failed to load meets');
+        }
+        return payload;
       })
       .then((data) => {
         setMeets(data.meets || []);
       })
       .catch((err) => {
         console.error(err);
-        setError('Unable to load meets. Check your API credentials and network.');
+        setError((err as Error).message || 'Unable to load meets. Check your API credentials and network.');
       })
       .finally(() => setLoading(false));
   }, []);

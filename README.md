@@ -51,7 +51,7 @@ BETFAIR_SESSION_TOKEN=your_betfair_session_token_here
 Optional override (default should be fine):
 
 ```env
-BETFAIR_BETTING_API_URL=https://api.betfair.com/exchange/betting/json-rpc/v1
+BETFAIR_BETTING_API_URL=https://api-au.betfair.com/exchange/betting/json-rpc/v1
 ```
 
 Notes:

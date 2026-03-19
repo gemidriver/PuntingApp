@@ -2,6 +2,8 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { fetchMarketResults, fetchMarketRunners } from '../../../lib/theracingapi';
 
+export const preferredRegion = 'syd1';
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

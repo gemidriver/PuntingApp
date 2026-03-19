@@ -112,7 +112,7 @@ type BetfairRpcError = {
 };
 
 const BETFAIR_BETTING_API_URL =
-  process.env.BETFAIR_BETTING_API_URL ?? 'https://api.betfair.com/exchange/betting/json-rpc/v1';
+  process.env.BETFAIR_BETTING_API_URL ?? 'https://api-au.betfair.com/exchange/betting/json-rpc/v1';
 const BETFAIR_APP_KEY = process.env.BETFAIR_APP_KEY;
 const BETFAIR_SESSION_TOKEN = process.env.BETFAIR_SESSION_TOKEN;
 
