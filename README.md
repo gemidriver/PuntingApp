@@ -54,11 +54,21 @@ Optional override (default should be fine):
 BETFAIR_BETTING_API_URL=https://api-au.betfair.com/exchange/betting/json-rpc/v1
 ```
 
+Optional proxy mode (recommended when your hosting provider is blocked by Betfair):
+
+```env
+BETFAIR_PROXY_URL=https://your-oracle-proxy-domain
+BETFAIR_PROXY_TOKEN=your_shared_proxy_secret
+```
+
+When `BETFAIR_PROXY_URL` is set, this app sends Betfair RPC calls to your proxy instead of directly to Betfair.
+
 Notes:
 
 - `BETFAIR_APP_KEY` is your Betfair application key.
 - `BETFAIR_SESSION_TOKEN` is typically required for API-NG requests (header `X-Authentication`).
 - If you see invalid session errors, refresh your Betfair login/session token and restart the app.
+- `BETFAIR_PROXY_TOKEN` should match the proxy server secret header check.
 
 The server-side API routes used by the app are:
 

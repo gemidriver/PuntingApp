@@ -118,6 +118,8 @@ type BetfairRpcError = {
 
 const BETFAIR_BETTING_API_URL =
   process.env.BETFAIR_BETTING_API_URL ?? 'https://api-au.betfair.com/exchange/betting/json-rpc/v1';
+const BETFAIR_PROXY_URL = process.env.BETFAIR_PROXY_URL;
+const BETFAIR_PROXY_TOKEN = process.env.BETFAIR_PROXY_TOKEN;
 const BETFAIR_APP_KEY = process.env.BETFAIR_APP_KEY;
 const BETFAIR_USERNAME = process.env.BETFAIR_USERNAME;
 const BETFAIR_PASSWORD = process.env.BETFAIR_PASSWORD;
@@ -236,6 +238,44 @@ async function ensureFreshSessionToken() {
 
 async function betfairRpc<T>(method: string, params: Record<string, unknown>, allowRetry = true): Promise<T> {
   requireBetfairAppKey();
+
+  if (BETFAIR_PROXY_URL) {
+    const proxyUrl = `${BETFAIR_PROXY_URL.replace(/\/$/, '')}/rpc`;
+    const proxyHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+
+    if (BETFAIR_PROXY_TOKEN) {
+      proxyHeaders['X-Proxy-Token'] = BETFAIR_PROXY_TOKEN;
+    }
+
+    const proxyResponse = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: proxyHeaders,
+      body: JSON.stringify({ method, params }),
+      cache: 'no-store',
+    });
+
+    const proxyContentType = proxyResponse.headers.get('content-type') || '';
+    const proxyRaw = await proxyResponse.text();
+    const proxyPreview = proxyRaw.slice(0, 180).replace(/\s+/g, ' ').trim();
+
+    if (!proxyContentType.includes('application/json')) {
+      throw new Error(
+        `Betfair proxy returned non-JSON (${proxyResponse.status}, ${proxyContentType || 'unknown content-type'}). Preview: ${proxyPreview || '[empty response]'}`
+      );
+    }
+
+    const proxyPayload = JSON.parse(proxyRaw) as { result?: T; error?: string };
+    if (!proxyResponse.ok || proxyPayload.error) {
+      throw new Error(
+        `Betfair proxy error (${proxyResponse.status}): ${proxyPayload.error || proxyPreview || 'Unknown error'}`
+      );
+    }
+
+    return proxyPayload.result as T;
+  }
 
   const requestBody = {
     jsonrpc: '2.0',
@@ -559,10 +599,18 @@ export async function fetchRacesForCourse(
       const bestBack = bookRunner?.ex?.availableToBack?.[0]?.price;
       const ltp = bookRunner?.lastPriceTraded;
       const oddsValue = typeof bestBack === 'number' ? bestBack : ltp;
+      
+      // Use runnerName if available, otherwise try to build from metadata
+      let runnerName = String(runner.runnerName || '').trim();
+      if (!runnerName) {
+        // Fallback: if no runnerName, keep the index-based placeholder but mark it
+        // This ensures consistent behavior if Betfair doesn't return the name
+        runnerName = `${String(runner.selectionId || `UnknownRunner${runnerIndex + 1}`)}`;
+      }
 
       return {
         id: String(runner.selectionId ?? `${raceId}-${runnerIndex + 1}`),
-        name: String(runner.runnerName ?? `Runner ${runnerIndex + 1}`),
+        name: runnerName,
         number: typeof runner.sortPriority === 'number' ? runner.sortPriority : runnerIndex + 1,
         odds: typeof oddsValue === 'number' ? String(oddsValue) : '',
         jockey: '',
@@ -627,11 +675,18 @@ export async function fetchMarketRunners(marketId: string): Promise<MarketRunner
   const market = catalogues[0];
   if (market?.runners?.length) {
     return market.runners
-      .map((runner, idx) => ({
-        id: String(runner.selectionId ?? ''),
-        name: String(runner.runnerName ?? `Runner ${idx + 1}`),
-        number: typeof runner.sortPriority === 'number' ? runner.sortPriority : null,
-      }))
+      .map((runner, idx) => {
+        let name = String(runner.runnerName || '').trim();
+        if (!name) {
+          // Use selectionId as fallback instead of index-based name
+          name = `${String(runner.selectionId || `UnknownRunner${idx + 1}`)}`;
+        }
+        return {
+          id: String(runner.selectionId ?? ''),
+          name,
+          number: typeof runner.sortPriority === 'number' ? runner.sortPriority : null,
+        };
+      })
       .filter((runner) => Boolean(runner.id));
   }
 
