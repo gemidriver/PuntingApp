@@ -1026,10 +1026,10 @@ export default function Home() {
     setRaceResults(map);
 
     const raceLabel = manualRaceOptions.find((race) => race.raceId === manualResultRaceId)?.label || manualResultRaceId;
-    const winnerName = map[manualResultRaceId]?.winnerName || map[manualResultRaceId]?.winnerId || 'N/A';
-    const secondName = map[manualResultRaceId]?.secondName || map[manualResultRaceId]?.secondId || 'N/A';
-    const thirdName = map[manualResultRaceId]?.thirdName || map[manualResultRaceId]?.thirdId || 'N/A';
-    const message = `Manual placings saved for ${raceLabel}: 1st ${winnerName}, 2nd ${secondName}, 3rd ${thirdName}.`;
+    const winnerLabel = map[manualResultRaceId]?.winnerName || map[manualResultRaceId]?.winnerId || 'N/A';
+    const secondLabel = map[manualResultRaceId]?.secondName || map[manualResultRaceId]?.secondId || 'N/A';
+    const thirdLabel = map[manualResultRaceId]?.thirdName || map[manualResultRaceId]?.thirdId || 'N/A';
+    const message = `Manual placings saved for ${raceLabel}: 1st ${winnerLabel}, 2nd ${secondLabel}, 3rd ${thirdLabel}.`;
     setManualApplyNotice(message);
     addNotification(message, 'success', 5000);
   };
