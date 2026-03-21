@@ -234,7 +234,7 @@ export default function Home() {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeScreen, setActiveScreen] = useState<'home' | 'main' | 'admin' | 'submissions'>('home');
+  const [activeScreen, setActiveScreen] = useState<'home' | 'main' | 'admin' | 'submissions' | 'leaderboard'>('home');
   const [submissionRows, setSubmissionRows] = useState<SubmissionRow[]>([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -2077,6 +2077,141 @@ export default function Home() {
     </section>
   );
 
+  const leaderboardContent = (
+    <section className="mb-10">
+      <div className="mb-8">
+        <div className="rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 p-6 text-white">
+          <h2 className="text-2xl font-bold mb-2">Current Race Day Standings</h2>
+          <p className="text-sm text-purple-100">
+            {globalMeets.length > 0
+              ? globalMeets.map((m) => `${m.course} (${m.date})`).join(' • ')
+              : 'No meets selected'}
+          </p>
+        </div>
+      </div>
+
+      {scoreboard.length === 0 ? (
+        <div className="rounded-lg bg-white p-8 shadow-sm text-center">
+          <p className="text-slate-500">No race results yet. Check back once races are submitted.</p>
+        </div>
+      ) : (
+        <div className="mt-12 px-4">
+          <div className="flex flex-col md:flex-row items-flex-end justify-center gap-2 md:gap-4">
+            {/* 2nd Place - Left */}
+            {scoreboard[1] ? (
+              <div className="flex-1 md:flex-none md:w-40">
+                <div className="rounded-t-lg bg-slate-100 border-2 border-slate-400 overflow-hidden">
+                  <div className="bg-slate-400 text-white p-4 text-center">
+                    <p className="text-2xl font-bold">🥈</p>
+                    <p className="text-sm font-semibold">2nd Place</p>
+                  </div>
+                  <div className="p-6 text-center">
+                    <p className="text-lg font-bold text-slate-900">{scoreboard[1].username}</p>
+                    <p className="text-3xl font-bold text-slate-700 mt-2">{scoreboard[1].score}</p>
+                    <p className="text-xs text-slate-600 mt-1">points</p>
+                  </div>
+                </div>
+                <div className="h-24 bg-slate-300 border-2 border-slate-400 border-t-0"></div>
+              </div>
+            ) : (
+              <div className="flex-1 md:flex-none md:w-40">
+                <div className="rounded-t-lg bg-slate-100 border-2 border-slate-300 border-dashed overflow-hidden opacity-50">
+                  <div className="bg-slate-300 text-slate-500 p-4 text-center">
+                    <p className="text-2xl font-bold">—</p>
+                    <p className="text-sm font-semibold">2nd Place</p>
+                  </div>
+                  <div className="p-6 text-center">
+                    <p className="text-lg font-bold text-slate-400">TBC</p>
+                  </div>
+                </div>
+                <div className="h-24 bg-slate-200 border-2 border-slate-300 border-t-0 border-dashed"></div>
+              </div>
+            )}
+
+            {/* 1st Place - Middle */}
+            {scoreboard[0] ? (
+              <div className="flex-1 md:flex-none md:w-40">
+                <div className="rounded-t-lg bg-yellow-100 border-4 border-yellow-400 overflow-hidden">
+                  <div className="bg-yellow-400 text-white p-4 text-center">
+                    <p className="text-3xl font-bold">🥇</p>
+                    <p className="text-sm font-semibold">1st Place</p>
+                  </div>
+                  <div className="p-6 text-center">
+                    <p className="text-lg font-bold text-yellow-900">{scoreboard[0].username}</p>
+                    <p className="text-4xl font-bold text-yellow-600 mt-2">{scoreboard[0].score}</p>
+                    <p className="text-xs text-yellow-700 mt-1">points</p>
+                  </div>
+                </div>
+                <div className="h-32 bg-yellow-300 border-4 border-yellow-400 border-t-0"></div>
+              </div>
+            ) : (
+              <div className="flex-1 md:flex-none md:w-40">
+                <div className="rounded-t-lg bg-yellow-50 border-4 border-yellow-300 border-dashed overflow-hidden opacity-50">
+                  <div className="bg-yellow-300 text-yellow-600 p-4 text-center">
+                    <p className="text-3xl font-bold">—</p>
+                    <p className="text-sm font-semibold">1st Place</p>
+                  </div>
+                  <div className="p-6 text-center">
+                    <p className="text-lg font-bold text-yellow-500">TBC</p>
+                  </div>
+                </div>
+                <div className="h-32 bg-yellow-200 border-4 border-yellow-300 border-t-0 border-dashed"></div>
+              </div>
+            )}
+
+            {/* 3rd Place - Right */}
+            {scoreboard[2] ? (
+              <div className="flex-1 md:flex-none md:w-40">
+                <div className="rounded-t-lg bg-amber-100 border-2 border-amber-700 overflow-hidden">
+                  <div className="bg-amber-700 text-white p-4 text-center">
+                    <p className="text-2xl font-bold">🥉</p>
+                    <p className="text-sm font-semibold">3rd Place</p>
+                  </div>
+                  <div className="p-6 text-center">
+                    <p className="text-lg font-bold text-amber-900">{scoreboard[2].username}</p>
+                    <p className="text-3xl font-bold text-amber-700 mt-2">{scoreboard[2].score}</p>
+                    <p className="text-xs text-amber-800 mt-1">points</p>
+                  </div>
+                </div>
+                <div className="h-16 bg-amber-600 border-2 border-amber-700 border-t-0"></div>
+              </div>
+            ) : (
+              <div className="flex-1 md:flex-none md:w-40">
+                <div className="rounded-t-lg bg-amber-50 border-2 border-amber-600 border-dashed overflow-hidden opacity-50">
+                  <div className="bg-amber-600 text-amber-200 p-4 text-center">
+                    <p className="text-2xl font-bold">—</p>
+                    <p className="text-sm font-semibold">3rd Place</p>
+                  </div>
+                  <div className="p-6 text-center">
+                    <p className="text-lg font-bold text-amber-500">TBC</p>
+                  </div>
+                </div>
+                <div className="h-16 bg-amber-500 border-2 border-amber-600 border-t-0 border-dashed"></div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {scoreboard.length > 3 && (
+        <div className="mt-12 rounded-lg bg-white p-6 shadow-sm">
+          <h3 className="text-lg font-semibold mb-4">Other Competitors</h3>
+          <ol className="space-y-2">
+            {scoreboard.slice(3).map((entry, i) => (
+              <li key={entry.username} className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3 text-sm">
+                <div className="flex items-center gap-3">
+                  <span className="w-6 text-center font-bold text-slate-600">#{i + 4}</span>
+                  <span className="font-medium text-slate-900">{entry.username}</span>
+                </div>
+                <span className="font-semibold text-slate-700">{entry.score} pt{entry.score !== 1 ? 's' : ''}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </section>
+  );
+
   const betfairStatusPanel = (
     <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2298,6 +2433,13 @@ export default function Home() {
                 <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>A</span>
               </button>
               <button
+                onClick={() => setActiveScreen('leaderboard')}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'leaderboard' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
+              >
+                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Leaderboard</span>
+                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>L</span>
+              </button>
+              <button
                 onClick={() => setActiveScreen('submissions')}
                 className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'submissions' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
               >
@@ -2316,6 +2458,7 @@ export default function Home() {
                 {activeScreen === 'main' && 'My Picks'}
                 {activeScreen === 'admin' && 'Admin'}
                 {activeScreen === 'submissions' && 'User Submissions'}
+                {activeScreen === 'leaderboard' && 'Leaderboard'}
               </h1>
               <p className="mt-2 text-slate-600">
                 {activeScreen === 'home' && 'Welcome and round summary.'}
@@ -2677,6 +2820,8 @@ export default function Home() {
 
           {activeScreen === 'submissions' ? submissionsContent : null}
 
+          {activeScreen === 'leaderboard' ? leaderboardContent : null}
+
           {activeScreen === 'main' ? submitConfirmationModal : null}
 
           {activeScreen === 'main' && selectedRunnerDetails && (
@@ -2731,13 +2876,13 @@ export default function Home() {
             <span className="text-xl leading-none">🏇</span>
             <span>Picks</span>
           </button>
+          <button onClick={() => setActiveScreen('leaderboard')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'leaderboard' ? 'text-blue-600' : 'text-slate-500'}`}>
+            <span className="text-xl leading-none">🏆</span>
+            <span>Leaderboard</span>
+          </button>
           <button onClick={() => setActiveScreen('submissions')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'submissions' ? 'text-blue-600' : 'text-slate-500'}`}>
             <span className="text-xl leading-none">📋</span>
             <span>Submissions</span>
-          </button>
-          <button onClick={() => setActiveScreen('admin')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'admin' ? 'text-blue-600' : 'text-slate-500'}`}>
-            <span className="text-xl leading-none">⚙️</span>
-            <span>Admin</span>
           </button>
         </nav>
       </div>
@@ -3049,6 +3194,8 @@ export default function Home() {
 
           {activeScreen === 'submissions' ? submissionsContent : null}
 
+          {activeScreen === 'leaderboard' ? leaderboardContent : null}
+
         {versionBadge}
         {/* Bottom tab nav — mobile only */}
         <nav className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 flex lg:hidden">
@@ -3069,6 +3216,15 @@ export default function Home() {
           >
             <span className="text-lg">🏇</span>
             <span>Picks</span>
+          </button>
+          <button
+            onClick={() => setActiveScreen('leaderboard')}
+            className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-xs font-medium ${
+              activeScreen === 'leaderboard' ? 'text-blue-600' : 'text-slate-500'
+            }`}
+          >
+            <span className="text-lg">🏆</span>
+            <span>Leaderboard</span>
           </button>
           <button
             onClick={() => setActiveScreen('submissions')}
