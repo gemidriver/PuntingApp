@@ -913,21 +913,41 @@ export default function Home() {
       return;
     }
 
-    if (!manualResultHorseId && !manualResultSecondHorseId && !manualResultThirdHorseId) {
+    if (
+      !manualResultHorseId && !manualResultSecondHorseId && !manualResultThirdHorseId &&
+      !manualResultHorseName.trim() && !manualResultSecondHorseName.trim() && !manualResultThirdHorseName.trim()
+    ) {
       addNotification('Select at least one placing (winner, 2nd, or 3rd).', 'warning');
       return;
     }
 
-    const selectedPlaceIds = [manualResultHorseId, manualResultSecondHorseId, manualResultThirdHorseId].filter(Boolean);
-    if (new Set(selectedPlaceIds).size !== selectedPlaceIds.length) {
+    const selectedPlaceKeys = [
+      manualResultHorseId || normalizeHorseNameForComparison(manualResultHorseName),
+      manualResultSecondHorseId || normalizeHorseNameForComparison(manualResultSecondHorseName),
+      manualResultThirdHorseId || normalizeHorseNameForComparison(manualResultThirdHorseName),
+    ].filter(Boolean);
+    if (new Set(selectedPlaceKeys).size !== selectedPlaceKeys.length) {
       addNotification('Winner, 2nd, and 3rd must be different horses.', 'warning');
       return;
     }
 
     const existing = raceResults[manualResultRaceId];
-    const winnerId = manualResultHorseId || existing?.winnerId || '';
+    const winnerName = getPreferredManualHorseName(manualResultHorseId, manualResultHorseName, existing?.winnerName);
+    const secondName = manualResultSecondHorseId || manualResultSecondHorseName.trim()
+      ? getPreferredManualHorseName(manualResultSecondHorseId, manualResultSecondHorseName, existing?.secondName)
+      : null;
+    const thirdName = manualResultThirdHorseId || manualResultThirdHorseName.trim()
+      ? getPreferredManualHorseName(manualResultThirdHorseId, manualResultThirdHorseName, existing?.thirdName)
+      : null;
+    const winnerId = buildManualResultId(manualResultRaceId, 1, manualResultHorseId || existing?.winnerId || '', winnerName);
+    const secondId = secondName
+      ? buildManualResultId(manualResultRaceId, 2, manualResultSecondHorseId || existing?.secondId || '', secondName)
+      : null;
+    const thirdId = thirdName
+      ? buildManualResultId(manualResultRaceId, 3, manualResultThirdHorseId || existing?.thirdId || '', thirdName)
+      : null;
 
-    if (!winnerId) {
+    if (!winnerName.trim()) {
       addNotification('A winner is required for scoring. Select winner before saving.', 'warning');
       return;
     }
@@ -936,22 +956,18 @@ export default function Home() {
       ...raceResults,
       [manualResultRaceId]: {
         winnerId,
-        winnerName: getPreferredManualHorseName(winnerId, manualResultHorseName, existing?.winnerName),
-        secondId: manualResultSecondHorseId || null,
-        secondName: manualResultSecondHorseId
-          ? getPreferredManualHorseName(manualResultSecondHorseId, manualResultSecondHorseName, existing?.secondName)
-          : null,
-        thirdId: manualResultThirdHorseId || null,
-        thirdName: manualResultThirdHorseId
-          ? getPreferredManualHorseName(manualResultThirdHorseId, manualResultThirdHorseName, existing?.thirdName)
-          : null,
+        winnerName,
+        secondId,
+        secondName,
+        thirdId,
+        thirdName,
       },
     };
 
     const manualRunnerOverrides = [
       { horseId: winnerId, horseName: map[manualResultRaceId].winnerName },
-      { horseId: manualResultSecondHorseId, horseName: map[manualResultRaceId].secondName },
-      { horseId: manualResultThirdHorseId, horseName: map[manualResultRaceId].thirdName },
+      { horseId: secondId, horseName: map[manualResultRaceId].secondName },
+      { horseId: thirdId, horseName: map[manualResultRaceId].thirdName },
     ].filter((entry) => entry.horseId && entry.horseName) as Array<{ horseId: string; horseName: string }>;
 
     if (manualRunnerOverrides.length) {
@@ -1994,6 +2010,16 @@ export default function Home() {
     return String(explicitName || manualHorseLabelById[horseId] || storedName || resolveRaceHorseName(manualResultRaceId, horseId, storedName) || horseId || '').trim();
   };
 
+  const buildManualResultId = (raceId: string, position: number, horseId: string, horseName: string) => {
+    const trimmedId = String(horseId || '').trim();
+    if (trimmedId) return trimmedId;
+
+    const normalizedName = normalizeHorseNameForComparison(horseName);
+    const horseNumber = extractHorseNumber(horseName);
+    const suffix = normalizedName || (horseNumber !== null ? `runner-${horseNumber}` : `position-${position}`);
+    return `manual:${raceId}:${suffix}`;
+  };
+
   const rankByUsername = useMemo(() => {
     const map = new Map<string, number>();
     rankedScoreboard.forEach((entry) => {
@@ -2120,21 +2146,21 @@ export default function Home() {
     return activeSelections.map((sel) => {
       const result = raceResults[sel.raceId];
       const isWildcardPick = activeWildcard?.meetId === sel.meetId && activeWildcard?.raceId === sel.raceId;
-      const isSettled = Boolean(result?.winnerId || result?.secondId || result?.thirdId);
+      const isSettled = Boolean(result?.winnerId || result?.secondId || result?.thirdId || result?.winnerName || result?.secondName || result?.thirdName);
       const isWinner = horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.winnerId, result?.winnerName);
       const isSecond = horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.secondId, result?.secondName);
       const isThird = horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.thirdId, result?.thirdName);
       const winnerFallback = result?.winnerId ? runnerNameByRaceId.get(sel.raceId)?.get(result.winnerId) ?? null : null;
       const secondFallback = result?.secondId ? runnerNameByRaceId.get(sel.raceId)?.get(result.secondId) ?? null : null;
       const thirdFallback = result?.thirdId ? runnerNameByRaceId.get(sel.raceId)?.get(result.thirdId) ?? null : null;
-      const resolvedWinnerName = result?.winnerId
-        ? preferResolvedHorseName(result.winnerName, winnerFallback, result.winnerId)
+      const resolvedWinnerName = result?.winnerName || result?.winnerId
+        ? preferResolvedHorseName(result.winnerName, winnerFallback, result?.winnerId ?? null)
         : null;
-      const resolvedSecondName = result?.secondId
-        ? preferResolvedHorseName(result.secondName, secondFallback, result.secondId)
+      const resolvedSecondName = result?.secondName || result?.secondId
+        ? preferResolvedHorseName(result.secondName, secondFallback, result?.secondId ?? null)
         : null;
-      const resolvedThirdName = result?.thirdId
-        ? preferResolvedHorseName(result.thirdName, thirdFallback, result.thirdId)
+      const resolvedThirdName = result?.thirdName || result?.thirdId
+        ? preferResolvedHorseName(result.thirdName, thirdFallback, result?.thirdId ?? null)
         : null;
 
       return {
@@ -2243,14 +2269,14 @@ export default function Home() {
       const winnerFallback = result.winnerId ? runnerNameByRaceId.get(raceId)?.get(result.winnerId) ?? null : null;
       const secondFallback = result.secondId ? runnerNameByRaceId.get(raceId)?.get(result.secondId) ?? null : null;
       const thirdFallback = result.thirdId ? runnerNameByRaceId.get(raceId)?.get(result.thirdId) ?? null : null;
-      const resolvedWinnerName = result.winnerId
-        ? preferResolvedHorseName(result.winnerName, winnerFallback, result.winnerId)
+      const resolvedWinnerName = result.winnerName || result.winnerId
+        ? preferResolvedHorseName(result.winnerName, winnerFallback, result.winnerId ?? null)
         : null;
-      const resolvedSecondName = result.secondId
-        ? preferResolvedHorseName(result.secondName, secondFallback, result.secondId)
+      const resolvedSecondName = result.secondName || result.secondId
+        ? preferResolvedHorseName(result.secondName, secondFallback, result.secondId ?? null)
         : null;
-      const resolvedThirdName = result.thirdId
-        ? preferResolvedHorseName(result.thirdName, thirdFallback, result.thirdId)
+      const resolvedThirdName = result.thirdName || result.thirdId
+        ? preferResolvedHorseName(result.thirdName, thirdFallback, result.thirdId ?? null)
         : null;
       return {
         raceId,
@@ -2486,21 +2512,21 @@ export default function Home() {
               value={manualResultHorseName}
               onChange={(e) => setManualResultHorseName(e.target.value)}
               placeholder="Winner horse name"
-              disabled={!manualResultHorseId}
+              disabled={!manualResultRaceId}
               className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
             />
             <input
               value={manualResultSecondHorseName}
               onChange={(e) => setManualResultSecondHorseName(e.target.value)}
               placeholder="2nd place horse name"
-              disabled={!manualResultSecondHorseId}
+              disabled={!manualResultRaceId}
               className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
             />
             <input
               value={manualResultThirdHorseName}
               onChange={(e) => setManualResultThirdHorseName(e.target.value)}
               placeholder="3rd place horse name"
-              disabled={!manualResultThirdHorseId}
+              disabled={!manualResultRaceId}
               className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
             />
             <button
