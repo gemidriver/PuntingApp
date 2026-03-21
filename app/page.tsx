@@ -311,6 +311,7 @@ export default function Home() {
   const [submittedSelections, setSubmittedSelections] = useState<UserSelections | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [showEmailResultsConfirm, setShowEmailResultsConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeScreen, setActiveScreen] = useState<'home' | 'main' | 'admin' | 'submissions' | 'leaderboard'>('home');
   const [submissionRows, setSubmissionRows] = useState<SubmissionRow[]>([]);
@@ -334,6 +335,7 @@ export default function Home() {
   const [manualApplyNotice, setManualApplyNotice] = useState<string | null>(null);
   const [previousRoundSnapshot, setPreviousRoundSnapshot] = useState<PreviousRoundSnapshot | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const [emailingResults, setEmailingResults] = useState(false);
   const [betfairHealth, setBetfairHealth] = useState<BetfairHealthStatus | null>(null);
   const [betfairHealthLoading, setBetfairHealthLoading] = useState(false);
   const [betfairHealthError, setBetfairHealthError] = useState<string | null>(null);
@@ -1400,6 +1402,47 @@ export default function Home() {
     }
   };
 
+  const emailResultsToContestants = async () => {
+    setEmailingResults(true);
+    try {
+      const supabase = getSupabaseClient();
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session?.access_token) {
+        addNotification('Unable to verify your admin session. Please sign in again.', 'error');
+        return;
+      }
+
+      const response = await fetch('/api/email-results', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+
+      const payload = await response.json().catch(() => ({} as { error?: string; sentCount?: number; recipients?: number }));
+      if (!response.ok) {
+        addNotification(payload.error || 'Failed to send results emails.', 'error');
+        return;
+      }
+
+      addNotification(
+        `Results email sent to ${payload.sentCount ?? 0} of ${payload.recipients ?? 0} contestants.`,
+        'success'
+      );
+    } catch (error) {
+      console.error('emailResultsToContestants failed', error);
+      addNotification('Failed to send results emails.', 'error');
+    } finally {
+      setEmailingResults(false);
+    }
+  };
+
+  const openEmailResultsConfirmation = () => {
+    if (emailingResults) return;
+    setShowEmailResultsConfirm(true);
+  };
+
   const openSubmitConfirmation = () => {
     if (!canSubmit()) {
       return;
@@ -2392,20 +2435,20 @@ export default function Home() {
           <ul className="mt-3 space-y-2">
             {homeLastRoundRaceResults.map((result) => (
               <li key={`home-result-${result.raceId}`} className="rounded-md bg-slate-50 px-3 py-2 text-sm">
-                <span className="font-medium">{result.location} - {result.raceName}</span>
-                <span className="ml-2 text-slate-700">1st: {result.winnerName || 'TBC'}</span>
-                <span className="ml-2 flex items-center gap-1 text-slate-700">
+                <div className="font-medium">{result.location} - {result.raceName}</div>
+                <div className="mt-1 text-slate-700">1st: {result.winnerName || 'TBC'}</div>
+                <div className="flex items-center gap-1 text-slate-700">
                   2nd: {result.secondName || 'TBC'}
                   {result.secondName && result.inferredPlaces && (
                     <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
                   )}
-                </span>
-                <span className="ml-2 flex items-center gap-1 text-slate-700">
+                </div>
+                <div className="flex items-center gap-1 text-slate-700">
                   3rd: {result.thirdName || 'TBC'}
                   {result.thirdName && result.inferredPlaces && (
                     <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
                   )}
-                </span>
+                </div>
               </li>
             ))}
           </ul>
@@ -2456,6 +2499,36 @@ export default function Home() {
           <button
             onClick={() => setShowSubmitConfirm(false)}
             disabled={isSubmitting}
+            className="flex-1 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 disabled:cursor-not-allowed"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const emailResultsConfirmationModal = showEmailResultsConfirm ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+      <div className="mx-4 w-full max-w-md rounded-lg bg-white p-6">
+        <h3 className="mb-2 text-lg font-semibold">Email Results to Contestants?</h3>
+        <p className="mb-4 text-sm text-slate-600">
+          This will email the current leaderboard and race placings to all submitted contestants.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              setShowEmailResultsConfirm(false);
+              void emailResultsToContestants();
+            }}
+            disabled={emailingResults}
+            className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {emailingResults ? 'Sending...' : 'Yes, Send Emails'}
+          </button>
+          <button
+            onClick={() => setShowEmailResultsConfirm(false)}
+            disabled={emailingResults}
             className="flex-1 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 disabled:cursor-not-allowed"
           >
             Cancel
@@ -3197,6 +3270,15 @@ export default function Home() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
+                    openEmailResultsConfirmation();
+                  }}
+                  disabled={emailingResults}
+                  className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {emailingResults ? 'Sending Results...' : 'Email Results to Contestants'}
+                </button>
+                <button
+                  onClick={() => {
                     void resetRaceDayState([]);
                   }}
                   className="rounded-full bg-red-100 px-4 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-200"
@@ -3511,6 +3593,8 @@ export default function Home() {
           {activeScreen === 'submissions' ? submissionsContent : null}
 
           {activeScreen === 'leaderboard' ? leaderboardContent : null}
+
+          {activeScreen === 'admin' ? emailResultsConfirmationModal : null}
 
           {activeScreen === 'main' ? submitConfirmationModal : null}
 
