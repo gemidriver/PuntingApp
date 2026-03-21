@@ -409,6 +409,37 @@ export default function Home() {
       return;
     }
 
+    // Fallback for environments using append-only historical storage
+    const { data: historyRows, error: historyError } = await supabase
+      .from('round_history')
+      .select('round_closed_at,meets,scoreboard,results')
+      .order('round_closed_at', { ascending: false })
+      .limit(1);
+
+    if (!historyError && Array.isArray(historyRows) && historyRows.length > 0) {
+      const latest = historyRows[0] as {
+        round_closed_at?: string;
+        meets?: Meet[];
+        scoreboard?: Array<{ username: string; score: number }>;
+        results?: Array<{
+          raceId: string;
+          raceName: string;
+          location: string;
+          winnerName: string | null;
+          secondName: string | null;
+          thirdName: string | null;
+        }>;
+      };
+
+      setPreviousRoundSnapshot({
+        capturedAt: latest.round_closed_at || new Date().toISOString(),
+        meets: Array.isArray(latest.meets) ? latest.meets : [],
+        scoreboard: Array.isArray(latest.scoreboard) ? latest.scoreboard : [],
+        results: Array.isArray(latest.results) ? latest.results : [],
+      });
+      return;
+    }
+
     setPreviousRoundSnapshot(null);
   };
 
@@ -797,6 +828,21 @@ export default function Home() {
         console.error(snapshotError);
       } else {
         setPreviousRoundSnapshot(snapshotToPersist);
+      }
+
+      // Also keep an append-only historical record for multi-round lookup/reporting.
+      const { error: historyInsertError } = await supabase
+        .from('round_history')
+        .insert({
+          round_closed_at: snapshotToPersist.capturedAt,
+          meets: snapshotToPersist.meets,
+          scoreboard: snapshotToPersist.scoreboard,
+          results: snapshotToPersist.results,
+        });
+
+      if (historyInsertError) {
+        // Do not block day reset if historical table has not been created yet.
+        console.error(historyInsertError);
       }
     }
 

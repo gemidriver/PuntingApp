@@ -106,6 +106,12 @@ It also creates race outcomes and scoring tables:
 - `race_results`: one row per horse result in each race
 - `user_selection_scores`: per-user scored selections for leaderboard math
 
+It also creates historical round storage:
+
+- `round_history`: append-only snapshots captured when an admin closes a meet day
+	- stores published meets, final points table, and final 1st/2nd/3rd race results
+	- lets the app show previous rounds without re-querying Betfair
+
 After importing race results for a meet, run this SQL function to compute points:
 
 ```sql

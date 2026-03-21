@@ -52,6 +52,18 @@ create table if not exists public.user_selection_scores (
   unique (user_id, meet_id, race_id)
 );
 
+create table if not exists public.round_history (
+  id bigserial primary key,
+  round_closed_at timestamptz not null default now(),
+  meets jsonb not null default '[]'::jsonb,
+  scoreboard jsonb not null default '[]'::jsonb,
+  results jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists round_history_round_closed_at_idx
+  on public.round_history (round_closed_at desc);
+
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -185,6 +197,7 @@ alter table public.app_settings enable row level security;
 alter table public.user_submissions enable row level security;
 alter table public.race_results enable row level security;
 alter table public.user_selection_scores enable row level security;
+alter table public.round_history enable row level security;
 
 -- Profiles
 create policy if not exists "profiles_select_authenticated"
@@ -272,6 +285,20 @@ using (auth.uid() = user_id or public.is_admin_user(auth.uid()));
 
 create policy if not exists "scores_write_admin"
 on public.user_selection_scores
+for all
+to authenticated
+using (public.is_admin_user(auth.uid()))
+with check (public.is_admin_user(auth.uid()));
+
+-- Round history
+create policy if not exists "round_history_select_authenticated"
+on public.round_history
+for select
+to authenticated
+using (true);
+
+create policy if not exists "round_history_write_admin"
+on public.round_history
 for all
 to authenticated
 using (public.is_admin_user(auth.uid()))
