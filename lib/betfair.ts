@@ -73,6 +73,7 @@ type BetfairRunnerDescription = {
   selectionId?: number;
   runnerName?: string;
   sortPriority?: number;
+  metadata?: Record<string, string>;
 };
 
 type BetfairMarketCatalogue = {
@@ -629,6 +630,15 @@ export async function fetchRacesForCourse(
       const bestBack = bookRunner?.ex?.availableToBack?.[0]?.price;
       const ltp = bookRunner?.lastPriceTraded;
       const oddsValue = typeof bestBack === 'number' ? bestBack : ltp;
+      const metadata = runner.metadata ?? {};
+
+      const firstMeta = (...keys: string[]) => {
+        for (const key of keys) {
+          const value = String(metadata[key] ?? '').trim();
+          if (value) return value;
+        }
+        return '';
+      };
       
       // Use runnerName if available, otherwise try to build from metadata
       let runnerName = String(runner.runnerName || '').trim();
@@ -643,12 +653,12 @@ export async function fetchRacesForCourse(
         name: runnerName,
         number: typeof runner.sortPriority === 'number' ? runner.sortPriority : runnerIndex + 1,
         odds: typeof oddsValue === 'number' ? String(oddsValue) : '',
-        jockey: '',
-        trainer: '',
-        weight: '',
-        age: '',
-        form: '',
-        colours: '',
+        jockey: firstMeta('JOCKEY_NAME', 'JOCKEY'),
+        trainer: firstMeta('TRAINER_NAME', 'TRAINER'),
+        weight: firstMeta('WEIGHT_VALUE', 'WEIGHT', 'WEIGHT_CARRIED'),
+        age: firstMeta('AGE'),
+        form: firstMeta('FORM'),
+        colours: firstMeta('CLOTH_COLOUR', 'COLOURS', 'COLORS', 'SILK_COLOUR'),
       };
     });
 
