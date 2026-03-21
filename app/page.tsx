@@ -2010,6 +2010,24 @@ export default function Home() {
     return String(explicitName || manualHorseLabelById[horseId] || storedName || resolveRaceHorseName(manualResultRaceId, horseId, storedName) || horseId || '').trim();
   };
 
+  const shouldShowManualNameInput = (horseId: string, horseName: string) => {
+    if (!manualResultRaceId) return false;
+    const trimmedName = horseName.trim();
+    if (!horseId) {
+      return true;
+    }
+
+    const resolvedName = getPreferredManualHorseName(horseId, horseName);
+    return isMissingHorseDetail(resolvedName) || (trimmedName.length > 0 && trimmedName !== resolvedName);
+  };
+
+  const canApplyManualResult = Boolean(
+    manualResultRaceId && (
+      manualResultHorseId || manualResultSecondHorseId || manualResultThirdHorseId ||
+      manualResultHorseName.trim() || manualResultSecondHorseName.trim() || manualResultThirdHorseName.trim()
+    )
+  );
+
   const buildManualResultId = (raceId: string, position: number, horseId: string, horseName: string) => {
     const trimmedId = String(horseId || '').trim();
     if (trimmedId) return trimmedId;
@@ -2441,101 +2459,129 @@ export default function Home() {
               Last results refresh: {new Date(resultsLastRefreshedAt).toLocaleTimeString()}
             </p>
           ) : null}
-          <div className="flex flex-col gap-2 rounded-lg bg-white p-3 shadow-sm lg:flex-row lg:items-center">
-            <select
-              value={manualResultRaceId}
-              onChange={(e) => {
-                const raceId = e.target.value;
-                setManualResultRaceId(raceId);
-                const existing = raceResults[raceId];
-                setManualResultHorseId(existing?.winnerId || '');
-                setManualResultSecondHorseId(existing?.secondId || '');
-                setManualResultThirdHorseId(existing?.thirdId || '');
-                setManualResultHorseName(existing?.winnerName || '');
-                setManualResultSecondHorseName(existing?.secondName || '');
-                setManualResultThirdHorseName(existing?.thirdName || '');
-                setManualApplyNotice(null);
-              }}
-              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">Select race</option>
-              {manualRaceOptions.map(opt => (
-                <option key={opt.raceId} value={opt.raceId}>{opt.label}</option>
-              ))}
-            </select>
-            <select
-              value={manualResultHorseId}
-              onChange={(e) => {
-                const nextId = e.target.value;
-                setManualResultHorseId(nextId);
-                setManualResultHorseName(nextId ? getPreferredManualHorseName(nextId) : '');
-              }}
-              disabled={!manualResultRaceId || manualRunnersLoading}
-              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
-            >
-              <option value="">{manualRunnersLoading ? 'Loading horses...' : 'Select winner (1st)'}</option>
-              {manualHorseOptions.map(opt => (
-                <option key={`first-${opt.horseId}`} value={opt.horseId}>{opt.horseName}</option>
-              ))}
-            </select>
-            <select
-              value={manualResultSecondHorseId}
-              onChange={(e) => {
-                const nextId = e.target.value;
-                setManualResultSecondHorseId(nextId);
-                setManualResultSecondHorseName(nextId ? getPreferredManualHorseName(nextId) : '');
-              }}
-              disabled={!manualResultRaceId || manualRunnersLoading}
-              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
-            >
-              <option value="">{manualRunnersLoading ? 'Loading horses...' : 'Select 2nd place'}</option>
-              {manualHorseOptions.map(opt => (
-                <option key={`second-${opt.horseId}`} value={opt.horseId}>{opt.horseName}</option>
-              ))}
-            </select>
-            <select
-              value={manualResultThirdHorseId}
-              onChange={(e) => {
-                const nextId = e.target.value;
-                setManualResultThirdHorseId(nextId);
-                setManualResultThirdHorseName(nextId ? getPreferredManualHorseName(nextId) : '');
-              }}
-              disabled={!manualResultRaceId || manualRunnersLoading}
-              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
-            >
-              <option value="">{manualRunnersLoading ? 'Loading horses...' : 'Select 3rd place'}</option>
-              {manualHorseOptions.map(opt => (
-                <option key={`third-${opt.horseId}`} value={opt.horseId}>{opt.horseName}</option>
-              ))}
-            </select>
-            <input
-              value={manualResultHorseName}
-              onChange={(e) => setManualResultHorseName(e.target.value)}
-              placeholder="Winner horse name"
-              disabled={!manualResultRaceId}
-              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
-            />
-            <input
-              value={manualResultSecondHorseName}
-              onChange={(e) => setManualResultSecondHorseName(e.target.value)}
-              placeholder="2nd place horse name"
-              disabled={!manualResultRaceId}
-              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
-            />
-            <input
-              value={manualResultThirdHorseName}
-              onChange={(e) => setManualResultThirdHorseName(e.target.value)}
-              placeholder="3rd place horse name"
-              disabled={!manualResultRaceId}
-              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
-            />
-            <button
-              onClick={() => { void applyManualResult(); }}
-              disabled={!manualResultRaceId || (!manualResultHorseId && !manualResultSecondHorseId && !manualResultThirdHorseId)}
-              className="rounded bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              Apply Manual Placings
-            </button>
+          <div className="w-full rounded-lg bg-white p-4 shadow-sm">
+            <div className="grid gap-3 xl:grid-cols-[minmax(280px,1.3fr)_auto] xl:items-end">
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Race</label>
+                <select
+                  value={manualResultRaceId}
+                  onChange={(e) => {
+                    const raceId = e.target.value;
+                    setManualResultRaceId(raceId);
+                    const existing = raceResults[raceId];
+                    setManualResultHorseId(existing?.winnerId || '');
+                    setManualResultSecondHorseId(existing?.secondId || '');
+                    setManualResultThirdHorseId(existing?.thirdId || '');
+                    setManualResultHorseName(existing?.winnerName || '');
+                    setManualResultSecondHorseName(existing?.secondName || '');
+                    setManualResultThirdHorseName(existing?.thirdName || '');
+                    setManualApplyNotice(null);
+                  }}
+                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">Select race</option>
+                  {manualRaceOptions.map(opt => (
+                    <option key={opt.raceId} value={opt.raceId}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={() => { void applyManualResult(); }}
+                disabled={!canApplyManualResult}
+                className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                Apply Manual Placings
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">1st Place</label>
+                <p className="mb-2 text-xs text-slate-500">Choose from list. If missing, type the winner name below.</p>
+                <select
+                  value={manualResultHorseId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setManualResultHorseId(nextId);
+                    setManualResultHorseName(nextId ? getPreferredManualHorseName(nextId) : '');
+                  }}
+                  disabled={!manualResultRaceId || manualRunnersLoading}
+                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                >
+                  <option value="">{manualRunnersLoading ? 'Loading horses...' : 'Select winner (1st)'}</option>
+                  {manualHorseOptions.map(opt => (
+                    <option key={`first-${opt.horseId}`} value={opt.horseId}>{opt.horseName}</option>
+                  ))}
+                </select>
+                {shouldShowManualNameInput(manualResultHorseId, manualResultHorseName) ? (
+                  <input
+                    value={manualResultHorseName}
+                    onChange={(e) => setManualResultHorseName(e.target.value)}
+                    placeholder="Type winner name if missing (e.g. 7. Stockman Peter)"
+                    disabled={!manualResultRaceId}
+                    className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                  />
+                ) : null}
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">2nd Place</label>
+                <p className="mb-2 text-xs text-slate-500">Choose from list. If missing, type the 2nd-place name below.</p>
+                <select
+                  value={manualResultSecondHorseId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setManualResultSecondHorseId(nextId);
+                    setManualResultSecondHorseName(nextId ? getPreferredManualHorseName(nextId) : '');
+                  }}
+                  disabled={!manualResultRaceId || manualRunnersLoading}
+                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                >
+                  <option value="">{manualRunnersLoading ? 'Loading horses...' : 'Select 2nd place'}</option>
+                  {manualHorseOptions.map(opt => (
+                    <option key={`second-${opt.horseId}`} value={opt.horseId}>{opt.horseName}</option>
+                  ))}
+                </select>
+                {shouldShowManualNameInput(manualResultSecondHorseId, manualResultSecondHorseName) ? (
+                  <input
+                    value={manualResultSecondHorseName}
+                    onChange={(e) => setManualResultSecondHorseName(e.target.value)}
+                    placeholder="Type 2nd-place name if missing (e.g. 11. Meadow Valley Star)"
+                    disabled={!manualResultRaceId}
+                    className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                  />
+                ) : null}
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">3rd Place</label>
+                <p className="mb-2 text-xs text-slate-500">Choose from list. If missing, type the 3rd-place name below.</p>
+                <select
+                  value={manualResultThirdHorseId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setManualResultThirdHorseId(nextId);
+                    setManualResultThirdHorseName(nextId ? getPreferredManualHorseName(nextId) : '');
+                  }}
+                  disabled={!manualResultRaceId || manualRunnersLoading}
+                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                >
+                  <option value="">{manualRunnersLoading ? 'Loading horses...' : 'Select 3rd place'}</option>
+                  {manualHorseOptions.map(opt => (
+                    <option key={`third-${opt.horseId}`} value={opt.horseId}>{opt.horseName}</option>
+                  ))}
+                </select>
+                {shouldShowManualNameInput(manualResultThirdHorseId, manualResultThirdHorseName) ? (
+                  <input
+                    value={manualResultThirdHorseName}
+                    onChange={(e) => setManualResultThirdHorseName(e.target.value)}
+                    placeholder="Type 3rd-place name if missing (e.g. 10. Aldebaran Dexta)"
+                    disabled={!manualResultRaceId}
+                    className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                  />
+                ) : null}
+              </div>
+            </div>
           </div>
           {manualApplyNotice ? (
             <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">

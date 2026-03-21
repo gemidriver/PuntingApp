@@ -15,8 +15,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Initialize Resend only when needed
-    const resend = new Resend(process.env.RESEND_API_KEY);
+    const resendApiKey = String(process.env.RESEND_API_KEY || '').trim();
+    const resendFromEmail = String(process.env.RESEND_FROM_EMAIL || '').trim();
+    const canSendEmail = Boolean(resendApiKey && resendFromEmail);
+    const resend = canSendEmail ? new Resend(resendApiKey) : null;
 
     const supabase = getSupabaseClient();
 
@@ -153,41 +155,44 @@ export async function POST(request: Request) {
       }
     }
 
-    // Send emails in batches
+    // Send emails in batches when Resend is configured.
     let sentCount = 0;
-    const emailPromises = remindersToSend.map(reminder =>
-      resend.emails.send({
-        from: process.env.RESEND_FROM_EMAIL || 'racing@braddo-punting.com',
-        to: reminder.email,
-        subject: `🏇 Race Starting in 5 Minutes: ${reminder.course} - ${reminder.raceName}`,
-        html: `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Race Starting Soon!</h2>
-            <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-              <p style="margin: 0 0 10px 0;"><strong>Course:</strong> ${reminder.course}</p>
-              <p style="margin: 0 0 10px 0;"><strong>Race:</strong> ${reminder.raceName}</p>
-              <p style="margin: 0;"><strong>Time:</strong> ${reminder.raceTime.toLocaleTimeString('en-AU', { 
-                hour: '2-digit', 
-                minute: '2-digit',
-                hour12: false
-              })}</p>
+    if (canSendEmail && resend) {
+      const emailPromises = remindersToSend.map(reminder =>
+        resend.emails.send({
+          from: resendFromEmail,
+          to: reminder.email,
+          subject: `🏇 Race Starting in 5 Minutes: ${reminder.course} - ${reminder.raceName}`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2>Race Starting Soon!</h2>
+              <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <p style="margin: 0 0 10px 0;"><strong>Course:</strong> ${reminder.course}</p>
+                <p style="margin: 0 0 10px 0;"><strong>Race:</strong> ${reminder.raceName}</p>
+                <p style="margin: 0;"><strong>Time:</strong> ${reminder.raceTime.toLocaleTimeString('en-AU', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false
+                })}</p>
+              </div>
+              <p style="color: #666;">Get ready - this race starts in approximately 5 minutes!</p>
+              <p style="color: #999; font-size: 12px;">
+                You're receiving this because you're registered for Braddo's Punting.
+              </p>
             </div>
-            <p style="color: #666;">Get ready - this race starts in approximately 5 minutes!</p>
-            <p style="color: #999; font-size: 12px;">
-              You're receiving this because you're registered for Braddo's Punting.
-            </p>
-          </div>
-        `,
-      })
-    );
+          `,
+        })
+      );
 
-    const results = await Promise.allSettled(emailPromises);
-    sentCount = results.filter(r => r.status === 'fulfilled').length;
+      const results = await Promise.allSettled(emailPromises);
+      sentCount = results.filter(r => r.status === 'fulfilled').length;
+    }
 
     return Response.json({
       success: true,
       remindersProcessed: remindersToSend.length,
       emailsSent: sentCount,
+      emailProviderConfigured: canSendEmail,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
