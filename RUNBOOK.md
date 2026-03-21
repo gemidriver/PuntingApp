@@ -31,11 +31,17 @@ The app should not rely on direct Vercel -> Betfair calls in production.
 
 - `BETFAIR_PROXY_URL=https://betfair-proxy.thetoppunter.com/endpoint`
 - `BETFAIR_PROXY_TOKEN=<shared_proxy_token>`
+- `RESEND_API_KEY=<your_resend_api_key>` (for email reminders)
+- `RESEND_FROM_EMAIL=racing@braddo-punting.com` (or your domain)
+- `CRON_SECRET=<strong_random_secret>` (for cron job authentication)
 
 Notes:
 
 - Do not include `/rpc` in `BETFAIR_PROXY_URL`.
 - App appends `/rpc` internally.
+- Resend API key obtained from https://resend.com (free tier available).
+- Generate `CRON_SECRET` with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+- Email reminders require Supabase race_reminders table (run schema migration).
 
 ### Node-RED
 
@@ -68,7 +74,58 @@ Notes:
 4. Confirm previous round remains visible on home.
 5. (Optional) Publish next two meets immediately.
 
-## 5. Incident Playbooks
+## 5. Email Reminders (Automatic)
+
+### Overview
+
+The app automatically sends email reminders to all users 5 minutes before each race starts.
+
+**How it works:**
+- A Vercel cron job runs every minute and checks upcoming races
+- When a race is found within the 5-minute window, emails are sent to all registered users
+- Race reminders are tracked to avoid sending duplicates
+- Reminders show the course, race name, and exact start time
+
+**Requirements:**
+- Resend API key configured in Vercel env vars
+- `race_reminders` table created in Supabase
+- `CRON_SECRET` env var set for webhook authentication
+- Users must have valid email addresses in their profiles
+
+**Monitoring:**
+- Check Vercel Logs tab under Cron Jobs to verify reminders are executing
+- Review recent deployments to ensure race-reminders endpoint is deployed
+- Resend dashboard shows delivery status for all emails sent
+
+### Setup Steps (First Time Only)
+
+1. Create Resend API key:
+   - Go to https://resend.com/api-keys
+   - Create new API key, copy it
+   
+2. Add Vercel env vars:
+   - `RESEND_API_KEY=<api_key_from_resend>`
+   - `RESEND_FROM_EMAIL=racing@youromain.com`
+   - `CRON_SECRET=<generate_with_openssl_rand_hex_32>`
+
+3. Run Supabase migration:
+   ```sql
+   -- Create race_reminders table
+   create table if not exists public.race_reminders (
+     id bigserial primary key,
+     race_id text not null,
+     race_name text not null,
+     race_time timestamptz not null,
+     course text not null,
+     meet_id text not null,
+     reminder_sent_at timestamptz not null default now(),
+     unique (race_id)
+   );
+   ```
+
+4. Redeploy app to Vercel (vercel.json includes cron config)
+
+## 6. Incident Playbooks
 
 ### A) Betfair health shows `HTTP 403` with HTML page
 
@@ -125,7 +182,7 @@ Actions:
 3. Reapply manual placings if needed to persist improved names.
 4. If still bad, check Node-RED Betfair response payload for missing `runnerName`.
 
-## 6. Verification Commands (PowerShell)
+## 7. Verification Commands (PowerShell)
 
 ### Proxy test (public)
 
@@ -141,7 +198,7 @@ Invoke-RestMethod -Uri "https://betfair-proxy.thetoppunter.com/endpoint/rpc" -Me
 Invoke-RestMethod -Uri "https://punting-app.vercel.app/api/health/betfair" | ConvertTo-Json -Depth 10
 ```
 
-## 7. Data Retention Model
+## 8. Data Retention Model
 
 Current/live state:
 
@@ -157,7 +214,7 @@ Historical rounds (append-only):
 
 - `round_history` rows written when closing a meet/day
 
-## 8. Deploy Checklist
+## 9. Deploy Checklist
 
 1. Push changes to main.
 2. Wait for Vercel build.
@@ -165,7 +222,7 @@ Historical rounds (append-only):
 4. Run health check.
 5. Verify one race/runner screen and one submissions screen.
 
-## 9. Security Notes
+## 10. Security Notes
 
 - Rotate proxy token if shared externally.
 - Do not store secrets in source-controlled files.
