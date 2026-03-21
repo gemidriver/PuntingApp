@@ -267,14 +267,18 @@ async function betfairRpc<T>(method: string, params: Record<string, unknown>, al
       );
     }
 
-    const proxyPayload = JSON.parse(proxyRaw) as { result?: T; error?: string };
-    if (!proxyResponse.ok || proxyPayload.error) {
+    const proxyPayload = JSON.parse(proxyRaw) as { result?: T; error?: unknown } | T;
+    const wrapped = proxyPayload as { result?: T; error?: unknown };
+
+    if (!proxyResponse.ok || wrapped.error) {
       throw new Error(
-        `Betfair proxy error (${proxyResponse.status}): ${proxyPayload.error || proxyPreview || 'Unknown error'}`
+        `Betfair proxy error (${proxyResponse.status}): ${String(wrapped.error ?? proxyPreview ?? 'Unknown error')}`
       );
     }
 
-    return proxyPayload.result as T;
+    // Node-RED may return the result unwrapped (direct array/object) or wrapped in { result: T }
+    const result = wrapped.result !== undefined ? wrapped.result : (proxyPayload as T);
+    return result as T;
   }
 
   const requestBody = {
