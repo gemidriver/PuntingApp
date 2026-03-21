@@ -1575,7 +1575,11 @@ export default function Home() {
     return 'bg-blue-100 text-blue-700';
   };
 
-  const wildcardOptions = useMemo(() => selections.map(sel => {
+  const wildcardOptions = useMemo(() => selections.sort((a, b) => {
+    const raceNumA = parseInt(a.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
+    const raceNumB = parseInt(b.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
+    return raceNumA - raceNumB;
+  }).map(sel => {
     const course = meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId;
     const race = races[sel.meetId]?.find(r => r.id === sel.raceId);
     const runner = race?.runners.find(r => r.id === sel.horseId);
@@ -1684,7 +1688,11 @@ export default function Home() {
         <p className="mt-3 text-sm text-slate-500">Make your race selections first to see result status here.</p>
       ) : (
         <ul className="mt-3 space-y-2">
-          {myRaceResults.map((item) => (
+          {myRaceResults.sort((a, b) => {
+            const raceNumA = parseInt(a.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
+            const raceNumB = parseInt(b.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
+            return raceNumA - raceNumB;
+          }).map((item) => (
             <li key={`my-result-${item.meetId}-${item.raceId}`} className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="font-medium text-slate-900">
@@ -1861,7 +1869,11 @@ export default function Home() {
         </p>
 
         <ul className="space-y-2 mb-4">
-          {selections.map(sel => (
+          {selections.sort((a, b) => {
+            const raceNumA = parseInt(a.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
+            const raceNumB = parseInt(b.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
+            return raceNumA - raceNumB;
+          }).map(sel => (
             <li key={`confirm-${sel.meetId}-${sel.raceId}`} className="rounded-lg bg-slate-50 p-3 text-sm">
               <span className="font-medium">{meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
               {wildcard?.meetId === sel.meetId && wildcard?.raceId === sel.raceId ? (
@@ -2038,7 +2050,11 @@ export default function Home() {
                     <p className="text-sm text-slate-500">No selections yet.</p>
                   ) : (
                     <ul className="space-y-1 text-sm text-slate-700">
-                      {row.selections.map((sel, idx) => {
+                      {row.selections.sort((a, b) => {
+                        const raceNumA = parseInt(a.raceName.match(/R(\d+)/)?.[1] ?? '0', 10);
+                        const raceNumB = parseInt(b.raceName.match(/R(\d+)/)?.[1] ?? '0', 10);
+                        return raceNumA - raceNumB;
+                      }).map((sel, idx) => {
                         const isWildcard = row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId;
                         const result = raceResults[sel.raceId];
                         const isWinner = result?.winnerId === sel.horseId;
@@ -2639,7 +2655,11 @@ export default function Home() {
                   {selections.length === 0 ? (
                     <li className="text-sm text-slate-500">No selections yet.</li>
                   ) : (
-                    selections.map(sel => (
+                    selections.sort((a, b) => {
+                      const raceNumA = parseInt(a.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
+                      const raceNumB = parseInt(b.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
+                      return raceNumA - raceNumB;
+                    }).map(sel => (
                       <li key={`${sel.meetId}-${sel.raceId}`} className="rounded-lg bg-white p-3 shadow-sm">
                         <span className="font-medium">{meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
                         {wildcard?.meetId === sel.meetId && wildcard?.raceId === sel.raceId ? (
@@ -2975,7 +2995,11 @@ export default function Home() {
             {selections.length === 0 ? (
               <li className="text-sm text-slate-500">No selections yet.</li>
             ) : (
-              selections.map(sel => (
+              selections.sort((a, b) => {
+                const raceNumA = parseInt(a.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
+                const raceNumB = parseInt(b.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
+                return raceNumA - raceNumB;
+              }).map(sel => (
                 <li key={`${sel.meetId}-${sel.raceId}`} className="rounded-lg bg-white p-3 shadow-sm">
                   <span className="font-medium">{meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
                   {wildcard?.meetId === sel.meetId && wildcard?.raceId === sel.raceId ? (
