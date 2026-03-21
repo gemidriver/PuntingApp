@@ -115,6 +115,7 @@ type RaceResultEntry = {
   secondName?: string | null;
   thirdId?: string | null;
   thirdName?: string | null;
+  inferredPlaces?: boolean;
 };
 
 type RaceResultsMap = Record<string, RaceResultEntry>;
@@ -130,6 +131,7 @@ type PreviousRoundSnapshot = {
     winnerName: string | null;
     secondName: string | null;
     thirdName: string | null;
+    inferredPlaces?: boolean;
   }>;
 };
 
@@ -537,6 +539,7 @@ export default function Home() {
           secondName: nextSecondId ? resolveName(r.marketId, nextSecondId) : existing.secondName ?? null,
           thirdId: nextThirdId,
           thirdName: nextThirdId ? resolveName(r.marketId, nextThirdId) : existing.thirdName ?? null,
+          inferredPlaces: r.inferredPlaces ?? false,
         };
       });
 
@@ -1716,8 +1719,18 @@ export default function Home() {
                 {item.isWildcardPick ? ' (Wildcard)' : ''}
               </p>
               <p className="mt-1 text-slate-600">1st: {item.winnerName ?? item.winnerId ?? 'Waiting for result'}</p>
-              <p className="mt-1 text-slate-600">2nd: {item.secondName ?? item.secondId ?? 'TBC'}</p>
-              <p className="mt-1 text-slate-600">3rd: {item.thirdName ?? item.thirdId ?? 'TBC'}</p>
+              <p className="mt-1 flex items-center gap-1 text-slate-600">
+                2nd: {item.secondName ?? item.secondId ?? 'TBC'}
+                {item.secondId && raceResults[item.raceId]?.inferredPlaces && (
+                  <span className="inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+                )}
+              </p>
+              <p className="mt-1 flex items-center gap-1 text-slate-600">
+                3rd: {item.thirdName ?? item.thirdId ?? 'TBC'}
+                {item.thirdId && raceResults[item.raceId]?.inferredPlaces && (
+                  <span className="inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+                )}
+              </p>
             </li>
           ))}
         </ul>
@@ -1759,6 +1772,7 @@ export default function Home() {
         winnerName: resolvedWinnerName,
         secondName: resolvedSecondName,
         thirdName: resolvedThirdName,
+        inferredPlaces: result.inferredPlaces ?? false,
       };
     });
   }, [raceResults, submissionRows, runnerNameByRaceId]);
@@ -1812,8 +1826,18 @@ export default function Home() {
               <li key={`home-result-${result.raceId}`} className="rounded-md bg-slate-50 px-3 py-2 text-sm">
                 <span className="font-medium">{result.location} - {result.raceName}</span>
                 <span className="ml-2 text-slate-700">1st: {result.winnerName || 'TBC'}</span>
-                <span className="ml-2 text-slate-700">2nd: {result.secondName || 'TBC'}</span>
-                <span className="ml-2 text-slate-700">3rd: {result.thirdName || 'TBC'}</span>
+                <span className="ml-2 flex items-center gap-1 text-slate-700">
+                  2nd: {result.secondName || 'TBC'}
+                  {result.secondName && result.inferredPlaces && (
+                    <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+                  )}
+                </span>
+                <span className="ml-2 flex items-center gap-1 text-slate-700">
+                  3rd: {result.thirdName || 'TBC'}
+                  {result.thirdName && result.inferredPlaces && (
+                    <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+                  )}
+                </span>
               </li>
             ))}
           </ul>
