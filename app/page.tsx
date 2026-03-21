@@ -135,6 +135,12 @@ const formatRaceTime = (value: string) => {
   }
   return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
+const formatHorseDisplayName = (name: string, number?: number | null) => {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return '';
+  if (/^\d+\.\s+/.test(trimmed)) return trimmed;
+  return typeof number === 'number' ? `${number}. ${trimmed}` : trimmed;
+};
 const getAuthRedirectUrl = () => {
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL;
@@ -457,7 +463,7 @@ export default function Home() {
         const race = (races[meet.meet_id] || []).find((item) => item.id === manualResultRaceId);
         const runner = race?.runners.find((item) => item.id === horseId);
         if (runner) {
-          return runner.number ? `${runner.number}. ${runner.name}` : runner.name;
+          return formatHorseDisplayName(runner.name, runner.number);
         }
       }
 
@@ -991,7 +997,7 @@ export default function Home() {
 
             const options = race.runners.map((runner) => ({
               horseId: runner.id,
-              horseName: runner.number ? `${runner.number}. ${runner.name}` : runner.name,
+              horseName: formatHorseDisplayName(runner.name, runner.number),
             }));
 
             if (!active) {
@@ -1014,7 +1020,7 @@ export default function Home() {
           const fallbackOptions = Array.isArray(fallbackData.runners)
             ? fallbackData.runners.map((runner) => ({
               horseId: runner.id,
-              horseName: runner.number ? `${runner.number}. ${runner.name}` : runner.name,
+              horseName: formatHorseDisplayName(runner.name, runner.number),
             }))
             : [];
 
@@ -1030,7 +1036,7 @@ export default function Home() {
         const options = Array.isArray(data.runners)
           ? data.runners.map((runner) => ({
             horseId: runner.id,
-            horseName: runner.number ? `${runner.number}. ${runner.name}` : runner.name,
+            horseName: formatHorseDisplayName(runner.name, runner.number),
           }))
           : [];
 
@@ -1111,7 +1117,7 @@ export default function Home() {
         loadedRaces.forEach((race) => {
           updates[race.id] = (race.runners || []).map((runner) => ({
             horseId: runner.id,
-            horseName: runner.number ? `${runner.number}. ${runner.name}` : runner.name,
+            horseName: formatHorseDisplayName(runner.name, runner.number),
           }));
         });
 
@@ -1411,7 +1417,7 @@ export default function Home() {
     Object.values(races).forEach((raceList) => {
       (raceList || []).forEach((race) => {
         (race.runners || []).forEach((runner) => {
-          const name = runner.number ? `${runner.number}. ${runner.name}` : runner.name;
+          const name = formatHorseDisplayName(runner.name, runner.number);
           setRunner(race.id, runner.id, name);
         });
       });
