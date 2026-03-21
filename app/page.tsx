@@ -2588,8 +2588,8 @@ export default function Home() {
       <div className="rounded-xl bg-gradient-to-r from-sky-600 to-blue-700 p-6 text-white shadow-sm">
         <h2 className="text-2xl font-bold">Welcome {user}</h2>
         <p className="mt-2 text-sm text-blue-100">
-          Welcome to The Top Punter!
-          Pick your horses, and select your wildcard for double points.
+          Welcome to The Top Punter! <br></br>
+          Go to 'My Picks' and select your wildcard for double points.
  
         </p>
       </div>
@@ -3265,7 +3265,7 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 p-6 flex items-center justify-center">
         <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg">
-          <h1 className="text-2xl font-bold mb-2">Braddo's Horse Punting</h1>
+          <h1 className="text-2xl font-bold mb-2">The Top Punter</h1>
           <p className="text-sm text-slate-500 mb-6">
             Sign in or create an account to start selecting horses.
           </p>
@@ -3356,7 +3356,7 @@ export default function Home() {
       <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 text-slate-900">
         {/* Mobile sticky top bar */}
         <header className="sticky top-0 z-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 py-3 lg:hidden">
-          <span className="font-bold text-base">🏇 Braddo&apos;s Punting</span>
+          <span className="font-bold text-base">🏇 The Top Punter</span>
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500 max-w-[110px] truncate">{user}</span>
             <button onClick={() => { void logout(); }} className="rounded-lg bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-200">Log out</button>

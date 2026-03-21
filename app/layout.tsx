@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Braddo's Horse Punting",
-  description: "Powered by the Power Chap",
+  title: "The Top Punter",
+  description: "Powered by the BrewedBuilder.",
 };
 
 export const viewport: Viewport = {
