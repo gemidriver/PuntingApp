@@ -13,6 +13,10 @@ A Next.js application for managing horse racing syndicate selections. Users can 
 - Publishing new global meets resets all user selections, wildcard picks, and stored results
 - Mock data integration (ready for theracingapi.com API)
 
+## Operations Runbook
+
+For production operations, troubleshooting, and day-close procedures, see [RUNBOOK.md](RUNBOOK.md).
+
 ## Getting Started
 
 First, install dependencies:
