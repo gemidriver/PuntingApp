@@ -336,6 +336,7 @@ export default function Home() {
   const [previousRoundSnapshot, setPreviousRoundSnapshot] = useState<PreviousRoundSnapshot | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [emailingResults, setEmailingResults] = useState(false);
+  const [sendingTestInAppNotification, setSendingTestInAppNotification] = useState(false);
   const [betfairHealth, setBetfairHealth] = useState<BetfairHealthStatus | null>(null);
   const [betfairHealthLoading, setBetfairHealthLoading] = useState(false);
   const [betfairHealthError, setBetfairHealthError] = useState<string | null>(null);
@@ -1438,6 +1439,126 @@ export default function Home() {
     }
   };
 
+  const emailTestResultsToMe = async () => {
+    setEmailingResults(true);
+    try {
+      const supabase = getSupabaseClient();
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session?.access_token) {
+        addNotification('Unable to verify your admin session. Please sign in again.', 'error');
+        return;
+      }
+
+      const response = await fetch('/api/email-results', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ testOnly: true }),
+      });
+
+      const payload = await response.json().catch(() => ({} as { error?: string; sentCount?: number }));
+      if (!response.ok) {
+        addNotification(payload.error || 'Failed to send test email.', 'error');
+        return;
+      }
+
+      addNotification(`Test email sent to your address (${payload.sentCount ?? 0} sent).`, 'success');
+    } catch (error) {
+      console.error('emailTestResultsToMe failed', error);
+      addNotification('Failed to send test email.', 'error');
+    } finally {
+      setEmailingResults(false);
+    }
+  };
+
+  const pullInAppNotifications = async () => {
+    try {
+      const supabase = getSupabaseClient();
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session?.access_token) {
+        return;
+      }
+
+      const response = await fetch('/api/notifications', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = await response.json().catch(() => ({} as { notifications?: Array<{ id: number; message: string }> })) as {
+        notifications?: Array<{ id: number; message: string }>;
+      };
+      const unread: Array<{ id: number; message: string }> = Array.isArray(payload.notifications)
+        ? payload.notifications
+        : [];
+      if (!unread.length) {
+        return;
+      }
+
+      unread.forEach((item: { id: number; message: string }) => {
+        if (item?.message) {
+          addNotification(item.message, 'info', 9000);
+        }
+      });
+
+      const unreadIds = unread.map((item: { id: number; message: string }) => item.id).filter((id) => Number.isFinite(id));
+      if (!unreadIds.length) {
+        return;
+      }
+
+      await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ notificationIds: unreadIds }),
+      });
+    } catch (error) {
+      console.error('pullInAppNotifications failed', error);
+    }
+  };
+
+  const sendTestInAppNotification = async () => {
+    setSendingTestInAppNotification(true);
+    try {
+      const supabase = getSupabaseClient();
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session?.access_token) {
+        addNotification('Unable to verify your admin session. Please sign in again.', 'error');
+        return;
+      }
+
+      const response = await fetch('/api/notifications/test', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+
+      const payload = await response.json().catch(() => ({} as { error?: string }));
+      if (!response.ok) {
+        addNotification(payload.error || 'Failed to create test notification.', 'error');
+        return;
+      }
+
+      addNotification('Test notification created. Fetching now...', 'success');
+      await pullInAppNotifications();
+    } catch (error) {
+      console.error('sendTestInAppNotification failed', error);
+      addNotification('Failed to create test notification.', 'error');
+    } finally {
+      setSendingTestInAppNotification(false);
+    }
+  };
+
   const openEmailResultsConfirmation = () => {
     if (emailingResults) return;
     setShowEmailResultsConfirm(true);
@@ -1612,6 +1733,21 @@ export default function Home() {
     void loadRaceResults();
     void loadSubmissionRows();
   }, [user, activeScreen]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    void pullInAppNotifications();
+    const timer = setInterval(() => {
+      void pullInAppNotifications();
+    }, 30000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!manualResultRaceId || manualRunnersByRaceId[manualResultRaceId]) {
@@ -2407,6 +2543,21 @@ export default function Home() {
           Track the latest round outcomes, review winners, and see points won across all users.
         </p>
       </div>
+
+      {isAdmin ? (
+        <button
+          onClick={() => setActiveScreen('admin')}
+          className="w-full rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 p-4 text-left text-white shadow-sm hover:from-amber-600 hover:to-orange-600 active:opacity-90"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs font-semibold uppercase tracking-wide opacity-80">Admin Panel</span>
+              <p className="mt-0.5 text-base font-bold">Manage App &amp; Race Day</p>
+            </div>
+            <span className="text-2xl">⚙️</span>
+          </div>
+        </button>
+      ) : null}
 
       <div className="rounded-lg bg-white p-4 shadow-sm">
         <h3 className="text-lg font-semibold">Last Round Points Won</h3>
@@ -3268,6 +3419,24 @@ export default function Home() {
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">Global Meet Selection</h2>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    void sendTestInAppNotification();
+                  }}
+                  disabled={sendingTestInAppNotification}
+                  className="rounded-full bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {sendingTestInAppNotification ? 'Sending Test Notification...' : 'Send Test In-App Notification'}
+                </button>
+                <button
+                  onClick={() => {
+                    void emailTestResultsToMe();
+                  }}
+                  disabled={emailingResults}
+                  className="rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {emailingResults ? 'Sending...' : 'Send Test to Me'}
+                </button>
                 <button
                   onClick={() => {
                     openEmailResultsConfirmation();

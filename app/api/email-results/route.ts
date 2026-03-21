@@ -147,6 +147,9 @@ const escapeHtml = (value: string) =>
 
 export async function POST(request: Request) {
   try {
+    const body = await request.json().catch(() => ({} as { testOnly?: boolean }));
+    const testOnly = Boolean(body.testOnly);
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -309,12 +312,20 @@ export async function POST(request: Request) {
       </div>
     `;
 
-    const uniqueEmails = [...new Set(recipients.map((recipient) => recipient.email))];
+    const testRecipientEmail = String(user.email || '').trim();
+    const uniqueEmails = testOnly
+      ? (testRecipientEmail ? [testRecipientEmail] : [])
+      : [...new Set(recipients.map((recipient) => recipient.email))];
+
+    if (!uniqueEmails.length) {
+      return Response.json({ error: testOnly ? 'Your account does not have an email address.' : 'No recipient emails found.' }, { status: 400 });
+    }
+
     const sendPromises = uniqueEmails.map((email) =>
       resend.emails.send({
         from: resendFromEmail,
         to: email,
-        subject: `Race Day Results Update - ${meets.length ? meets[0].date : new Date().toISOString().slice(0, 10)}`,
+        subject: `${testOnly ? '[TEST] ' : ''}Race Day Results Update - ${meets.length ? meets[0].date : new Date().toISOString().slice(0, 10)}`,
         html,
       })
     );
@@ -325,6 +336,7 @@ export async function POST(request: Request) {
 
     return Response.json({
       success: true,
+      mode: testOnly ? 'test' : 'broadcast',
       recipients: uniqueEmails.length,
       sentCount,
       failedCount,
