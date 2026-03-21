@@ -1763,6 +1763,12 @@ export default function Home() {
     </section>
   );
 
+  const versionBadge = (
+    <div className="fixed bottom-20 right-3 z-30 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-[11px] text-slate-600 shadow-sm backdrop-blur lg:bottom-4">
+      <span>&copy; {APP_VERSION_LABEL}</span>
+    </div>
+  );
+
   const submitConfirmationModal = showSubmitConfirm ? (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-auto">
@@ -2139,6 +2145,7 @@ export default function Home() {
             {authMode === 'login' ? 'Sign In' : 'Create Account'}
           </button>
         </div>
+        {versionBadge}
       </div>
     );
   }
@@ -2590,9 +2597,7 @@ export default function Home() {
           )}
           </div>
         </div>
-        <div className="px-4 pb-16 pt-4 text-center text-xs text-slate-500 lg:px-0 lg:pb-0 lg:pt-6">
-          <span>&copy; {APP_VERSION_LABEL}</span>
-        </div>
+        {versionBadge}
         {/* Mobile bottom tab bar */}
         <nav className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 flex lg:hidden">
           <button onClick={() => setActiveScreen('home')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'home' ? 'text-blue-600' : 'text-slate-500'}`}>
@@ -2916,10 +2921,7 @@ export default function Home() {
 
           {activeScreen === 'submissions' ? submissionsContent : null}
 
-
-        <div className="pb-16 pt-4 text-center text-xs text-slate-500 lg:pb-0 lg:pt-6">
-          <span>&copy; {APP_VERSION_LABEL}</span>
-        </div>
+        {versionBadge}
         {/* Bottom tab nav — mobile only */}
         <nav className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 flex lg:hidden">
           <button
