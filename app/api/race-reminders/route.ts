@@ -176,8 +176,11 @@ export async function POST(request: Request) {
                 })}</p>
               </div>
               <p style="color: #666;">Get ready - this race starts in approximately 5 minutes!</p>
+              <p style="margin: 0 0 10px 0;">
+                <a href="https://thetoppunter.com" style="color: #2563eb; text-decoration: none;">Open The Top Punter</a>
+              </p>
               <p style="color: #999; font-size: 12px;">
-                You're receiving this because you're registered for Braddo's Punting.
+                You're receiving this because you're registered for The Top Punter.
               </p>
             </div>
           `,

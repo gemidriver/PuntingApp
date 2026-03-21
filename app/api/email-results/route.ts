@@ -308,7 +308,11 @@ export async function POST(request: Request) {
         <h3 style="margin-top: 24px; margin-bottom: 8px;">Race Placings</h3>
         <ul style="padding-left: 20px;">${raceResultsHtml || '<li>No race placings saved yet.</li>'}</ul>
 
-        <p style="margin-top: 24px; color: #64748b; font-size: 12px;">Sent from Braddo&apos;s Punting admin panel.</p>
+        <p style="margin-top: 18px; margin-bottom: 0;">
+          <a href="https://thetoppunter.com" style="color: #2563eb; text-decoration: none;">Open The Top Punter</a>
+        </p>
+
+        <p style="margin-top: 24px; color: #64748b; font-size: 12px;">Sent from The Top Punter admin panel.</p>
       </div>
     `;
 
