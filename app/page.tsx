@@ -1281,111 +1281,71 @@ export default function Home() {
   const manualHorseOptions = useMemo(() => {
     if (!manualResultRaceId) return [] as Array<{ horseId: string; horseName: string }>;
 
-    // Build a comprehensive name map from all available sources
+    const isBadName = (name: string) => !name || /^Runner\s+\d+$/i.test(name);
+
+    // Collect best known name for each horseId from ALL sources (best wins).
+    // Priority: submissions > race data > cache > marketRunners API
     const horseNameMap = new Map<string, string>();
 
-    // 1. Try market runners loaded via API
-    const marketRunners = manualRunnersByRaceId[manualResultRaceId];
-    if (marketRunners?.length) {
-      marketRunners.forEach(r => {
-        if (r.horseName && !r.horseName.startsWith('Runner')) {
-          horseNameMap.set(r.horseId, r.horseName);
-        }
-      });
-      if (horseNameMap.size > 0) {
-        return marketRunners.map(r => ({
-          ...r,
-          horseName: horseNameMap.get(r.horseId) || r.horseName,
-        }));
+    const trySet = (id: string, name: string) => {
+      if (!id) return;
+      const existing = horseNameMap.get(id);
+      if (!existing || (isBadName(existing) && !isBadName(name))) {
+        horseNameMap.set(id, name);
       }
-    }
+    };
 
-    // 2. Try cached runners from Betfair calls
-    const cachedRunners = raceRunnersCache[manualResultRaceId];
-    if (cachedRunners?.length) {
-      cachedRunners.forEach(r => {
-        if (!horseNameMap.has(r.horseId) && r.horseName && !r.horseName.startsWith('Runner')) {
-          horseNameMap.set(r.horseId, r.horseName);
-        }
-      });
-      if (horseNameMap.size > 0) {
-        return cachedRunners.map(r => ({
-          ...r,
-          horseName: horseNameMap.get(r.horseId) || r.horseName,
-        }));
-      }
-    }
-
-    // 3. Collect names from loaded race data
-    meetsForPicks.forEach(meet => {
-      const race = (races[meet.meet_id] || []).find(r => r.id === manualResultRaceId);
-      race?.runners.forEach(runner => {
-        if (!horseNameMap.has(runner.id) && runner.name && !runner.name.startsWith('Runner')) {
-          horseNameMap.set(runner.id, runner.name);
-        }
-      });
+    // 1. Submissions have names captured at pick-time — most reliable for settled races
+    submissionRows.forEach(row => {
+      row.selections
+        .filter(sel => sel.raceId === manualResultRaceId)
+        .forEach(sel => { if (sel.horseName) trySet(sel.horseId, sel.horseName); });
     });
 
-    // 4. Fallback: collect names from submitted picks
-    if (horseNameMap.size === 0) {
-      submissionRows.forEach(row => {
-        row.selections
-          .filter(sel => sel.raceId === manualResultRaceId)
-          .forEach(sel => {
-            if (!horseNameMap.has(sel.horseId) && sel.horseName) {
-              horseNameMap.set(sel.horseId, sel.horseName);
-            }
-          });
-      });
-    }
+    // 2. Race data loaded in app state
+    meetsForPicks.forEach(meet => {
+      const race = (races[meet.meet_id] || []).find(r => r.id === manualResultRaceId);
+      race?.runners.forEach(runner => { trySet(runner.id, runner.name); });
+    });
 
-    // Build final list from market runners OR cached OR submission data
-    let finalOptions: Array<{ horseId: string; horseName: string }> = [];
+    // 3. Betfair runner cache
+    (raceRunnersCache[manualResultRaceId] || []).forEach(r => { trySet(r.horseId, r.horseName); });
+
+    // 4. Market runners loaded via API
+    const marketRunners = manualRunnersByRaceId[manualResultRaceId];
+    (marketRunners || []).forEach(r => { trySet(r.horseId, r.horseName); });
+
+    // Build final runner list: prefer API runner list for completeness, fall back to name-map keys
+    let baseRunners: Array<{ horseId: string }> = [];
 
     if (marketRunners?.length) {
-      finalOptions = marketRunners.map(r => ({
-        horseId: r.horseId,
-        horseName: horseNameMap.get(r.horseId) || r.horseName,
-      }));
-    } else if (cachedRunners?.length) {
-      finalOptions = cachedRunners.map(r => ({
-        horseId: r.horseId,
-        horseName: horseNameMap.get(r.horseId) || r.horseName,
-      }));
+      baseRunners = marketRunners;
+    } else if ((raceRunnersCache[manualResultRaceId] || []).length) {
+      baseRunners = raceRunnersCache[manualResultRaceId];
     } else {
-      // Build from race and submission data
+      // Build from race data + submissions (for races not in cache)
+      const seen = new Set<string>();
       meetsForPicks.forEach(meet => {
         const race = (races[meet.meet_id] || []).find(r => r.id === manualResultRaceId);
-        race?.runners.forEach(runner => {
-          if (!finalOptions.find(o => o.horseId === runner.id)) {
-            finalOptions.push({
-              horseId: runner.id,
-              horseName: horseNameMap.get(runner.id) || runner.name,
-            });
-          }
-        });
+        race?.runners.forEach(runner => { if (!seen.has(runner.id)) { seen.add(runner.id); baseRunners.push({ horseId: runner.id }); } });
       });
-
       submissionRows.forEach(row => {
         row.selections
           .filter(sel => sel.raceId === manualResultRaceId)
-          .forEach(sel => {
-            if (!finalOptions.find(o => o.horseId === sel.horseId)) {
-              finalOptions.push({
-                horseId: sel.horseId,
-                horseName: horseNameMap.get(sel.horseId) || sel.horseName,
-              });
-            }
-          });
+          .forEach(sel => { if (!seen.has(sel.horseId)) { seen.add(sel.horseId); baseRunners.push({ horseId: sel.horseId }); } });
       });
     }
 
-    // Remove duplicates and sort by horse name
+    // Map base runners to final options, applying best names
     const uniqueMap = new Map<string, string>();
-    finalOptions.forEach(opt => {
-      if (!uniqueMap.has(opt.horseId)) {
-        uniqueMap.set(opt.horseId, opt.horseName);
+    baseRunners.forEach(r => {
+      if (!uniqueMap.has(r.horseId)) {
+        uniqueMap.set(r.horseId, horseNameMap.get(r.horseId) || r.horseId);
       }
+    });
+    // Also include any horseIds only known from submissions (not in base runner list)
+    horseNameMap.forEach((name, id) => {
+      if (!uniqueMap.has(id)) uniqueMap.set(id, name);
     });
 
     return [...uniqueMap.entries()]
