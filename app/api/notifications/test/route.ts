@@ -1,6 +1,11 @@
 import { getSupabaseClient } from '../../../../lib/supabase';
 
 export async function POST(request: Request) {
+  const testEndpointsEnabled = process.env.ENABLE_TEST_ENDPOINTS === 'true' || process.env.NODE_ENV !== 'production';
+  if (!testEndpointsEnabled) {
+    return Response.json({ error: 'Not found' }, { status: 404 });
+  }
+
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {

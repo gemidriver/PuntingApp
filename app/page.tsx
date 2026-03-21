@@ -1995,6 +1995,54 @@ export default function Home() {
     }
   };
 
+  const renderRaceLoadingState = () => (
+    <div className="rounded-lg bg-white p-4 shadow-sm">
+      <p className="text-sm text-slate-500">Loading races...</p>
+    </div>
+  );
+
+  const renderNoRacesState = (meet: Meet) => {
+    if (!isAdmin) {
+      return (
+        <div className="rounded-lg bg-white p-6 shadow-sm">
+          <p className="text-sm text-slate-600">No races available, please wait for next meet.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="rounded-lg bg-white p-6 shadow-sm">
+        <p className="text-sm text-slate-600">
+          No races were found for this meet. This can happen if the API returned no racecards for the selected course or if the course ID format differs from what the API expects.
+        </p>
+        <p className="mt-3 text-sm text-slate-500">Try selecting a different meet or enabling mock mode (set USE_MOCK_DATA=true in .env.local).</p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => {
+              void loadRacesForMeet(meet);
+            }}
+            className="inline-flex items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
+          >
+            Retry Loading Races
+          </button>
+          <button
+            onClick={() => {
+              void loadRaceDebug(meet);
+            }}
+            className="inline-flex items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-600"
+          >
+            Show API Response (Debug)
+          </button>
+        </div>
+        {raceDebug[meet.meet_id] ? (
+          <pre className="mt-4 max-h-64 overflow-auto rounded border border-slate-200 bg-slate-50 p-3 text-xs">
+            {JSON.stringify(raceDebug[meet.meet_id], null, 2)}
+          </pre>
+        ) : null}
+      </div>
+    );
+  };
+
   const selectHorse = (meetId: string, raceId: string, raceName: string, horseId: string, horseName: string) => {
     const existing = selections.find(s => s.meetId === meetId && s.raceId === raceId);
     const meetCourse = meetsForPicks.find(m => m.meet_id === meetId)?.course ?? meetId;
@@ -3607,27 +3655,9 @@ export default function Home() {
                   <div key={meet.meet_id} className="mb-10">
                     <h3 className="text-lg font-semibold mb-3">{meet.course} - Last 4 Races</h3>
                     {raceLoading[meet.meet_id] ? (
-                      <div className="rounded-lg bg-white p-4 shadow-sm">
-                        <p className="text-sm text-slate-500">Loading races...</p>
-                      </div>
+                      renderRaceLoadingState()
                     ) : (races[meet.meet_id] || []).length === 0 ? (
-                      <div className="rounded-lg bg-white p-6 shadow-sm">
-                        {isAdmin ? (
-                          <>
-                            <p className="text-sm text-slate-600">No races were found for this meet.</p>
-                            <button
-                              onClick={() => {
-                                void loadRacesForMeet(meet);
-                              }}
-                              className="mt-4 inline-flex items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
-                            >
-                              Retry Loading Races
-                            </button>
-                          </>
-                        ) : (
-                          <p className="text-sm text-slate-600">No races available, please wait for next meet.</p>
-                        )}
-                      </div>
+                      renderNoRacesState(meet)
                     ) : (
                       <div className="-mx-4 px-4 lg:mx-0 lg:px-0">
                       <div className="flex gap-3 overflow-x-auto pb-3 snap-x snap-mandatory lg:grid lg:grid-cols-4 lg:overflow-visible lg:snap-none">
@@ -3954,35 +3984,9 @@ export default function Home() {
             <div key={meet.meet_id} className="mb-10">
               <h2 className="text-xl font-semibold mb-3">{meet.course} - Last 4 Races</h2>
               {raceLoading[meet.meet_id] ? (
-                <div className="rounded-lg bg-white p-4 shadow-sm">
-                  <p className="text-sm text-slate-500">Loading races...</p>
-                </div>
+                renderRaceLoadingState()
               ) : (races[meet.meet_id] || []).length === 0 ? (
-                <div className="rounded-lg bg-white p-6 shadow-sm">
-                  {isAdmin ? (
-                    <>
-                      <p className="text-sm text-slate-600">
-                        No races were found for this meet. This can happen if the API returned no racecards for the selected course or if the course ID format differs from what the API expects.
-                      </p>
-                      <p className="mt-3 text-sm text-slate-500">Try selecting a different meet or enabling mock mode (set USE_MOCK_DATA=true in .env.local).</p>
-                      <button
-                        onClick={() => {
-                          void loadRaceDebug(meet);
-                        }}
-                        className="mt-4 inline-flex items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-600"
-                      >
-                        Show API Response (Debug)
-                      </button>
-                      {raceDebug[meet.meet_id] ? (
-                        <pre className="mt-4 max-h-64 overflow-auto rounded border border-slate-200 bg-slate-50 p-3 text-xs">
-                          {JSON.stringify(raceDebug[meet.meet_id], null, 2)}
-                        </pre>
-                      ) : null}
-                    </>
-                  ) : (
-                    <p className="text-sm text-slate-600">No races available, please wait for next meet.</p>
-                  )}
-                </div>
+                renderNoRacesState(meet)
               ) : (
                 <div className="-mx-4 px-4 lg:mx-0 lg:px-0">
                 <div className="flex gap-3 overflow-x-auto pb-3 snap-x snap-mandatory lg:grid lg:grid-cols-4 lg:overflow-visible lg:snap-none">
