@@ -23,7 +23,7 @@ const minute = part('minute').padStart(2, '0');
 const hhmm = `${hour}${minute}`;
 
 const version = `${BASE}.${month}.${day}.${hhmm}`;
-const label = `BrewedBuilder | v ${version}`;
+const label = `The Top Punter | v ${version}`;
 
 const outPath = resolve(process.cwd(), 'app', 'version.ts');
 mkdirSync(dirname(outPath), { recursive: true });
