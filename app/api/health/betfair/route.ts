@@ -9,10 +9,16 @@ export async function GET(request: NextRequest) {
   const date = searchParams.get('date') || new Date().toISOString().slice(0, 10);
   const appKeyConfigured = Boolean(process.env.BETFAIR_APP_KEY);
   const sessionTokenConfigured = Boolean(process.env.BETFAIR_SESSION_TOKEN);
+  const proxyUrlConfigured = Boolean(process.env.BETFAIR_PROXY_URL);
+  const proxyTokenConfigured = Boolean(process.env.BETFAIR_PROXY_TOKEN);
+  const proxyUrlValue = process.env.BETFAIR_PROXY_URL ? process.env.BETFAIR_PROXY_URL.slice(0, 40) + '...' : null;
 
   try {
     const result = await runBetfairHealthCheck(date);
-    return NextResponse.json(result);
+    return NextResponse.json({
+      ...result,
+      proxy: { proxyUrlConfigured, proxyTokenConfigured, proxyUrlPrefix: proxyUrlValue },
+    });
   } catch (error) {
     const missingVars: string[] = [];
     if (!appKeyConfigured) missingVars.push('BETFAIR_APP_KEY');
@@ -25,6 +31,9 @@ export async function GET(request: NextRequest) {
         env: {
           appKeyConfigured,
           sessionTokenConfigured,
+          proxyUrlConfigured,
+          proxyTokenConfigured,
+          proxyUrlPrefix: proxyUrlValue,
         },
         envMissing: missingVars,
         error: (error as Error).message ?? 'Betfair health check failed',
