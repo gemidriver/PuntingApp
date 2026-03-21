@@ -2540,6 +2540,8 @@ export default function Home() {
       <div className="rounded-xl bg-gradient-to-r from-sky-600 to-blue-700 p-6 text-white shadow-sm">
         <h2 className="text-2xl font-bold">Welcome {user}</h2>
         <p className="mt-2 text-sm text-blue-100">
+          Welcome to The Top Punter!
+          Pick your horses, and select your wildcard for double points.
           Track the latest round outcomes, review winners, and see points won across all users.
         </p>
       </div>
@@ -2576,7 +2578,7 @@ export default function Home() {
       </div>
 
       <div className="rounded-lg bg-white p-4 shadow-sm">
-        <h3 className="text-lg font-semibold">Last Round Results</h3>
+        <h3 className="text-lg font-semibold">Last Round Race Results</h3>
         {homePreviousMeetLabel ? (
           <p className="mt-2 text-xs text-slate-500">Previous meets: {homePreviousMeetLabel}</p>
         ) : null}
@@ -3377,7 +3379,7 @@ export default function Home() {
                 {activeScreen === 'leaderboard' && 'Leaderboard'}
               </h1>
               <p className="mt-2 text-slate-600">
-                {activeScreen === 'home' && 'Welcome and round summary.'}
+                {activeScreen === 'home' && 'Welcome to The Top Punter.'}
                 {activeScreen === 'main' && 'Pick horses and submit selections.'}
                 {activeScreen === 'admin' && 'Manage global meets and user permissions.'}
                 {activeScreen === 'submissions' && 'Review all user submissions.'}
@@ -3417,10 +3419,14 @@ export default function Home() {
 
           {activeScreen === 'home' ? homeContent : null}
 
-          <section className={`mb-10 ${activeScreen === 'admin' ? '' : 'hidden'}`}>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <h2 className="text-xl font-semibold">Global Meet Selection</h2>
-              <div className="flex flex-wrap items-center gap-2">
+          <section className={`mt-6 mb-10 ${activeScreen === 'admin' ? '' : 'hidden'}`}>
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h2 className="text-xl font-semibold">Global Meet Selection</h2>
+                  <p className="mt-1 text-sm text-slate-500">Select two meets, then publish them for the next race day.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <button
                   onClick={() => {
                     openEmailResultsConfirmation();
@@ -3447,16 +3453,17 @@ export default function Home() {
                 >
                   Publish Meets for New Day
                 </button>
+                </div>
               </div>
             </div>
 
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600 sm:p-4">
               Races, runners, and user picks remain visible after a race day ends so you can assign results and view the scoreboard.
               When you are ready to start the next race day, click <strong>Close Meet &amp; Start New Day</strong> — this clears all selections and results.
               Then select two new meets and click <strong>Publish Meets for New Day</strong>.
             </p>
 
-            <div className="mt-4 space-y-5">
+            <div className="mt-6 space-y-5">
               {(['Thoroughbred', 'Harness'] as const).map((type) => {
                 const typedMeets = groupedMeetChoices[type];
                 if (!typedMeets.length) {
@@ -3605,15 +3612,21 @@ export default function Home() {
                       </div>
                     ) : (races[meet.meet_id] || []).length === 0 ? (
                       <div className="rounded-lg bg-white p-6 shadow-sm">
-                        <p className="text-sm text-slate-600">No races were found for this meet.</p>
-                        <button
-                          onClick={() => {
-                            void loadRacesForMeet(meet);
-                          }}
-                          className="mt-4 inline-flex items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
-                        >
-                          Retry Loading Races
-                        </button>
+                        {isAdmin ? (
+                          <>
+                            <p className="text-sm text-slate-600">No races were found for this meet.</p>
+                            <button
+                              onClick={() => {
+                                void loadRacesForMeet(meet);
+                              }}
+                              className="mt-4 inline-flex items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
+                            >
+                              Retry Loading Races
+                            </button>
+                          </>
+                        ) : (
+                          <p className="text-sm text-slate-600">No races available, please wait for next meet.</p>
+                        )}
                       </div>
                     ) : (
                       <div className="-mx-4 px-4 lg:mx-0 lg:px-0">
@@ -3879,7 +3892,7 @@ export default function Home() {
             </h1>
             <p className="mt-2 text-slate-600">
               {activeScreen === 'home'
-                ? 'Welcome and round summary.'
+                ? ' to The Top Punter.'
                 : activeScreen === 'main'
                 ? 'Pick one horse per race in the last four races of two selected meets for tomorrow, then choose a wildcard horse for double points.'
                 : 'Review all user submissions.'}
@@ -3946,23 +3959,29 @@ export default function Home() {
                 </div>
               ) : (races[meet.meet_id] || []).length === 0 ? (
                 <div className="rounded-lg bg-white p-6 shadow-sm">
-                  <p className="text-sm text-slate-600">
-                    No races were found for this meet. This can happen if the API returned no racecards for the selected course or if the course ID format differs from what the API expects.
-                  </p>
-                  <p className="mt-3 text-sm text-slate-500">Try selecting a different meet or enabling mock mode (set USE_MOCK_DATA=true in .env.local).</p>
-                  <button
-                    onClick={() => {
-                      void loadRaceDebug(meet);
-                    }}
-                    className="mt-4 inline-flex items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-600"
-                  >
-                    Show API Response (Debug)
-                  </button>
-                  {raceDebug[meet.meet_id] ? (
-                    <pre className="mt-4 max-h-64 overflow-auto rounded border border-slate-200 bg-slate-50 p-3 text-xs">
-                      {JSON.stringify(raceDebug[meet.meet_id], null, 2)}
-                    </pre>
-                  ) : null}
+                  {isAdmin ? (
+                    <>
+                      <p className="text-sm text-slate-600">
+                        No races were found for this meet. This can happen if the API returned no racecards for the selected course or if the course ID format differs from what the API expects.
+                      </p>
+                      <p className="mt-3 text-sm text-slate-500">Try selecting a different meet or enabling mock mode (set USE_MOCK_DATA=true in .env.local).</p>
+                      <button
+                        onClick={() => {
+                          void loadRaceDebug(meet);
+                        }}
+                        className="mt-4 inline-flex items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-600"
+                      >
+                        Show API Response (Debug)
+                      </button>
+                      {raceDebug[meet.meet_id] ? (
+                        <pre className="mt-4 max-h-64 overflow-auto rounded border border-slate-200 bg-slate-50 p-3 text-xs">
+                          {JSON.stringify(raceDebug[meet.meet_id], null, 2)}
+                        </pre>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="text-sm text-slate-600">No races available, please wait for next meet.</p>
+                  )}
                 </div>
               ) : (
                 <div className="-mx-4 px-4 lg:mx-0 lg:px-0">
