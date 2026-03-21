@@ -72,6 +72,22 @@ create table if not exists public.race_reminders (
   unique (race_id)
 );
 
+create table if not exists public.notifications (
+  id bigserial primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  race_id text not null,
+  race_name text not null,
+  course text not null,
+  notification_type text not null check (notification_type in ('race_starting_soon', 'race_started')),
+  message text not null,
+  created_at timestamptz not null default now(),
+  read_at timestamptz,
+  unique (user_id, race_id, notification_type)
+);
+
+create index if not exists notifications_user_id_idx on public.notifications (user_id);
+create index if not exists notifications_read_at_idx on public.notifications (read_at) where read_at is null;
+
 create index if not exists round_history_round_closed_at_idx
   on public.round_history (round_closed_at desc);
 

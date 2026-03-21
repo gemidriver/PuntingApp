@@ -35,6 +35,7 @@ export async function POST(request: Request) {
 
     const now = new Date();
     const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
+    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
     const remindersToSend: Array<{
       raceId: string;
       raceName: string;
@@ -42,7 +43,13 @@ export async function POST(request: Request) {
       course: string;
       email: string;
       username: string;
+      userId?: string;
     }> = [];
+
+    // Get all users for notifications
+    const { data: allUsers } = await supabase
+      .from('profiles')
+      .select('id, email, username');
 
     // Check each meet for races starting in ~5 minutes
     for (const meet of globalMeets) {
@@ -57,23 +64,18 @@ export async function POST(request: Request) {
         for (const race of races.slice(-4)) { // Last 4 races
           const raceTime = new Date(race.time);
           
-          // Check if race is in the 5-10 minute window (to catch it once)
+          // Check if race is in the 5-10 minute window (race starting soon)
           if (raceTime > now && raceTime <= fiveMinutesFromNow) {
             // Check if reminder already sent for this race
             const { data: existingReminder } = await supabase
               .from('race_reminders')
               .select('id')
               .eq('race_id', race.id)
-              .single();
+              .maybeSingle();
 
             if (!existingReminder) {
-              // Get all user emails
-              const { data: users } = await supabase
-                .from('profiles')
-                .select('email, username');
-
-              if (users) {
-                for (const user of users) {
+              if (allUsers) {
+                for (const user of allUsers) {
                   remindersToSend.push({
                     raceId: race.id,
                     raceName: race.name,
@@ -81,6 +83,7 @@ export async function POST(request: Request) {
                     course: meet.course,
                     email: user.email,
                     username: user.username,
+                    userId: user.id,
                   });
                 }
               }
@@ -94,7 +97,53 @@ export async function POST(request: Request) {
                   race_time: raceTime.toISOString(),
                   course: meet.course,
                   meet_id: meet.meet_id,
-                });
+                })
+                .throwOnError();
+
+              // Create in-app notifications for "race starting soon"
+              if (allUsers) {
+                const notificationPayload = allUsers.map(user => ({
+                  user_id: user.id,
+                  race_id: race.id,
+                  race_name: race.name,
+                  course: meet.course,
+                  notification_type: 'race_starting_soon',
+                  message: `${meet.course} - ${race.name} starts in 5 minutes!`,
+                }));
+
+                await supabase
+                  .from('notifications')
+                  .upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' })
+                  .throwOnError();
+              }
+            }
+          }
+          
+          // Check if race has just started (within last 2 minutes)
+          if (raceTime <= now && raceTime > twoMinutesAgo) {
+            // Check if we already sent started notification
+            const { data: existingStarted } = await supabase
+              .from('notifications')
+              .select('id')
+              .eq('race_id', race.id)
+              .eq('notification_type', 'race_started')
+              .maybeSingle();
+
+            if (!existingStarted && allUsers) {
+              // Create in-app notifications for "race started"
+              const notificationPayload = allUsers.map(user => ({
+                user_id: user.id,
+                race_id: race.id,
+                race_name: race.name,
+                course: meet.course,
+                notification_type: 'race_started',
+                message: `🏁 ${meet.course} - ${race.name} has started!`,
+              }));
+
+              await supabase
+                .from('notifications')
+                .upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' })
+                .throwOnError();
             }
           }
         }

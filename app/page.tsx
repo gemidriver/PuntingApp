@@ -103,6 +103,13 @@ interface BetfairHealthStatus {
   error?: string;
 }
 
+interface Notification {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info' | 'warning';
+  duration?: number; // in ms; 0 means manual dismissal
+}
+
 const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
 const RACE_RESULTS_SETTING_KEY = 'race_results';
 const RACE_RUNNERS_SETTING_KEY = 'race_runners';
@@ -120,10 +127,13 @@ type RaceResultEntry = {
 
 type RaceResultsMap = Record<string, RaceResultEntry>;
 type RaceRunnersMap = Record<string, Array<{ horseId: string; horseName: string }>>;
+type ScoreboardEntry = { username: string; score: number };
+type RankedScoreboardEntry = ScoreboardEntry & { rank: number; isTied: boolean };
+type PodiumGroup = { rank: number; score: number; entries: RankedScoreboardEntry[] };
 type PreviousRoundSnapshot = {
   capturedAt: string;
   meets: Meet[];
-  scoreboard: Array<{ username: string; score: number }>;
+  scoreboard: ScoreboardEntry[];
   results: Array<{
     raceId: string;
     raceName: string;
@@ -161,6 +171,38 @@ const formatHorseDisplayName = (name: string, number?: number | null) => {
 };
 const normalizeMeetRaceType = (value?: string | null): 'Thoroughbred' | 'Harness' => {
   return value === 'Harness' ? 'Harness' : 'Thoroughbred';
+};
+const rankScoreboard = (entries: ScoreboardEntry[]): RankedScoreboardEntry[] => {
+  const sortedEntries = [...entries].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.username.localeCompare(b.username);
+  });
+
+  const scoreCounts = sortedEntries.reduce((acc, entry) => {
+    acc.set(entry.score, (acc.get(entry.score) || 0) + 1);
+    return acc;
+  }, new Map<number, number>());
+
+  let previousScore: number | null = null;
+  let previousRank = 0;
+
+  return sortedEntries.map((entry, index) => {
+    const rank = previousScore === entry.score ? previousRank : index + 1;
+    previousScore = entry.score;
+    previousRank = rank;
+
+    return {
+      ...entry,
+      rank,
+      isTied: (scoreCounts.get(entry.score) || 0) > 1,
+    };
+  });
+};
+const formatRankLabel = (rank: number) => {
+  if (rank === 1) return '1st';
+  if (rank === 2) return '2nd';
+  if (rank === 3) return '3rd';
+  return `${rank}th`;
 };
 const buildRacesUrl = (meetId: string, date: string, raceType?: string, debug = false) => {
   const params = new URLSearchParams({
@@ -257,6 +299,24 @@ export default function Home() {
   const [betfairHealthLoading, setBetfairHealthLoading] = useState(false);
   const [betfairHealthError, setBetfairHealthError] = useState<string | null>(null);
   const [betfairHealthCheckedAt, setBetfairHealthCheckedAt] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
+  const addNotification = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration: number = 5000) => {
+    const id = String(Date.now() + Math.random());
+    const notification: Notification = { id, message, type, duration };
+    setNotifications(prev => [...prev, notification]);
+
+    if (duration > 0) {
+      const timer = setTimeout(() => {
+        setNotifications(prev => prev.filter(n => n.id !== id));
+      }, duration);
+      return () => clearTimeout(timer);
+    }
+  };
+
+  const removeNotification = (id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
 
   const meetsForPicks = globalMeets.length ? globalMeets : selectedMeets;
 
@@ -303,7 +363,7 @@ export default function Home() {
 
     if (upsertError) {
       console.error(upsertError);
-      setError('Unable to save selections to Supabase.');
+      addNotification('Unable to save selections to Supabase.', 'error');
     }
   };
 
@@ -494,12 +554,12 @@ export default function Home() {
       const data = await res.json() as { results?: { marketId: string; winnerId: string | null; secondId?: string | null; thirdId?: string | null; settled: boolean; inferredPlaces?: boolean }[]; error?: string };
 
       if (!res.ok) {
-        setError(data.error || 'Failed to fetch results from /api/results.');
+        addNotification(data.error || 'Failed to fetch results from /api/results.', 'error');
         return;
       }
 
       if (!Array.isArray(data.results)) {
-        setError('Unexpected response from /api/results.');
+        addNotification('Unexpected response from /api/results.', 'error');
         return;
       }
 
@@ -553,9 +613,9 @@ export default function Home() {
       const settledCount = data.results.filter(r => r.settled).length;
       const winnersCount = data.results.filter(r => r.winnerId).length;
       if (settledCount === 0) {
-        setError('No settled markets yet. Try Fetch Results again after races settle.');
+        addNotification('No settled markets yet. Try Fetch Results again after races settle.', 'warning');
       } else if (winnersCount === 0) {
-        setError('Markets are settled, but no winners were returned by Betfair data for these market IDs.');
+        addNotification('Markets are settled, but no winners were returned by Betfair data for these market IDs.', 'warning');
       }
     } finally {
       setResultsFetching(false);
@@ -566,18 +626,18 @@ export default function Home() {
     setManualApplyNotice(null);
 
     if (!manualResultRaceId) {
-      setError('Choose a race before applying manual placings.');
+      addNotification('Choose a race before applying manual placings.', 'warning');
       return;
     }
 
     if (!manualResultHorseId && !manualResultSecondHorseId && !manualResultThirdHorseId) {
-      setError('Select at least one placing (winner, 2nd, or 3rd).');
+      addNotification('Select at least one placing (winner, 2nd, or 3rd).', 'warning');
       return;
     }
 
     const selectedPlaceIds = [manualResultHorseId, manualResultSecondHorseId, manualResultThirdHorseId].filter(Boolean);
     if (new Set(selectedPlaceIds).size !== selectedPlaceIds.length) {
-      setError('Winner, 2nd, and 3rd must be different horses.');
+      addNotification('Winner, 2nd, and 3rd must be different horses.', 'warning');
       return;
     }
 
@@ -610,7 +670,7 @@ export default function Home() {
     const winnerId = manualResultHorseId || existing?.winnerId || '';
 
     if (!winnerId) {
-      setError('A winner is required for scoring. Select winner before saving.');
+      addNotification('A winner is required for scoring. Select winner before saving.', 'warning');
       return;
     }
 
@@ -633,18 +693,19 @@ export default function Home() {
     );
 
     if (saveError) {
-      setError('Unable to save manual placings.');
+      addNotification('Unable to save manual placings.', 'error');
       return;
     }
 
     setRaceResults(map);
-    setError(null);
 
     const raceLabel = manualRaceOptions.find((race) => race.raceId === manualResultRaceId)?.label || manualResultRaceId;
     const winnerName = map[manualResultRaceId]?.winnerName || map[manualResultRaceId]?.winnerId || 'N/A';
     const secondName = map[manualResultRaceId]?.secondName || map[manualResultRaceId]?.secondId || 'N/A';
     const thirdName = map[manualResultRaceId]?.thirdName || map[manualResultRaceId]?.thirdId || 'N/A';
-    setManualApplyNotice(`Manual placings saved for ${raceLabel}: 1st ${winnerName}, 2nd ${secondName}, 3rd ${thirdName}.`);
+    const message = `Manual placings saved for ${raceLabel}: 1st ${winnerName}, 2nd ${secondName}, 3rd ${thirdName}.`;
+    setManualApplyNotice(message);
+    addNotification(message, 'success', 5000);
   };
 
   const hydrateForUser = async (authUser: User) => {
@@ -836,7 +897,7 @@ export default function Home() {
 
     if (updateError) {
       console.error(updateError);
-      setError('Unable to update admin role. Ensure your SQL policies are applied.');
+      addNotification('Unable to update admin role. Ensure your SQL policies are applied.', 'error');
       return;
     }
 
@@ -908,7 +969,7 @@ export default function Home() {
 
     if (settingsError) {
       console.error(settingsError);
-      setError('Unable to reset the current race day.');
+      addNotification('Unable to reset the current race day.', 'error');
       return false;
     }
 
@@ -924,7 +985,7 @@ export default function Home() {
 
     if (submissionsError) {
       console.error(submissionsError);
-      setError('Race meets were updated, but user selections could not be reset.');
+      addNotification('Race meets were updated, but user selections could not be reset.', 'warning');
       return false;
     }
 
@@ -944,7 +1005,7 @@ export default function Home() {
 
   const publishGlobalMeetSelection = async () => {
     if (adminSelectedMeets.length !== 2) {
-      setError('Choose exactly two meets before publishing them.');
+      addNotification('Choose exactly two meets before publishing them.', 'warning');
       return;
     }
 
@@ -975,6 +1036,7 @@ export default function Home() {
       });
       await loadSubmissionRows();
       setShowSubmitConfirm(false);
+      addNotification('Your selections have been submitted successfully!', 'success', 5000);
     } finally {
       setIsSubmitting(false);
     }
@@ -1089,7 +1151,7 @@ export default function Home() {
       })
       .catch((err) => {
         console.error(err);
-        setError((err as Error).message || 'Unable to load meets. Check your API credentials and network.');
+        addNotification((err as Error).message || 'Unable to load meets. Check your API credentials and network.', 'error');
       })
       .finally(() => setLoading(false));
   }, []);
@@ -1394,7 +1456,7 @@ export default function Home() {
       setRaceDebug(prev => ({ ...prev, [meet.meet_id]: data.raw ?? data }));
     } catch (err) {
       console.error(err);
-      setError('Unable to load debug info for selected meet.');
+      addNotification('Unable to load debug info for selected meet.', 'error');
     }
   };
 
@@ -1441,9 +1503,10 @@ export default function Home() {
           }
         });
         return { username: row.username, score };
-      })
-      .sort((a, b) => b.score - a.score);
+      });
   }, [raceResults, submissionRows]);
+
+  const rankedScoreboard = useMemo(() => rankScoreboard(scoreboard), [scoreboard]);
 
   const manualRaceOptions = useMemo(() => {
     const raceMap = new Map<string, { raceName: string; location: string }>();
@@ -1555,11 +1618,37 @@ export default function Home() {
 
   const rankByUsername = useMemo(() => {
     const map = new Map<string, number>();
-    scoreboard.forEach((entry, i) => {
-      map.set(entry.username, i + 1);
+    rankedScoreboard.forEach((entry) => {
+      map.set(entry.username, entry.rank);
     });
     return map;
-  }, [scoreboard]);
+  }, [rankedScoreboard]);
+
+  const podiumGroups = useMemo(() => {
+    const groups = new Map<number, PodiumGroup>();
+
+    rankedScoreboard.forEach((entry) => {
+      if (entry.rank > 3) return;
+
+      const existing = groups.get(entry.rank);
+      if (existing) {
+        existing.entries.push(entry);
+        return;
+      }
+
+      groups.set(entry.rank, {
+        rank: entry.rank,
+        score: entry.score,
+        entries: [entry],
+      });
+    });
+
+    return {
+      first: groups.get(1) ?? null,
+      second: groups.get(2) ?? null,
+      third: groups.get(3) ?? null,
+    };
+  }, [rankedScoreboard]);
 
   const podiumTextClass = (rank: number) => {
     if (rank === 1) return 'text-yellow-500';
@@ -1788,6 +1877,8 @@ export default function Home() {
   const homeScoreboard =
     previousRoundSnapshot?.scoreboard?.length ? previousRoundSnapshot.scoreboard : scoreboard;
 
+  const homeRankedScoreboard = useMemo(() => rankScoreboard(homeScoreboard), [homeScoreboard]);
+
   const homeLastRoundRaceResults =
     previousRoundSnapshot?.results?.length ? previousRoundSnapshot.results : lastRoundRaceResults;
 
@@ -1807,13 +1898,13 @@ export default function Home() {
 
       <div className="rounded-lg bg-white p-4 shadow-sm">
         <h3 className="text-lg font-semibold">Last Round Points Won</h3>
-        {homeScoreboard.length === 0 ? (
+        {homeRankedScoreboard.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">No scored results yet for the current round.</p>
         ) : (
           <ol className="mt-3 space-y-2">
-            {homeScoreboard.map((entry, i) => (
+            {homeRankedScoreboard.map((entry) => (
               <li key={`home-score-${entry.username}`} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-sm">
-                <span className="font-medium">{i + 1}. {entry.username}</span>
+                <span className="font-medium">#{entry.rank} {entry.username}</span>
                 <span className="font-semibold text-slate-700">{entry.score} pt{entry.score !== 1 ? 's' : ''}</span>
               </li>
             ))}
@@ -2001,17 +2092,17 @@ export default function Home() {
           ) : null}
         </div>
       ) : null}
-      {scoreboard.length > 0 ? (
+      {rankedScoreboard.length > 0 ? (
         <div className="mb-6 rounded-lg bg-white p-4 shadow-sm">
           <h3 className="text-sm font-semibold text-slate-700 mb-3">Leaderboard</h3>
           <ol className="space-y-1">
-            {scoreboard.map((entry, i) => (
+            {rankedScoreboard.map((entry) => (
               <li key={entry.username} className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-2">
-                  <span className={`w-5 text-center font-bold ${podiumTextClass(i + 1)}`}>{i + 1}</span>
+                  <span className={`w-6 text-center font-bold ${podiumTextClass(entry.rank)}`}>{entry.rank}</span>
                   <span className="font-medium">{entry.username}</span>
                 </span>
-                <span className={`font-bold ${podiumTextClass(i + 1)}`}>{entry.score} pt{entry.score !== 1 ? 's' : ''}</span>
+                <span className={`font-bold ${podiumTextClass(entry.rank)}`}>{entry.score} pt{entry.score !== 1 ? 's' : ''}</span>
               </li>
             ))}
           </ol>
@@ -2024,7 +2115,7 @@ export default function Home() {
       ) : (
         <div className="space-y-3">
           {submissionRows.map(row => {
-            const rowScore = scoreboard.find(e => e.username === row.username)?.score ?? null;
+            const rowScore = rankedScoreboard.find(e => e.username === row.username)?.score ?? null;
             const rowRank = rankByUsername.get(row.username) ?? 0;
             const submittedAtLabel = row.submitted_at ? new Date(row.submitted_at).toLocaleString() : 'Not submitted yet';
             return (
@@ -2095,112 +2186,114 @@ export default function Home() {
           <p className="text-slate-500">No race results yet. Check back once races are submitted.</p>
         </div>
       ) : (
-        <div className="mt-12 px-4">
-          <div className="flex flex-col md:flex-row items-flex-end justify-center gap-2 md:gap-4">
-            {/* 2nd Place - Left */}
-            {scoreboard[1] ? (
-              <div className="flex-1 md:flex-none md:w-40">
-                <div className="rounded-t-lg bg-slate-100 border-2 border-slate-400 overflow-hidden">
-                  <div className="bg-slate-400 text-white p-4 text-center">
-                    <p className="text-2xl font-bold">🥈</p>
-                    <p className="text-sm font-semibold">2nd Place</p>
-                  </div>
-                  <div className="p-6 text-center">
-                    <p className="text-lg font-bold text-slate-900">{scoreboard[1].username}</p>
-                    <p className="text-3xl font-bold text-slate-700 mt-2">{scoreboard[1].score}</p>
-                    <p className="text-xs text-slate-600 mt-1">points</p>
-                  </div>
-                </div>
-                <div className="h-24 bg-slate-300 border-2 border-slate-400 border-t-0"></div>
-              </div>
-            ) : (
-              <div className="flex-1 md:flex-none md:w-40">
-                <div className="rounded-t-lg bg-slate-100 border-2 border-slate-300 border-dashed overflow-hidden opacity-50">
-                  <div className="bg-slate-300 text-slate-500 p-4 text-center">
-                    <p className="text-2xl font-bold">—</p>
-                    <p className="text-sm font-semibold">2nd Place</p>
-                  </div>
-                  <div className="p-6 text-center">
-                    <p className="text-lg font-bold text-slate-400">TBC</p>
-                  </div>
-                </div>
-                <div className="h-24 bg-slate-200 border-2 border-slate-300 border-t-0 border-dashed"></div>
-              </div>
-            )}
+        <div className="mt-8 px-0 sm:px-4">
+          <div className="grid gap-4 md:mt-12 md:grid-cols-3 md:items-end">
+            {[
+              {
+                key: 'second',
+                group: podiumGroups.second,
+                rank: 2,
+                orderClass: 'order-2 md:order-1',
+                cardClass: 'border-2 border-slate-400 bg-slate-100',
+                headerClass: 'bg-slate-400 text-white',
+                scoreClass: 'text-slate-700',
+                nameClass: 'text-slate-900',
+                subtextClass: 'text-slate-600',
+                pillarClass: 'hidden border-2 border-slate-400 border-t-0 bg-slate-300 md:block md:h-24',
+                emptyCardClass: 'border-2 border-dashed border-slate-300 bg-slate-100 opacity-50',
+                emptyHeaderClass: 'bg-slate-300 text-slate-500',
+                emptyPillarClass: 'hidden border-2 border-dashed border-slate-300 border-t-0 bg-slate-200 md:block md:h-24',
+                icon: '🥈',
+              },
+              {
+                key: 'first',
+                group: podiumGroups.first,
+                rank: 1,
+                orderClass: 'order-1 md:order-2',
+                cardClass: 'border-4 border-yellow-400 bg-yellow-100',
+                headerClass: 'bg-yellow-400 text-white',
+                scoreClass: 'text-yellow-600',
+                nameClass: 'text-yellow-900',
+                subtextClass: 'text-yellow-700',
+                pillarClass: 'hidden border-4 border-yellow-400 border-t-0 bg-yellow-300 md:block md:h-32',
+                emptyCardClass: 'border-4 border-dashed border-yellow-300 bg-yellow-50 opacity-50',
+                emptyHeaderClass: 'bg-yellow-300 text-yellow-600',
+                emptyPillarClass: 'hidden border-4 border-dashed border-yellow-300 border-t-0 bg-yellow-200 md:block md:h-32',
+                icon: '🥇',
+              },
+              {
+                key: 'third',
+                group: podiumGroups.third,
+                rank: 3,
+                orderClass: 'order-3 md:order-3',
+                cardClass: 'border-2 border-amber-700 bg-amber-100',
+                headerClass: 'bg-amber-700 text-white',
+                scoreClass: 'text-amber-700',
+                nameClass: 'text-amber-900',
+                subtextClass: 'text-amber-800',
+                pillarClass: 'hidden border-2 border-amber-700 border-t-0 bg-amber-600 md:block md:h-16',
+                emptyCardClass: 'border-2 border-dashed border-amber-600 bg-amber-50 opacity-50',
+                emptyHeaderClass: 'bg-amber-600 text-amber-200',
+                emptyPillarClass: 'hidden border-2 border-dashed border-amber-600 border-t-0 bg-amber-500 md:block md:h-16',
+                icon: '🥉',
+              },
+            ].map((slot) => {
+              const placeLabel = `${formatRankLabel(slot.rank)} Place`;
 
-            {/* 1st Place - Middle */}
-            {scoreboard[0] ? (
-              <div className="flex-1 md:flex-none md:w-40">
-                <div className="rounded-t-lg bg-yellow-100 border-4 border-yellow-400 overflow-hidden">
-                  <div className="bg-yellow-400 text-white p-4 text-center">
-                    <p className="text-3xl font-bold">🥇</p>
-                    <p className="text-sm font-semibold">1st Place</p>
+              if (!slot.group) {
+                return (
+                  <div key={slot.key} className={`${slot.orderClass} md:mx-auto md:w-48`}>
+                    <div className={`overflow-hidden rounded-t-lg ${slot.emptyCardClass}`}>
+                      <div className={`p-4 text-center ${slot.emptyHeaderClass}`}>
+                        <p className="text-2xl font-bold">—</p>
+                        <p className="text-sm font-semibold">{placeLabel}</p>
+                      </div>
+                      <div className="p-6 text-center">
+                        <p className="text-lg font-bold text-slate-400">TBC</p>
+                      </div>
+                    </div>
+                    <div className={slot.emptyPillarClass}></div>
                   </div>
-                  <div className="p-6 text-center">
-                    <p className="text-lg font-bold text-yellow-900">{scoreboard[0].username}</p>
-                    <p className="text-4xl font-bold text-yellow-600 mt-2">{scoreboard[0].score}</p>
-                    <p className="text-xs text-yellow-700 mt-1">points</p>
-                  </div>
-                </div>
-                <div className="h-32 bg-yellow-300 border-4 border-yellow-400 border-t-0"></div>
-              </div>
-            ) : (
-              <div className="flex-1 md:flex-none md:w-40">
-                <div className="rounded-t-lg bg-yellow-50 border-4 border-yellow-300 border-dashed overflow-hidden opacity-50">
-                  <div className="bg-yellow-300 text-yellow-600 p-4 text-center">
-                    <p className="text-3xl font-bold">—</p>
-                    <p className="text-sm font-semibold">1st Place</p>
-                  </div>
-                  <div className="p-6 text-center">
-                    <p className="text-lg font-bold text-yellow-500">TBC</p>
-                  </div>
-                </div>
-                <div className="h-32 bg-yellow-200 border-4 border-yellow-300 border-t-0 border-dashed"></div>
-              </div>
-            )}
+                );
+              }
 
-            {/* 3rd Place - Right */}
-            {scoreboard[2] ? (
-              <div className="flex-1 md:flex-none md:w-40">
-                <div className="rounded-t-lg bg-amber-100 border-2 border-amber-700 overflow-hidden">
-                  <div className="bg-amber-700 text-white p-4 text-center">
-                    <p className="text-2xl font-bold">🥉</p>
-                    <p className="text-sm font-semibold">3rd Place</p>
+              return (
+                <div key={slot.key} className={`${slot.orderClass} md:mx-auto md:w-48`}>
+                  <div className={`overflow-hidden rounded-t-lg ${slot.cardClass}`}>
+                    <div className={`p-4 text-center ${slot.headerClass}`}>
+                      <p className={`font-bold ${slot.rank === 1 ? 'text-3xl' : 'text-2xl'}`}>{slot.icon}</p>
+                      <p className="text-sm font-semibold">
+                        {slot.group.entries.length > 1 ? `Tied ${placeLabel}` : placeLabel}
+                      </p>
+                    </div>
+                    <div className="p-5 text-center">
+                      <div className="space-y-2">
+                        {slot.group.entries.map((entry) => (
+                          <div key={`${slot.key}-${entry.username}`} className="rounded-lg bg-white/50 px-3 py-2">
+                            <p className={`text-lg font-bold ${slot.nameClass}`}>{entry.username}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <p className={`mt-4 font-bold ${slot.rank === 1 ? 'text-4xl' : 'text-3xl'} ${slot.scoreClass}`}>{slot.group.score}</p>
+                      <p className={`mt-1 text-xs ${slot.subtextClass}`}>points</p>
+                    </div>
                   </div>
-                  <div className="p-6 text-center">
-                    <p className="text-lg font-bold text-amber-900">{scoreboard[2].username}</p>
-                    <p className="text-3xl font-bold text-amber-700 mt-2">{scoreboard[2].score}</p>
-                    <p className="text-xs text-amber-800 mt-1">points</p>
-                  </div>
+                  <div className={slot.pillarClass}></div>
                 </div>
-                <div className="h-16 bg-amber-600 border-2 border-amber-700 border-t-0"></div>
-              </div>
-            ) : (
-              <div className="flex-1 md:flex-none md:w-40">
-                <div className="rounded-t-lg bg-amber-50 border-2 border-amber-600 border-dashed overflow-hidden opacity-50">
-                  <div className="bg-amber-600 text-amber-200 p-4 text-center">
-                    <p className="text-2xl font-bold">—</p>
-                    <p className="text-sm font-semibold">3rd Place</p>
-                  </div>
-                  <div className="p-6 text-center">
-                    <p className="text-lg font-bold text-amber-500">TBC</p>
-                  </div>
-                </div>
-                <div className="h-16 bg-amber-500 border-2 border-amber-600 border-t-0 border-dashed"></div>
-              </div>
-            )}
+              );
+            })}
           </div>
         </div>
       )}
 
-      {scoreboard.length > 3 && (
+      {rankedScoreboard.some((entry) => entry.rank > 3) && (
         <div className="mt-12 rounded-lg bg-white p-6 shadow-sm">
           <h3 className="text-lg font-semibold mb-4">Other Competitors</h3>
           <ol className="space-y-2">
-            {scoreboard.slice(3).map((entry, i) => (
+            {rankedScoreboard.filter((entry) => entry.rank > 3).map((entry) => (
               <li key={entry.username} className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3 text-sm">
                 <div className="flex items-center gap-3">
-                  <span className="w-6 text-center font-bold text-slate-600">#{i + 4}</span>
+                  <span className="w-6 text-center font-bold text-slate-600">#{entry.rank}</span>
                   <span className="font-medium text-slate-900">{entry.username}</span>
                 </div>
                 <span className="font-semibold text-slate-700">{entry.score} pt{entry.score !== 1 ? 's' : ''}</span>
@@ -2293,6 +2386,48 @@ export default function Home() {
         </p>
       ) : null}
     </section>
+  );
+
+  const notificationContainer = (
+    <div className="fixed top-4 right-4 z-50 space-y-2 max-w-sm">
+      {notifications.map(notification => {
+        const bgColor = 
+          notification.type === 'success' ? 'bg-emerald-50 border-emerald-200' :
+          notification.type === 'error' ? 'bg-red-50 border-red-200' :
+          notification.type === 'warning' ? 'bg-amber-50 border-amber-200' :
+          'bg-blue-50 border-blue-200';
+        
+        const textColor = 
+          notification.type === 'success' ? 'text-emerald-800' :
+          notification.type === 'error' ? 'text-red-800' :
+          notification.type === 'warning' ? 'text-amber-800' :
+          'text-blue-800';
+        
+        const iconEmoji = 
+          notification.type === 'success' ? '✓' :
+          notification.type === 'error' ? '✕' :
+          notification.type === 'warning' ? '⚠' :
+          'ℹ';
+
+        return (
+          <div
+            key={notification.id}
+            className={`flex items-start gap-3 rounded-lg border px-4 py-3 shadow-sm animate-in ${bgColor}`}
+            role="alert"
+          >
+            <span className={`text-lg font-bold ${textColor}`}>{iconEmoji}</span>
+            <p className={`flex-1 text-sm ${textColor}`}>{notification.message}</p>
+            <button
+              onClick={() => removeNotification(notification.id)}
+              className={`text-lg font-bold hover:opacity-70 ${textColor}`}
+              aria-label="Close notification"
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+    </div>
   );
 
   if (!user) {
@@ -2885,6 +3020,7 @@ export default function Home() {
             <span>Submissions</span>
           </button>
         </nav>
+        {notificationContainer}
       </div>
     );
   }
@@ -3279,6 +3415,7 @@ export default function Home() {
 
         </div>
       </div>
+      {notificationContainer}
     </div>
   );
 }
