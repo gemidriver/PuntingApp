@@ -2965,55 +2965,55 @@ export default function Home() {
           <p className="text-slate-500">No race results yet. Check back once races are submitted.</p>
         </div>
       ) : (
-        <div className="mt-8 px-0 sm:px-4">
-          <div className="grid gap-4 md:mt-12 md:grid-cols-3 md:items-end">
+        <div className="mt-4">
+          <div className="grid grid-cols-3 items-end gap-2">
             {[
               {
                 key: 'second',
                 group: podiumGroups.second,
                 rank: 2,
-                orderClass: 'order-2 md:order-1',
+                orderClass: 'order-1',
                 cardClass: 'border-2 border-slate-400 bg-slate-100',
                 headerClass: 'bg-slate-400 text-white',
                 scoreClass: 'text-slate-700',
                 nameClass: 'text-slate-900',
                 subtextClass: 'text-slate-600',
-                pillarClass: 'hidden border-2 border-slate-400 border-t-0 bg-slate-300 md:block md:h-24',
+                pillarClass: 'border-2 border-slate-400 border-t-0 bg-slate-300 h-8 sm:h-24',
                 emptyCardClass: 'border-2 border-dashed border-slate-300 bg-slate-100 opacity-50',
                 emptyHeaderClass: 'bg-slate-300 text-slate-500',
-                emptyPillarClass: 'hidden border-2 border-dashed border-slate-300 border-t-0 bg-slate-200 md:block md:h-24',
+                emptyPillarClass: 'border-2 border-dashed border-slate-300 border-t-0 bg-slate-200 h-8 sm:h-24',
                 icon: '🥈',
               },
               {
                 key: 'first',
                 group: podiumGroups.first,
                 rank: 1,
-                orderClass: 'order-1 md:order-2',
+                orderClass: 'order-2',
                 cardClass: 'border-4 border-yellow-400 bg-yellow-100',
                 headerClass: 'bg-yellow-400 text-white',
                 scoreClass: 'text-yellow-600',
                 nameClass: 'text-yellow-900',
                 subtextClass: 'text-yellow-700',
-                pillarClass: 'hidden border-4 border-yellow-400 border-t-0 bg-yellow-300 md:block md:h-32',
+                pillarClass: 'border-4 border-yellow-400 border-t-0 bg-yellow-300 h-14 sm:h-32',
                 emptyCardClass: 'border-4 border-dashed border-yellow-300 bg-yellow-50 opacity-50',
                 emptyHeaderClass: 'bg-yellow-300 text-yellow-600',
-                emptyPillarClass: 'hidden border-4 border-dashed border-yellow-300 border-t-0 bg-yellow-200 md:block md:h-32',
+                emptyPillarClass: 'border-4 border-dashed border-yellow-300 border-t-0 bg-yellow-200 h-14 sm:h-32',
                 icon: '🥇',
               },
               {
                 key: 'third',
                 group: podiumGroups.third,
                 rank: 3,
-                orderClass: 'order-3 md:order-3',
+                orderClass: 'order-3',
                 cardClass: 'border-2 border-amber-700 bg-amber-100',
                 headerClass: 'bg-amber-700 text-white',
                 scoreClass: 'text-amber-700',
                 nameClass: 'text-amber-900',
                 subtextClass: 'text-amber-800',
-                pillarClass: 'hidden border-2 border-amber-700 border-t-0 bg-amber-600 md:block md:h-16',
+                pillarClass: 'border-2 border-amber-700 border-t-0 bg-amber-600 h-5 sm:h-16',
                 emptyCardClass: 'border-2 border-dashed border-amber-600 bg-amber-50 opacity-50',
                 emptyHeaderClass: 'bg-amber-600 text-amber-200',
-                emptyPillarClass: 'hidden border-2 border-dashed border-amber-600 border-t-0 bg-amber-500 md:block md:h-16',
+                emptyPillarClass: 'border-2 border-dashed border-amber-600 border-t-0 bg-amber-500 h-5 sm:h-16',
                 icon: '🥉',
               },
             ].map((slot) => {
@@ -3021,14 +3021,14 @@ export default function Home() {
 
               if (!slot.group) {
                 return (
-                  <div key={slot.key} className={`${slot.orderClass} md:mx-auto md:w-48`}>
+                  <div key={slot.key} className={slot.orderClass}>
                     <div className={`overflow-hidden rounded-t-lg ${slot.emptyCardClass}`}>
-                      <div className={`p-4 text-center ${slot.emptyHeaderClass}`}>
-                        <p className="text-2xl font-bold">—</p>
-                        <p className="text-sm font-semibold">{placeLabel}</p>
+                      <div className={`p-2 text-center ${slot.emptyHeaderClass}`}>
+                        <p className="text-xl font-bold">—</p>
+                        <p className="text-[10px] font-semibold leading-tight">{placeLabel}</p>
                       </div>
-                      <div className="p-6 text-center">
-                        <p className="text-lg font-bold text-slate-400">TBC</p>
+                      <div className="p-3 text-center">
+                        <p className="text-sm font-bold text-slate-400">TBC</p>
                       </div>
                     </div>
                     <div className={slot.emptyPillarClass}></div>
@@ -3037,24 +3037,24 @@ export default function Home() {
               }
 
               return (
-                <div key={slot.key} className={`${slot.orderClass} md:mx-auto md:w-48`}>
+                <div key={slot.key} className={slot.orderClass}>
                   <div className={`overflow-hidden rounded-t-lg ${slot.cardClass}`}>
-                    <div className={`p-4 text-center ${slot.headerClass}`}>
-                      <p className={`font-bold ${slot.rank === 1 ? 'text-3xl' : 'text-2xl'}`}>{slot.icon}</p>
-                      <p className="text-sm font-semibold">
+                    <div className={`p-2 text-center ${slot.headerClass}`}>
+                      <p className={`font-bold ${slot.rank === 1 ? 'text-2xl' : 'text-xl'}`}>{slot.icon}</p>
+                      <p className="text-[10px] font-semibold leading-tight">
                         {slot.group.entries.length > 1 ? `Tied ${placeLabel}` : placeLabel}
                       </p>
                     </div>
-                    <div className="p-5 text-center">
-                      <div className="space-y-2">
+                    <div className="p-2 text-center">
+                      <div className="space-y-1">
                         {slot.group.entries.map((entry) => (
-                          <div key={`${slot.key}-${entry.username}`} className="rounded-lg bg-white/50 px-3 py-2">
-                            <p className={`text-lg font-bold ${slot.nameClass}`}>{entry.username}</p>
+                          <div key={`${slot.key}-${entry.username}`} className="rounded bg-white/60 px-1 py-1">
+                            <p className={`text-xs font-bold truncate ${slot.nameClass}`}>{entry.username}</p>
                           </div>
                         ))}
                       </div>
-                      <p className={`mt-4 font-bold ${slot.rank === 1 ? 'text-4xl' : 'text-3xl'} ${slot.scoreClass}`}>{slot.group.score}</p>
-                      <p className={`mt-1 text-xs ${slot.subtextClass}`}>points</p>
+                      <p className={`mt-2 font-bold ${slot.rank === 1 ? 'text-3xl' : 'text-2xl'} ${slot.scoreClass}`}>{slot.group.score}</p>
+                      <p className={`text-[9px] ${slot.subtextClass}`}>pts</p>
                     </div>
                   </div>
                   <div className={slot.pillarClass}></div>
@@ -3301,7 +3301,7 @@ export default function Home() {
   if (user && isAdmin) {
     const usersList = Object.entries(allUsers);
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-900">
+      <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 text-slate-900">
         {/* Mobile sticky top bar */}
         <header className="sticky top-0 z-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 py-3 lg:hidden">
           <span className="font-bold text-base">🏇 Braddo&apos;s Punting</span>
@@ -3411,32 +3411,14 @@ export default function Home() {
             </div>
           ) : null}
 
-          {betfairStatusPanel}
+          {isAdmin && activeScreen === 'admin' ? betfairStatusPanel : null}
 
           {activeScreen === 'home' ? homeContent : null}
 
           <section className={`mb-10 ${activeScreen === 'admin' ? '' : 'hidden'}`}>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <h2 className="text-xl font-semibold">Global Meet Selection</h2>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    void sendTestInAppNotification();
-                  }}
-                  disabled={sendingTestInAppNotification}
-                  className="rounded-full bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {sendingTestInAppNotification ? 'Sending Test Notification...' : 'Send Test In-App Notification'}
-                </button>
-                <button
-                  onClick={() => {
-                    void emailTestResultsToMe();
-                  }}
-                  disabled={emailingResults}
-                  className="rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {emailingResults ? 'Sending...' : 'Send Test to Me'}
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => {
                     openEmailResultsConfirmation();
@@ -3745,7 +3727,7 @@ export default function Home() {
                       return raceNumA - raceNumB;
                     }).map(sel => (
                       <li key={`${sel.meetId}-${sel.raceId}`} className="rounded-lg bg-white p-3 shadow-sm">
-                        <span className="font-medium">{meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
+                        <span className="font-medium">{sel.meetCourse ?? meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
                         {wildcard?.meetId === sel.meetId && wildcard?.raceId === sel.raceId ? (
                           <span className="text-sm font-semibold text-emerald-600">(Wildcard)</span>
                         ) : null}
@@ -3834,7 +3816,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 text-slate-900">
       {/* Mobile sticky top bar */}
       <div className="sticky top-0 z-20 flex items-center justify-between bg-white px-4 py-3 shadow-sm lg:hidden">
         <span className="text-base font-bold tracking-tight">🏇 Braddo&apos;s Punting</span>
@@ -3926,8 +3908,6 @@ export default function Home() {
             {sessionNotice}
           </div>
         ) : null}
-
-        {betfairStatusPanel}
 
         {activeScreen === 'home' ? homeContent : null}
 
@@ -4090,7 +4070,7 @@ export default function Home() {
                 return raceNumA - raceNumB;
               }).map(sel => (
                 <li key={`${sel.meetId}-${sel.raceId}`} className="rounded-lg bg-white p-3 shadow-sm">
-                  <span className="font-medium">{meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
+                  <span className="font-medium">{sel.meetCourse ?? meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId}</span> Race {sel.raceId}: {sel.horseName}{' '}
                   {wildcard?.meetId === sel.meetId && wildcard?.raceId === sel.raceId ? (
                     <span className="text-sm font-semibold text-emerald-600">(Wildcard)</span>
                   ) : null}
