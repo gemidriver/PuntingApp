@@ -135,6 +135,20 @@ let loginPromise: Promise<string> | null = null;
 let autoLoginRefreshCount = 0;
 let lastAutoLoginAt: string | null = null;
 
+function compactPreview(rawText: string) {
+  return rawText
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180);
+}
+
+function shouldFallbackFromProxy(errorMessage: string) {
+  return /non-JSON|proxy error \((502|503|504|521|522|523|524)\)|fetch failed|ENOTFOUND|ECONNRESET|ETIMEDOUT|UND_ERR_/i.test(
+    errorMessage
+  );
+}
+
 function requireBetfairAppKey() {
   if (!BETFAIR_APP_KEY) {
     throw new Error('BETFAIR_APP_KEY is not configured. Add it to .env.local and restart the app.');
@@ -204,7 +218,7 @@ async function loginBetfairInteractive(): Promise<string> {
 
   const contentType = response.headers.get('content-type') || '';
   const rawText = await response.text();
-  const preview = rawText.slice(0, 180).replace(/\s+/g, ' ').trim();
+  const preview = compactPreview(rawText);
 
   if (!contentType.includes('application/json')) {
     throw new Error(
@@ -241,49 +255,64 @@ async function ensureFreshSessionToken() {
   return loginPromise;
 }
 
-async function betfairRpc<T>(method: string, params: Record<string, unknown>, allowRetry = true): Promise<T> {
+async function betfairRpc<T>(
+  method: string,
+  params: Record<string, unknown>,
+  allowRetry = true,
+  preferProxy = true
+): Promise<T> {
   requireBetfairAppKey();
 
-  if (BETFAIR_PROXY_URL) {
-    const proxyUrl = `${BETFAIR_PROXY_URL.replace(/\/$/, '')}/rpc`;
-    const proxyHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    };
+  if (BETFAIR_PROXY_URL && preferProxy) {
+    try {
+      const proxyUrl = `${BETFAIR_PROXY_URL.replace(/\/$/, '')}/rpc`;
+      const proxyHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      };
 
-    if (BETFAIR_PROXY_TOKEN) {
-      proxyHeaders['X-Proxy-Token'] = BETFAIR_PROXY_TOKEN;
+      if (BETFAIR_PROXY_TOKEN) {
+        proxyHeaders['X-Proxy-Token'] = BETFAIR_PROXY_TOKEN;
+      }
+
+      const proxyResponse = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: proxyHeaders,
+        body: JSON.stringify({ method, params }),
+        cache: 'no-store',
+      });
+
+      const proxyContentType = proxyResponse.headers.get('content-type') || '';
+      const proxyRaw = await proxyResponse.text();
+      const proxyPreview = compactPreview(proxyRaw);
+
+      if (!proxyContentType.includes('application/json')) {
+        throw new Error(
+          `Betfair proxy returned non-JSON (${proxyResponse.status}, ${proxyContentType || 'unknown content-type'}). ` +
+            `Preview: ${proxyPreview || '[empty response]'}`
+        );
+      }
+
+      const proxyPayload = JSON.parse(proxyRaw) as { result?: T; error?: unknown } | T;
+      const wrapped = proxyPayload as { result?: T; error?: unknown };
+
+      if (!proxyResponse.ok || wrapped.error) {
+        throw new Error(
+          `Betfair proxy error (${proxyResponse.status}): ${String(wrapped.error ?? proxyPreview ?? 'Unknown error')}`
+        );
+      }
+
+      // Node-RED may return the result unwrapped (direct array/object) or wrapped in { result: T }
+      const result = wrapped.result !== undefined ? wrapped.result : (proxyPayload as T);
+      return result as T;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (shouldFallbackFromProxy(message)) {
+        console.warn(`[betfair] Proxy failed, retrying direct Betfair RPC: ${message}`);
+        return betfairRpc<T>(method, params, allowRetry, false);
+      }
+      throw error;
     }
-
-    const proxyResponse = await fetch(proxyUrl, {
-      method: 'POST',
-      headers: proxyHeaders,
-      body: JSON.stringify({ method, params }),
-      cache: 'no-store',
-    });
-
-    const proxyContentType = proxyResponse.headers.get('content-type') || '';
-    const proxyRaw = await proxyResponse.text();
-    const proxyPreview = proxyRaw.slice(0, 180).replace(/\s+/g, ' ').trim();
-
-    if (!proxyContentType.includes('application/json')) {
-      throw new Error(
-        `Betfair proxy returned non-JSON (${proxyResponse.status}, ${proxyContentType || 'unknown content-type'}). Preview: ${proxyPreview || '[empty response]'}`
-      );
-    }
-
-    const proxyPayload = JSON.parse(proxyRaw) as { result?: T; error?: unknown } | T;
-    const wrapped = proxyPayload as { result?: T; error?: unknown };
-
-    if (!proxyResponse.ok || wrapped.error) {
-      throw new Error(
-        `Betfair proxy error (${proxyResponse.status}): ${String(wrapped.error ?? proxyPreview ?? 'Unknown error')}`
-      );
-    }
-
-    // Node-RED may return the result unwrapped (direct array/object) or wrapped in { result: T }
-    const result = wrapped.result !== undefined ? wrapped.result : (proxyPayload as T);
-    return result as T;
   }
 
   const requestBody = {
@@ -323,7 +352,7 @@ async function betfairRpc<T>(method: string, params: Record<string, unknown>, al
     }
   }
 
-  const preview = rawText.slice(0, 180).replace(/\s+/g, ' ').trim();
+  const preview = compactPreview(rawText);
 
   if (!response.ok) {
     const rpcError = Array.isArray(payload) ? payload[0]?.error : payload?.error;
@@ -331,7 +360,7 @@ async function betfairRpc<T>(method: string, params: Record<string, unknown>, al
 
     if (allowRetry && /ANGX-0003|INVALID_SESSION_INFORMATION|NO_SESSION/i.test(statusMessage)) {
       await ensureFreshSessionToken();
-      return betfairRpc<T>(method, params, false);
+      return betfairRpc<T>(method, params, false, preferProxy);
     }
 
     throw new Error(
@@ -350,7 +379,7 @@ async function betfairRpc<T>(method: string, params: Record<string, unknown>, al
   if (rpcEnvelope?.error) {
     if (allowRetry && /ANGX-0003|INVALID_SESSION_INFORMATION|NO_SESSION/i.test(String(rpcEnvelope.error.message ?? ''))) {
       await ensureFreshSessionToken();
-      return betfairRpc<T>(method, params, false);
+      return betfairRpc<T>(method, params, false, preferProxy);
     }
     throw new Error(formatBetfairError(rpcEnvelope.error as BetfairRpcError, 'Betfair RPC error'));
   }
