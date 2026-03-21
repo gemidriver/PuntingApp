@@ -352,7 +352,6 @@ export default function Home() {
   const [previousRoundSnapshot, setPreviousRoundSnapshot] = useState<PreviousRoundSnapshot | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [emailingResults, setEmailingResults] = useState(false);
-  const [emailingNewDay, setEmailingNewDay] = useState(false);
   const [sendingTestInAppNotification, setSendingTestInAppNotification] = useState(false);
   const [betfairHealth, setBetfairHealth] = useState<BetfairHealthStatus | null>(null);
   const [betfairHealthLoading, setBetfairHealthLoading] = useState(false);
@@ -1461,18 +1460,12 @@ export default function Home() {
     }
   };
 
-  const emailNewDayMeetsToUsers = async (publishedMeets: Meet[], testOnly = false) => {
-    setEmailingNewDay(true);
+  const emailNewDayMeetsToUsers = async (publishedMeets: Meet[]) => {
     try {
       const supabase = getSupabaseClient();
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !sessionData.session?.access_token) {
-        addNotification(
-          testOnly
-            ? 'Unable to verify your session for the test email.'
-            : 'Meets were published, but your session could not be verified for email broadcast.',
-          'warning'
-        );
+        addNotification('Meets were published, but your session could not be verified for email broadcast.', 'warning');
         return;
       }
 
@@ -1482,40 +1475,23 @@ export default function Home() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
-        body: JSON.stringify({ meets: publishedMeets, testOnly }),
+        body: JSON.stringify({ meets: publishedMeets }),
       });
 
       const payload = await response.json().catch(() => ({} as { error?: string; sentCount?: number; recipients?: number }));
       if (!response.ok) {
-        addNotification(
-          payload.error || (testOnly ? 'Failed to send test new day email.' : 'Meets were published, but the new day email failed to send.'),
-          'warning'
-        );
+        addNotification(payload.error || 'Meets were published, but the new day email failed to send.', 'warning');
         return;
       }
 
-      if (testOnly) {
-        addNotification(`Test new day email sent (${payload.sentCount ?? 0} sent).`, 'success');
-      } else {
-        addNotification(
-          `New day email sent to ${payload.sentCount ?? 0} of ${payload.recipients ?? 0} users.`,
-          'success'
-        );
-      }
+      addNotification(
+        `New day email sent to ${payload.sentCount ?? 0} of ${payload.recipients ?? 0} users.`,
+        'success'
+      );
     } catch (error) {
       console.error('emailNewDayMeetsToUsers failed', error);
-      addNotification(
-        testOnly ? 'Failed to send test new day email.' : 'Meets were published, but the new day email failed to send.',
-        'warning'
-      );
-    } finally {
-      setEmailingNewDay(false);
+      addNotification('Meets were published, but the new day email failed to send.', 'warning');
     }
-  };
-
-  const emailTestNewDayToMe = async () => {
-    const meetsForTest = adminSelectedMeets.length ? adminSelectedMeets : globalMeets;
-    await emailNewDayMeetsToUsers(meetsForTest, true);
   };
 
   const emailTestResultsToMe = async () => {
@@ -3562,15 +3538,6 @@ export default function Home() {
                   className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   {emailingResults ? 'Sending Results...' : 'Email Results to Contestants'}
-                </button>
-                <button
-                  onClick={() => {
-                    void emailTestNewDayToMe();
-                  }}
-                  disabled={emailingNewDay}
-                  className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {emailingNewDay ? 'Sending Test...' : 'Test New Day Email to Me'}
                 </button>
                 <button
                   onClick={() => {

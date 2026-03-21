@@ -23,7 +23,6 @@ type ProfileRow = {
 
 type NewDayEmailRequestBody = {
   meets?: Meet[];
-  testOnly?: boolean;
 };
 
 const escapeHtml = (value: string) =>
@@ -60,7 +59,6 @@ const formatDateTime = (isoValue: string) => {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({} as NewDayEmailRequestBody));
-    const testOnly = Boolean(body.testOnly);
 
     const authHeader = request.headers.get('authorization') || '';
     if (!authHeader.startsWith('Bearer ')) {
@@ -188,15 +186,10 @@ export async function POST(request: Request) {
       return Response.json({ error: 'No user emails found.' }, { status: 400 });
     }
 
-    const uniqueEmails = testOnly
-      ? [String(user.email || '').trim()].filter(Boolean)
-      : [...new Set(recipients.map((entry) => entry.email))];
+    const uniqueEmails = [...new Set(recipients.map((entry) => entry.email))];
 
     if (!uniqueEmails.length) {
-      return Response.json(
-        { error: testOnly ? 'Your account does not have an email address.' : 'No user emails found.' },
-        { status: 400 }
-      );
+      return Response.json({ error: 'No user emails found.' }, { status: 400 });
     }
 
     const meetListHtml = meets
@@ -234,7 +227,7 @@ export async function POST(request: Request) {
         resend.emails.send({
           from: resendFromEmail,
           to: email,
-          subject: `${testOnly ? '[TEST] ' : ''}New Race Day Meets - ${meetDate}`,
+          subject: `New Race Day Meets - ${meetDate}`,
           html,
         })
       )
@@ -248,7 +241,7 @@ export async function POST(request: Request) {
       recipients: uniqueEmails.length,
       sentCount,
       failedCount,
-      mode: testOnly ? 'test' : 'broadcast',
+      mode: 'broadcast',
       earliestStart,
     });
   } catch (error) {
