@@ -11,6 +11,7 @@ A Next.js application for managing horse racing syndicate selections. Users can 
 - Automatically hides expired race-day data once the meet date has passed
 - Admin can clear the finished race day and publish a new pair of global meets for everyone
 - Publishing new global meets resets all user selections, wildcard picks, and stored results
+- Publishing new global meets also emails all users with the new meet list and earliest start time
 - Mock data integration (ready for theracingapi.com API)
 
 ## Operations Runbook

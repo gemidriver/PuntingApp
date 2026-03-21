@@ -177,6 +177,22 @@ const formatHorseDisplayName = (name: string, number?: number | null) => {
   if (/^\d+\.\s+/.test(trimmed)) return trimmed;
   return typeof number === 'number' ? `${number}. ${trimmed}` : trimmed;
 };
+const formatRunnerMetaLine = (runner: Race['runners'][number]) => {
+  const oddsLabel = runner.odds ? `Odds $${runner.odds}` : 'Odds N/A';
+  const formLabel = runner.form ? `Form ${runner.form}` : 'Form N/A';
+  return `${oddsLabel} | ${formLabel}`;
+};
+const getRunnerMissingFields = (runner: Race['runners'][number]) => {
+  const missing: string[] = [];
+  if (!runner.odds) missing.push('Odds');
+  if (!runner.form) missing.push('Form');
+  if (!runner.jockey) missing.push('Jockey');
+  if (!runner.trainer) missing.push('Trainer');
+  if (!runner.weight) missing.push('Weight');
+  if (!runner.age) missing.push('Age');
+  if (!runner.colours) missing.push('Colours');
+  return missing;
+};
 const extractHorseNumber = (value: string | null | undefined): number | null => {
   const trimmed = String(value || '').trim();
   if (!trimmed) return null;
@@ -336,6 +352,7 @@ export default function Home() {
   const [previousRoundSnapshot, setPreviousRoundSnapshot] = useState<PreviousRoundSnapshot | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [emailingResults, setEmailingResults] = useState(false);
+  const [emailingNewDay, setEmailingNewDay] = useState(false);
   const [sendingTestInAppNotification, setSendingTestInAppNotification] = useState(false);
   const [betfairHealth, setBetfairHealth] = useState<BetfairHealthStatus | null>(null);
   const [betfairHealthLoading, setBetfairHealthLoading] = useState(false);
@@ -361,6 +378,9 @@ export default function Home() {
   };
 
   const meetsForPicks = globalMeets.length ? globalMeets : selectedMeets;
+  const selectedRunnerMissingFields = selectedRunnerDetails
+    ? getRunnerMissingFields(selectedRunnerDetails.runner)
+    : [];
 
   const resolveRaceHorseName = (
     raceId: string,
@@ -1379,6 +1399,8 @@ export default function Home() {
     for (const meet of meetsToPublish) {
       await loadRacesForMeet(meet);
     }
+
+    await emailNewDayMeetsToUsers(meetsToPublish);
   };
 
   const submitSelections = async () => {
@@ -1437,6 +1459,63 @@ export default function Home() {
     } finally {
       setEmailingResults(false);
     }
+  };
+
+  const emailNewDayMeetsToUsers = async (publishedMeets: Meet[], testOnly = false) => {
+    setEmailingNewDay(true);
+    try {
+      const supabase = getSupabaseClient();
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session?.access_token) {
+        addNotification(
+          testOnly
+            ? 'Unable to verify your session for the test email.'
+            : 'Meets were published, but your session could not be verified for email broadcast.',
+          'warning'
+        );
+        return;
+      }
+
+      const response = await fetch('/api/email-new-day', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ meets: publishedMeets, testOnly }),
+      });
+
+      const payload = await response.json().catch(() => ({} as { error?: string; sentCount?: number; recipients?: number }));
+      if (!response.ok) {
+        addNotification(
+          payload.error || (testOnly ? 'Failed to send test new day email.' : 'Meets were published, but the new day email failed to send.'),
+          'warning'
+        );
+        return;
+      }
+
+      if (testOnly) {
+        addNotification(`Test new day email sent (${payload.sentCount ?? 0} sent).`, 'success');
+      } else {
+        addNotification(
+          `New day email sent to ${payload.sentCount ?? 0} of ${payload.recipients ?? 0} users.`,
+          'success'
+        );
+      }
+    } catch (error) {
+      console.error('emailNewDayMeetsToUsers failed', error);
+      addNotification(
+        testOnly ? 'Failed to send test new day email.' : 'Meets were published, but the new day email failed to send.',
+        'warning'
+      );
+    } finally {
+      setEmailingNewDay(false);
+    }
+  };
+
+  const emailTestNewDayToMe = async () => {
+    const meetsForTest = adminSelectedMeets.length ? adminSelectedMeets : globalMeets;
+    await emailNewDayMeetsToUsers(meetsForTest, true);
   };
 
   const emailTestResultsToMe = async () => {
@@ -3486,6 +3565,15 @@ export default function Home() {
                 </button>
                 <button
                   onClick={() => {
+                    void emailTestNewDayToMe();
+                  }}
+                  disabled={emailingNewDay}
+                  className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {emailingNewDay ? 'Sending Test...' : 'Test New Day Email to Me'}
+                </button>
+                <button
+                  onClick={() => {
                     void resetRaceDayState([]);
                   }}
                   className="rounded-full bg-red-100 px-4 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-200"
@@ -3708,7 +3796,9 @@ export default function Home() {
                                             : ''
                                         }`}
                                       >
-                                        {runner.name}
+                                        <span className="block font-semibold">{formatHorseDisplayName(runner.name, runner.number)}</span>
+                                        <span className="mt-0.5 block text-xs font-normal text-slate-600">{formatRunnerMetaLine(runner)}</span>
+                                        <span className="mt-0.5 block text-xs font-normal text-slate-500">Jockey: {runner.jockey || 'N/A'}</span>
                                       </button>
                                     </li>
                                   ))}
@@ -3798,6 +3888,11 @@ export default function Home() {
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                 <h3 className="text-lg font-semibold mb-4">{selectedRunnerDetails.runner.name}</h3>
+                {selectedRunnerMissingFields.length > 0 ? (
+                  <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Data source incomplete: {selectedRunnerMissingFields.join(', ')}
+                  </div>
+                ) : null}
                 <div className="space-y-2 text-sm">
                   <p><strong>Jockey:</strong> {selectedRunnerDetails.runner.jockey || 'N/A'}</p>
                   <p><strong>Colours:</strong> {selectedRunnerDetails.runner.colours || 'N/A'}</p>
@@ -4033,7 +4128,9 @@ export default function Home() {
                                       : 'bg-slate-50 text-slate-900 hover:bg-slate-100'
                                   } ${selectedWildcards(meet.meet_id, race.id) ? 'ring-2 ring-amber-400' : ''}`}
                                 >
-                                  {runner.name}
+                                  <span className="block font-semibold">{formatHorseDisplayName(runner.name, runner.number)}</span>
+                                  <span className="mt-0.5 block text-xs font-normal text-slate-600">{formatRunnerMetaLine(runner)}</span>
+                                  <span className="mt-0.5 block text-xs font-normal text-slate-500">Jockey: {runner.jockey || 'N/A'}</span>
                                 </button>
                               </li>
                             ))}
@@ -4190,6 +4287,11 @@ export default function Home() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
               <h3 className="text-lg font-semibold mb-4">{selectedRunnerDetails.runner.name}</h3>
+              {selectedRunnerMissingFields.length > 0 ? (
+                <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Data source incomplete: {selectedRunnerMissingFields.join(', ')}
+                </div>
+              ) : null}
               <div className="space-y-2 text-sm">
                 <p><strong>Jockey:</strong> {selectedRunnerDetails.runner.jockey || 'N/A'}</p>
                 <p><strong>Colours:</strong> {selectedRunnerDetails.runner.colours || 'N/A'}</p>

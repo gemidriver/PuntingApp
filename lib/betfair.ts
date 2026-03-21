@@ -635,9 +635,28 @@ export async function fetchRacesForCourse(
       const oddsValue = typeof bestBack === 'number' ? bestBack : ltp;
       const metadata = runner.metadata ?? {};
 
+      const normalizeMetaKey = (key: string) => key.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const metadataLookup = new Map<string, string>();
+
+      for (const [rawKey, rawValue] of Object.entries(metadata)) {
+        const value = String(rawValue ?? '').trim();
+        if (!value) continue;
+        const lower = rawKey.toLowerCase();
+        const normalized = normalizeMetaKey(rawKey);
+        if (!metadataLookup.has(lower)) {
+          metadataLookup.set(lower, value);
+        }
+        if (!metadataLookup.has(normalized)) {
+          metadataLookup.set(normalized, value);
+        }
+      }
+
       const firstMeta = (...keys: string[]) => {
         for (const key of keys) {
-          const value = String(metadata[key] ?? '').trim();
+          const value =
+            metadataLookup.get(key.toLowerCase()) ||
+            metadataLookup.get(normalizeMetaKey(key)) ||
+            String(metadata[key] ?? '').trim();
           if (value) return value;
         }
         return '';
@@ -656,12 +675,12 @@ export async function fetchRacesForCourse(
         name: runnerName,
         number: typeof runner.sortPriority === 'number' ? runner.sortPriority : runnerIndex + 1,
         odds: typeof oddsValue === 'number' ? String(oddsValue) : '',
-        jockey: firstMeta('JOCKEY_NAME', 'JOCKEY'),
-        trainer: firstMeta('TRAINER_NAME', 'TRAINER'),
-        weight: firstMeta('WEIGHT_VALUE', 'WEIGHT', 'WEIGHT_CARRIED'),
-        age: firstMeta('AGE'),
-        form: firstMeta('FORM'),
-        colours: firstMeta('CLOTH_COLOUR', 'COLOURS', 'COLORS', 'SILK_COLOUR'),
+        jockey: firstMeta('JOCKEY_NAME', 'JOCKEY', 'RIDER_NAME', 'RIDER'),
+        trainer: firstMeta('TRAINER_NAME', 'TRAINER', 'TRAINER_FULL_NAME'),
+        weight: firstMeta('WEIGHT_VALUE', 'WEIGHT', 'WEIGHT_CARRIED', 'HANDICAP_WEIGHT'),
+        age: firstMeta('AGE', 'HORSE_AGE'),
+        form: firstMeta('FORM', 'RECENT_FORM', 'OFFICIAL_FORM', 'LAST_5_RUNS'),
+        colours: firstMeta('CLOTH_COLOUR', 'COLOURS', 'COLORS', 'SILK_COLOUR', 'COLOUR'),
       };
     });
 
