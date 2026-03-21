@@ -1878,7 +1878,10 @@ export default function Home() {
   const manualHorseOptions = useMemo(() => {
     if (!manualResultRaceId) return [] as Array<{ horseId: string; horseName: string }>;
 
-    const isBadName = (name: string) => !name || isRunnerPlaceholderName(name);
+    const isBadName = (name: string) => {
+      const trimmed = String(name || '').trim();
+      return !trimmed || isRunnerPlaceholderName(trimmed) || /^\d+$/.test(trimmed);
+    };
 
     const candidates: Array<{ horseId: string; horseName: string; priority: number }> = [];
     const pushCandidate = (horseId: string, horseName: string, priority: number) => {
@@ -1940,7 +1943,10 @@ export default function Home() {
     });
 
     return [...bestByKey.values()]
-      .map(({ horseId, horseName }) => ({ horseId, horseName }))
+      .map(({ horseId, horseName }) => ({
+        horseId,
+        horseName: /^\d+$/.test(String(horseName || '').trim()) ? 'Runner details unavailable' : horseName,
+      }))
       .sort((a, b) => {
         const aNumber = extractHorseNumber(a.horseName);
         const bNumber = extractHorseNumber(b.horseName);
@@ -1962,6 +1968,7 @@ export default function Home() {
     const trimmed = String(value || '').trim();
     if (!trimmed) return true;
     if (/^\d+$/.test(trimmed)) return true;
+    if (/^runner details unavailable$/i.test(trimmed)) return true;
     return isRunnerPlaceholderName(trimmed);
   };
 

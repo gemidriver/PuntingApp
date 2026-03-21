@@ -78,13 +78,17 @@ Notes:
 
 ### Overview
 
-The app automatically sends email reminders to all users 5 minutes before each race starts.
+The app can send email reminders to all users 5 minutes before each race starts, but minute-level automation is not available on Vercel Hobby.
 
 **How it works:**
-- A Vercel cron job runs every minute and checks upcoming races
+- On Vercel Pro, a Vercel cron job can run every minute and check upcoming races
 - When a race is found within the 5-minute window, emails are sent to all registered users
 - Race reminders are tracked to avoid sending duplicates
 - Reminders show the course, race name, and exact start time
+
+**Vercel Hobby limitation:**
+- Vercel Hobby does not allow minute-level cron schedules, so `vercel.json` does not include the reminder cron.
+- If you need automatic 5-minute reminders in production, use either Vercel Pro or an external scheduler that calls `/api/race-reminders` with `CRON_SECRET`.
 
 **Requirements:**
 - Resend API key configured in Vercel env vars
@@ -123,7 +127,9 @@ The app automatically sends email reminders to all users 5 minutes before each r
    );
    ```
 
-4. Redeploy app to Vercel (vercel.json includes cron config)
+4. Redeploy app to Vercel
+   - Hobby: deploys succeed because `vercel.json` does not include unsupported minute cron config
+   - Pro/external scheduler: configure `/api/race-reminders` separately if you want automatic reminders
 
 ## 6. Incident Playbooks
 
