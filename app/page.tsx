@@ -127,6 +127,14 @@ type RaceResultEntry = {
 
 type RaceResultsMap = Record<string, RaceResultEntry>;
 type RaceRunnersMap = Record<string, Array<{ horseId: string; horseName: string }>>;
+type RaceResultRow = {
+  meet_id: string;
+  race_id: string;
+  horse_id: string;
+  horse_name: string | null;
+  finishing_position: number;
+  result_date: string | null;
+};
 type ScoreboardEntry = { username: string; score: number };
 type RankedScoreboardEntry = ScoreboardEntry & { rank: number; isTied: boolean };
 type PodiumGroup = { rank: number; score: number; entries: RankedScoreboardEntry[] };
@@ -168,6 +176,34 @@ const formatHorseDisplayName = (name: string, number?: number | null) => {
   if (!trimmed) return '';
   if (/^\d+\.\s+/.test(trimmed)) return trimmed;
   return typeof number === 'number' ? `${number}. ${trimmed}` : trimmed;
+};
+const extractHorseNumber = (value: string | null | undefined): number | null => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+
+  const prefixedMatch = trimmed.match(/^(\d+)\.\s*/);
+  if (prefixedMatch) {
+    return Number(prefixedMatch[1]);
+  }
+
+  const runnerMatch = trimmed.match(/runner\s+(\d+)$/i);
+  if (runnerMatch) {
+    return Number(runnerMatch[1]);
+  }
+
+  return null;
+};
+const extractRaceNumber = (value: string | null | undefined): number => {
+  const trimmed = String(value || '').trim();
+  const match = trimmed.match(/R(\d+)/i);
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+};
+const normalizeHorseNameForComparison = (value: string | null | undefined) => {
+  return String(value || '')
+    .trim()
+    .replace(/^\d+\.\s*/, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
 };
 const normalizeMeetRaceType = (value?: string | null): 'Thoroughbred' | 'Harness' => {
   return value === 'Harness' ? 'Harness' : 'Thoroughbred';
@@ -290,6 +326,9 @@ export default function Home() {
   const [manualResultHorseId, setManualResultHorseId] = useState('');
   const [manualResultSecondHorseId, setManualResultSecondHorseId] = useState('');
   const [manualResultThirdHorseId, setManualResultThirdHorseId] = useState('');
+  const [manualResultHorseName, setManualResultHorseName] = useState('');
+  const [manualResultSecondHorseName, setManualResultSecondHorseName] = useState('');
+  const [manualResultThirdHorseName, setManualResultThirdHorseName] = useState('');
   const [manualRunnersByRaceId, setManualRunnersByRaceId] = useState<Record<string, Array<{ horseId: string; horseName: string }>>>({});
   const [manualRunnersLoading, setManualRunnersLoading] = useState(false);
   const [manualApplyNotice, setManualApplyNotice] = useState<string | null>(null);
@@ -319,6 +358,246 @@ export default function Home() {
   };
 
   const meetsForPicks = globalMeets.length ? globalMeets : selectedMeets;
+
+  const resolveRaceHorseName = (
+    raceId: string,
+    horseId: string | null | undefined,
+    preferredName?: string | null
+  ): string | null => {
+    if (!raceId || !horseId) return null;
+
+    const normalizedPreferred = String(preferredName || '').trim();
+    if (normalizedPreferred && !isRunnerPlaceholderName(normalizedPreferred)) {
+      return normalizedPreferred;
+    }
+
+    const fromManual = (manualRunnersByRaceId[raceId] || []).find((runner) => runner.horseId === horseId);
+    if (fromManual?.horseName && !isRunnerPlaceholderName(fromManual.horseName)) {
+      return fromManual.horseName;
+    }
+
+    const fromCache = (raceRunnersCache[raceId] || []).find((runner) => runner.horseId === horseId);
+    if (fromCache?.horseName && !isRunnerPlaceholderName(fromCache.horseName)) {
+      return fromCache.horseName;
+    }
+
+    for (const raceList of Object.values(races)) {
+      const race = (raceList || []).find((item) => item.id === raceId);
+      const runner = race?.runners.find((item) => item.id === horseId);
+      if (runner) {
+        const formattedName = formatHorseDisplayName(runner.name, runner.number);
+        if (formattedName && !isRunnerPlaceholderName(formattedName)) {
+          return formattedName;
+        }
+      }
+    }
+
+    for (const row of submissionRows) {
+      const selection = row.selections.find((item) => item.raceId === raceId && item.horseId === horseId);
+      if (selection?.horseName && !isRunnerPlaceholderName(selection.horseName)) {
+        return selection.horseName;
+      }
+    }
+
+    const storedResult = raceResults[raceId];
+    if (storedResult?.winnerId === horseId && storedResult.winnerName && !isRunnerPlaceholderName(storedResult.winnerName)) {
+      return storedResult.winnerName;
+    }
+    if (storedResult?.secondId === horseId && storedResult.secondName && !isRunnerPlaceholderName(storedResult.secondName)) {
+      return storedResult.secondName;
+    }
+    if (storedResult?.thirdId === horseId && storedResult.thirdName && !isRunnerPlaceholderName(storedResult.thirdName)) {
+      return storedResult.thirdName;
+    }
+
+    if (normalizedPreferred) {
+      return normalizedPreferred;
+    }
+
+    return horseId;
+  };
+
+  const horseMatchesResult = (
+    raceId: string,
+    selectionHorseId: string,
+    selectionHorseName: string,
+    resultHorseId: string | null | undefined,
+    resultHorseName?: string | null
+  ) => {
+    if (!resultHorseId && !resultHorseName) return false;
+    if (resultHorseId && selectionHorseId === resultHorseId) return true;
+
+    const resolvedResultName = resolveRaceHorseName(raceId, resultHorseId, resultHorseName);
+    const selectionNormalized = normalizeHorseNameForComparison(selectionHorseName);
+    const resultNormalized = normalizeHorseNameForComparison(resolvedResultName);
+
+    if (
+      selectionNormalized &&
+      resultNormalized &&
+      !isRunnerPlaceholderName(selectionHorseName) &&
+      !isRunnerPlaceholderName(resolvedResultName) &&
+      selectionNormalized === resultNormalized
+    ) {
+      return true;
+    }
+
+    const selectionNumber = extractHorseNumber(selectionHorseName);
+    const resultNumber = extractHorseNumber(resolvedResultName);
+
+    if (selectionNumber !== null && resultNumber !== null && selectionNumber === resultNumber) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const getMeetIdForRaceId = (raceId: string): string | null => {
+    for (const [meetId, raceList] of Object.entries(races)) {
+      if ((raceList || []).some((race) => race.id === raceId)) {
+        return meetId;
+      }
+    }
+
+    for (const row of submissionRows) {
+      const selection = row.selections.find((item) => item.raceId === raceId);
+      if (selection?.meetId) {
+        return selection.meetId;
+      }
+    }
+
+    const activeSelection = activeSelections.find((item) => item.raceId === raceId);
+    if (activeSelection?.meetId) {
+      return activeSelection.meetId;
+    }
+
+    return null;
+  };
+
+  const getResultDateForMeetId = (meetId: string | null) => {
+    if (!meetId) return getTodayDate();
+    const matchingMeet = [...globalMeets, ...selectedMeets, ...adminSelectedMeets].find((meet) => meet.meet_id === meetId);
+    return matchingMeet?.date || getTodayDate();
+  };
+
+  const getMeetSortIndex = (meetId: string | null | undefined, location?: string | null) => {
+    const allMeets = [...meetsForPicks, ...globalMeets, ...selectedMeets, ...adminSelectedMeets];
+    const directIndex = allMeets.findIndex((meet) => meet.meet_id === meetId);
+    if (directIndex >= 0) return directIndex;
+
+    const normalizedLocation = String(location || '').trim().toLowerCase();
+    const locationIndex = allMeets.findIndex((meet) => meet.course.trim().toLowerCase() === normalizedLocation);
+    if (locationIndex >= 0) return locationIndex;
+
+    return Number.MAX_SAFE_INTEGER;
+  };
+
+  const compareSelectionsByMeetAndRace = (a: Selection, b: Selection) => {
+    const meetIndexDiff = getMeetSortIndex(a.meetId, a.meetCourse) - getMeetSortIndex(b.meetId, b.meetCourse);
+    if (meetIndexDiff !== 0) return meetIndexDiff;
+
+    const raceNumberDiff = extractRaceNumber(a.raceName) - extractRaceNumber(b.raceName);
+    if (raceNumberDiff !== 0) return raceNumberDiff;
+
+    return a.raceName.localeCompare(b.raceName);
+  };
+
+  const buildRaceResultsMapFromRows = (rows: RaceResultRow[]): RaceResultsMap => {
+    const nextMap: RaceResultsMap = {};
+
+    rows.forEach((row) => {
+      if (!nextMap[row.race_id]) {
+        nextMap[row.race_id] = {
+          winnerId: '',
+          winnerName: null,
+          secondId: null,
+          secondName: null,
+          thirdId: null,
+          thirdName: null,
+        };
+      }
+
+      const target = nextMap[row.race_id];
+      if (row.finishing_position === 1) {
+        target.winnerId = row.horse_id;
+        target.winnerName = row.horse_name;
+      } else if (row.finishing_position === 2) {
+        target.secondId = row.horse_id;
+        target.secondName = row.horse_name;
+      } else if (row.finishing_position === 3) {
+        target.thirdId = row.horse_id;
+        target.thirdName = row.horse_name;
+      }
+    });
+
+    return nextMap;
+  };
+
+  const persistRaceResultsRows = async (map: RaceResultsMap, raceIds: string[]) => {
+    if (!raceIds.length) return { error: null as string | null };
+
+    const supabase = getSupabaseClient();
+    const uniqueRaceIds = [...new Set(raceIds.filter(Boolean))];
+    const rowsToInsert: RaceResultRow[] = [];
+
+    uniqueRaceIds.forEach((raceId) => {
+      const result = map[raceId];
+      const meetId = getMeetIdForRaceId(raceId);
+      if (!result || !meetId) {
+        return;
+      }
+
+      const resultDate = getResultDateForMeetId(meetId);
+      if (result.winnerId) {
+        rowsToInsert.push({
+          meet_id: meetId,
+          race_id: raceId,
+          horse_id: result.winnerId,
+          horse_name: result.winnerName ?? null,
+          finishing_position: 1,
+          result_date: resultDate,
+        });
+      }
+      if (result.secondId) {
+        rowsToInsert.push({
+          meet_id: meetId,
+          race_id: raceId,
+          horse_id: result.secondId,
+          horse_name: result.secondName ?? null,
+          finishing_position: 2,
+          result_date: resultDate,
+        });
+      }
+      if (result.thirdId) {
+        rowsToInsert.push({
+          meet_id: meetId,
+          race_id: raceId,
+          horse_id: result.thirdId,
+          horse_name: result.thirdName ?? null,
+          finishing_position: 3,
+          result_date: resultDate,
+        });
+      }
+    });
+
+    const { error: deleteError } = await supabase
+      .from('race_results')
+      .delete()
+      .in('race_id', uniqueRaceIds);
+
+    if (deleteError) {
+      return { error: deleteError.message };
+    }
+
+    if (!rowsToInsert.length) {
+      return { error: null };
+    }
+
+    const { error: insertError } = await supabase
+      .from('race_results')
+      .insert(rowsToInsert);
+
+    return { error: insertError?.message ?? null };
+  };
 
   const mapProfiles = (rows: Array<{ id: string; email: string; username: string; is_admin: boolean }>): Record<string, ProfileRecord> => {
     return rows.reduce((acc, row) => {
@@ -397,6 +676,9 @@ export default function Home() {
     setManualResultHorseId('');
     setManualResultSecondHorseId('');
     setManualResultThirdHorseId('');
+    setManualResultHorseName('');
+    setManualResultSecondHorseName('');
+    setManualResultThirdHorseName('');
   };
 
   const clearMeetState = () => {
@@ -461,6 +743,16 @@ export default function Home() {
 
   const loadRaceResults = async () => {
     const supabase = getSupabaseClient();
+    const { data: tableRows, error: tableError } = await supabase
+      .from('race_results')
+      .select('meet_id,race_id,horse_id,horse_name,finishing_position,result_date')
+      .order('finishing_position', { ascending: true });
+
+    if (!tableError && Array.isArray(tableRows) && tableRows.length) {
+      setRaceResults(buildRaceResultsMapFromRows(tableRows as RaceResultRow[]));
+      return;
+    }
+
     const { data } = await supabase
       .from('app_settings')
       .select('value')
@@ -566,21 +858,6 @@ export default function Home() {
       setError(null);
 
       const map: RaceResultsMap = { ...raceResults };
-      const resolveName = (marketId: string, horseId: string | null | undefined): string | null => {
-        if (!horseId) return null;
-
-        const fromCache = (raceRunnersCache[marketId] || []).find((runner) => runner.horseId === horseId);
-        if (fromCache?.horseName) return fromCache.horseName;
-
-        for (const row of submissionRows) {
-          const sel = row.selections.find((s) => s.raceId === marketId && s.horseId === horseId);
-          if (sel?.horseName) {
-            return sel.horseName;
-          }
-        }
-
-        return horseId;
-      };
 
       data.results.forEach(r => {
         if (!r.winnerId) {
@@ -594,16 +871,22 @@ export default function Home() {
         map[r.marketId] = {
           ...existing,
           winnerId: r.winnerId,
-          winnerName: resolveName(r.marketId, r.winnerId),
+          winnerName: resolveRaceHorseName(r.marketId, r.winnerId, existing.winnerName),
           secondId: nextSecondId,
-          secondName: nextSecondId ? resolveName(r.marketId, nextSecondId) : existing.secondName ?? null,
+          secondName: nextSecondId ? resolveRaceHorseName(r.marketId, nextSecondId, existing.secondName) : existing.secondName ?? null,
           thirdId: nextThirdId,
-          thirdName: nextThirdId ? resolveName(r.marketId, nextThirdId) : existing.thirdName ?? null,
+          thirdName: nextThirdId ? resolveRaceHorseName(r.marketId, nextThirdId, existing.thirdName) : existing.thirdName ?? null,
           inferredPlaces: r.inferredPlaces ?? false,
         };
       });
 
       const supabase = getSupabaseClient();
+      const raceIds = [...new Set(data.results.map((result) => result.marketId).filter(Boolean))];
+      const { error: persistResultsError } = await persistRaceResultsRows(map, raceIds);
+      if (persistResultsError) {
+        addNotification('Fetched results loaded, but database persistence failed.', 'warning');
+      }
+
       await supabase.from('app_settings').upsert(
         { key: RACE_RESULTS_SETTING_KEY, value: map },
         { onConflict: 'key' }
@@ -641,31 +924,6 @@ export default function Home() {
       return;
     }
 
-    const resolveHorseName = (horseId: string): string | null => {
-      if (!horseId) return null;
-
-      const fromManual = (manualRunnersByRaceId[manualResultRaceId] || []).find((runner) => runner.horseId === horseId);
-      if (fromManual?.horseName) return fromManual.horseName;
-
-      const fromCache = (raceRunnersCache[manualResultRaceId] || []).find((runner) => runner.horseId === horseId);
-      if (fromCache?.horseName) return fromCache.horseName;
-
-      for (const meet of meetsForPicks) {
-        const race = (races[meet.meet_id] || []).find((item) => item.id === manualResultRaceId);
-        const runner = race?.runners.find((item) => item.id === horseId);
-        if (runner) {
-          return formatHorseDisplayName(runner.name, runner.number);
-        }
-      }
-
-      for (const row of submissionRows) {
-        const sel = row.selections.find((item) => item.raceId === manualResultRaceId && item.horseId === horseId);
-        if (sel) return sel.horseName;
-      }
-
-      return horseId;
-    };
-
     const existing = raceResults[manualResultRaceId];
     const winnerId = manualResultHorseId || existing?.winnerId || '';
 
@@ -678,15 +936,67 @@ export default function Home() {
       ...raceResults,
       [manualResultRaceId]: {
         winnerId,
-        winnerName: resolveHorseName(winnerId),
+        winnerName: getPreferredManualHorseName(winnerId, manualResultHorseName, existing?.winnerName),
         secondId: manualResultSecondHorseId || null,
-        secondName: manualResultSecondHorseId ? resolveHorseName(manualResultSecondHorseId) : null,
+        secondName: manualResultSecondHorseId
+          ? getPreferredManualHorseName(manualResultSecondHorseId, manualResultSecondHorseName, existing?.secondName)
+          : null,
         thirdId: manualResultThirdHorseId || null,
-        thirdName: manualResultThirdHorseId ? resolveHorseName(manualResultThirdHorseId) : null,
+        thirdName: manualResultThirdHorseId
+          ? getPreferredManualHorseName(manualResultThirdHorseId, manualResultThirdHorseName, existing?.thirdName)
+          : null,
       },
     };
 
+    const manualRunnerOverrides = [
+      { horseId: winnerId, horseName: map[manualResultRaceId].winnerName },
+      { horseId: manualResultSecondHorseId, horseName: map[manualResultRaceId].secondName },
+      { horseId: manualResultThirdHorseId, horseName: map[manualResultRaceId].thirdName },
+    ].filter((entry) => entry.horseId && entry.horseName) as Array<{ horseId: string; horseName: string }>;
+
+    if (manualRunnerOverrides.length) {
+      setManualRunnersByRaceId((prev) => {
+        const existingOptions = prev[manualResultRaceId] || [];
+        const merged = [...existingOptions];
+
+        manualRunnerOverrides.forEach((entry) => {
+          const index = merged.findIndex((option) => option.horseId === entry.horseId);
+          if (index >= 0) {
+            merged[index] = { ...merged[index], horseName: entry.horseName };
+          } else {
+            merged.push(entry);
+          }
+        });
+
+        return { ...prev, [manualResultRaceId]: merged };
+      });
+
+      setRaceRunnersCache((prev) => {
+        const existingOptions = prev[manualResultRaceId] || [];
+        const merged = [...existingOptions];
+
+        manualRunnerOverrides.forEach((entry) => {
+          const index = merged.findIndex((option) => option.horseId === entry.horseId);
+          if (index >= 0) {
+            merged[index] = { ...merged[index], horseName: entry.horseName };
+          } else {
+            merged.push(entry);
+          }
+        });
+
+        const next = { ...prev, [manualResultRaceId]: merged };
+        void persistRaceRunnersCache(next);
+        return next;
+      });
+    }
+
     const supabase = getSupabaseClient();
+    const { error: tableSaveError } = await persistRaceResultsRows(map, [manualResultRaceId]);
+    if (tableSaveError) {
+      addNotification('Unable to save manual placings to race_results.', 'error');
+      return;
+    }
+
     const { error: saveError } = await supabase.from('app_settings').upsert(
       { key: RACE_RESULTS_SETTING_KEY, value: map },
       { onConflict: 'key' }
@@ -956,6 +1266,17 @@ export default function Home() {
       }
     }
 
+    const { error: raceResultsResetError } = await supabase
+      .from('race_results')
+      .delete()
+      .gte('finishing_position', 1);
+
+    if (raceResultsResetError) {
+      console.error(raceResultsResetError);
+      addNotification('Unable to reset the current race day.', 'error');
+      return false;
+    }
+
     const { error: settingsError } = await supabase
       .from('app_settings')
       .upsert(
@@ -1221,7 +1542,9 @@ export default function Home() {
     const loadManualRunners = async () => {
       setManualRunnersLoading(true);
       try {
-        for (const meet of globalMeets) {
+        const meetCandidates = meetsForPicks.length ? meetsForPicks : globalMeets;
+
+        for (const meet of meetCandidates) {
           const candidateDates = Array.from(new Set([meet.date, getTodayDate()].filter(Boolean)));
           for (const date of candidateDates) {
             const res = await fetch(
@@ -1247,46 +1570,42 @@ export default function Home() {
             }
 
             setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
+            setRaceRunnersCache(prev => {
+              const next = { ...prev, [manualResultRaceId]: options };
+              void persistRaceRunnersCache(next);
+              return next;
+            });
             return;
           }
         }
 
-        const res = await fetch(`/api/results?marketId=${encodeURIComponent(manualResultRaceId)}`);
-        if (!res.ok) {
-          const fallbackRes = await fetch(`/api/market-runners?marketId=${encodeURIComponent(manualResultRaceId)}`);
-          if (!fallbackRes.ok) {
-            return;
+        const runnerEndpoints = ['/api/results', '/api/market-runners'];
+        for (const endpoint of runnerEndpoints) {
+          const res = await fetch(`${endpoint}?marketId=${encodeURIComponent(manualResultRaceId)}`);
+          if (!res.ok) {
+            continue;
           }
 
-          const fallbackData = await fallbackRes.json() as { runners?: Array<{ id: string; name: string; number: number | null }> };
-          const fallbackOptions = Array.isArray(fallbackData.runners)
-            ? fallbackData.runners.map((runner) => ({
+          const data = await res.json() as { runners?: Array<{ id: string; name: string; number: number | null }> };
+          const options = Array.isArray(data.runners)
+            ? data.runners.map((runner) => ({
               horseId: runner.id,
               horseName: formatHorseDisplayName(runner.name, runner.number),
             }))
             : [];
 
-          if (!active || !fallbackOptions.length) {
-            return;
+          if (!active || !options.length) {
+            continue;
           }
 
-          setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: fallbackOptions }));
+          setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
+          setRaceRunnersCache(prev => {
+            const next = { ...prev, [manualResultRaceId]: options };
+            void persistRaceRunnersCache(next);
+            return next;
+          });
           return;
         }
-
-        const data = await res.json() as { runners?: Array<{ id: string; name: string; number: number | null }> };
-        const options = Array.isArray(data.runners)
-          ? data.runners.map((runner) => ({
-            horseId: runner.id,
-            horseName: formatHorseDisplayName(runner.name, runner.number),
-          }))
-          : [];
-
-        if (!active || !options.length) {
-          return;
-        }
-
-        setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
       } catch {
         // Keep silent and let existing fallbacks provide options.
       } finally {
@@ -1300,7 +1619,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [manualResultRaceId, manualRunnersByRaceId, globalMeets]);
+  }, [manualResultRaceId, manualRunnersByRaceId, globalMeets, meetsForPicks]);
 
   useEffect(() => {
     if (!isAdmin || activeScreen !== 'submissions' || !resultsAutoRefresh || submissionRows.length === 0) {
@@ -1493,9 +1812,9 @@ export default function Home() {
         row.selections.forEach(sel => {
           const result = raceResults[sel.raceId];
           let points = 0;
-          if (result?.winnerId === sel.horseId) points = 4;
-          else if (result?.secondId === sel.horseId) points = 2;
-          else if (result?.thirdId === sel.horseId) points = 1;
+          if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.winnerId, result?.winnerName)) points = 4;
+          else if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.secondId, result?.secondName)) points = 2;
+          else if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.thirdId, result?.thirdName)) points = 1;
 
           if (points > 0) {
             const isWild = row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId;
@@ -1509,7 +1828,7 @@ export default function Home() {
   const rankedScoreboard = useMemo(() => rankScoreboard(scoreboard), [scoreboard]);
 
   const manualRaceOptions = useMemo(() => {
-    const raceMap = new Map<string, { raceName: string; location: string }>();
+    const raceMap = new Map<string, { raceName: string; location: string; meetId: string | null }>();
 
     meetsForPicks.forEach(meet => {
       const location = meet.course ?? meet.meet_id;
@@ -1518,6 +1837,7 @@ export default function Home() {
           raceMap.set(race.id, {
             raceName: race.name,
             location,
+            meetId: meet.meet_id,
           });
         }
       });
@@ -1530,91 +1850,142 @@ export default function Home() {
           raceMap.set(sel.raceId, {
             raceName: sel.raceName,
             location: sel.meetCourse ?? meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId,
+            meetId: sel.meetId,
           });
         }
       });
     });
 
-    return [...raceMap.entries()].map(([raceId, info]) => ({
-      raceId,
-      label: `${info.location} - ${info.raceName}`,
-    }));
+    return [...raceMap.entries()]
+      .map(([raceId, info]) => ({
+        raceId,
+        meetId: info.meetId,
+        raceName: info.raceName,
+        location: info.location,
+        label: `${info.location} - ${info.raceName}`,
+      }))
+      .sort((a, b) => {
+        const meetIndexDiff = getMeetSortIndex(a.meetId, a.location) - getMeetSortIndex(b.meetId, b.location);
+        if (meetIndexDiff !== 0) return meetIndexDiff;
+
+        const raceNumberDiff = extractRaceNumber(a.raceName) - extractRaceNumber(b.raceName);
+        if (raceNumberDiff !== 0) return raceNumberDiff;
+
+        return a.label.localeCompare(b.label);
+      });
   }, [meetsForPicks, races, submissionRows]);
 
   const manualHorseOptions = useMemo(() => {
     if (!manualResultRaceId) return [] as Array<{ horseId: string; horseName: string }>;
 
-    const isBadName = (name: string) => !name || /^Runner\s+\d+$/i.test(name);
+    const isBadName = (name: string) => !name || isRunnerPlaceholderName(name);
 
-    // Collect best known name for each horseId from ALL sources (best wins).
-    // Priority: submissions > race data > cache > marketRunners API
-    const horseNameMap = new Map<string, string>();
-
-    const trySet = (id: string, name: string) => {
-      if (!id) return;
-      const existing = horseNameMap.get(id);
-      if (!existing || (isBadName(existing) && !isBadName(name))) {
-        horseNameMap.set(id, name);
-      }
+    const candidates: Array<{ horseId: string; horseName: string; priority: number }> = [];
+    const pushCandidate = (horseId: string, horseName: string, priority: number) => {
+      const trimmedId = String(horseId || '').trim();
+      const trimmedName = String(horseName || '').trim();
+      if (!trimmedId || !trimmedName) return;
+      candidates.push({ horseId: trimmedId, horseName: trimmedName, priority });
     };
 
-    // 1. Submissions have names captured at pick-time — most reliable for settled races
-    submissionRows.forEach(row => {
+    submissionRows.forEach((row) => {
       row.selections
-        .filter(sel => sel.raceId === manualResultRaceId)
-        .forEach(sel => { if (sel.horseName) trySet(sel.horseId, sel.horseName); });
+        .filter((sel) => sel.raceId === manualResultRaceId)
+        .forEach((sel) => pushCandidate(sel.horseId, sel.horseName, 400));
     });
 
-    // 2. Race data loaded in app state
-    meetsForPicks.forEach(meet => {
-      const race = (races[meet.meet_id] || []).find(r => r.id === manualResultRaceId);
-      race?.runners.forEach(runner => { trySet(runner.id, runner.name); });
+    meetsForPicks.forEach((meet) => {
+      const race = (races[meet.meet_id] || []).find((item) => item.id === manualResultRaceId);
+      race?.runners.forEach((runner) => {
+        pushCandidate(runner.id, formatHorseDisplayName(runner.name, runner.number), 300);
+      });
     });
 
-    // 3. Betfair runner cache
-    (raceRunnersCache[manualResultRaceId] || []).forEach(r => { trySet(r.horseId, r.horseName); });
+    (raceRunnersCache[manualResultRaceId] || []).forEach((runner) => {
+      pushCandidate(runner.horseId, runner.horseName, 200);
+    });
 
-    // 4. Market runners loaded via API
-    const marketRunners = manualRunnersByRaceId[manualResultRaceId];
-    (marketRunners || []).forEach(r => { trySet(r.horseId, r.horseName); });
+    (manualRunnersByRaceId[manualResultRaceId] || []).forEach((runner) => {
+      pushCandidate(runner.horseId, runner.horseName, 100);
+    });
 
-    // Build final runner list: prefer API runner list for completeness, fall back to name-map keys
-    let baseRunners: Array<{ horseId: string }> = [];
-
-    if (marketRunners?.length) {
-      baseRunners = marketRunners;
-    } else if ((raceRunnersCache[manualResultRaceId] || []).length) {
-      baseRunners = raceRunnersCache[manualResultRaceId];
-    } else {
-      // Build from race data + submissions (for races not in cache)
-      const seen = new Set<string>();
-      meetsForPicks.forEach(meet => {
-        const race = (races[meet.meet_id] || []).find(r => r.id === manualResultRaceId);
-        race?.runners.forEach(runner => { if (!seen.has(runner.id)) { seen.add(runner.id); baseRunners.push({ horseId: runner.id }); } });
-      });
-      submissionRows.forEach(row => {
-        row.selections
-          .filter(sel => sel.raceId === manualResultRaceId)
-          .forEach(sel => { if (!seen.has(sel.horseId)) { seen.add(sel.horseId); baseRunners.push({ horseId: sel.horseId }); } });
-      });
+    const existingResult = raceResults[manualResultRaceId];
+    if (existingResult?.winnerId) {
+      pushCandidate(existingResult.winnerId, resolveRaceHorseName(manualResultRaceId, existingResult.winnerId, existingResult.winnerName) || existingResult.winnerId, 350);
+    }
+    if (existingResult?.secondId) {
+      pushCandidate(existingResult.secondId, resolveRaceHorseName(manualResultRaceId, existingResult.secondId, existingResult.secondName) || existingResult.secondId, 350);
+    }
+    if (existingResult?.thirdId) {
+      pushCandidate(existingResult.thirdId, resolveRaceHorseName(manualResultRaceId, existingResult.thirdId, existingResult.thirdName) || existingResult.thirdId, 350);
     }
 
-    // Map base runners to final options, applying best names
-    const uniqueMap = new Map<string, string>();
-    baseRunners.forEach(r => {
-      if (!uniqueMap.has(r.horseId)) {
-        uniqueMap.set(r.horseId, horseNameMap.get(r.horseId) || r.horseId);
+    const bestByKey = new Map<string, { horseId: string; horseName: string; priority: number }>();
+    candidates.forEach((candidate) => {
+      const horseNumber = extractHorseNumber(candidate.horseName);
+      const normalizedName = normalizeHorseNameForComparison(candidate.horseName);
+      const key = horseNumber !== null
+        ? `number:${horseNumber}`
+        : normalizedName
+        ? `name:${normalizedName}`
+        : `id:${candidate.horseId}`;
+
+      const quality = candidate.priority + (isBadName(candidate.horseName) ? 0 : 1000);
+      const existing = bestByKey.get(key);
+      const existingQuality = existing ? existing.priority + (isBadName(existing.horseName) ? 0 : 1000) : -1;
+
+      if (!existing || quality > existingQuality) {
+        bestByKey.set(key, candidate);
       }
     });
-    // Also include any horseIds only known from submissions (not in base runner list)
-    horseNameMap.forEach((name, id) => {
-      if (!uniqueMap.has(id)) uniqueMap.set(id, name);
-    });
 
-    return [...uniqueMap.entries()]
-      .map(([horseId, horseName]) => ({ horseId, horseName }))
-      .sort((a, b) => a.horseName.localeCompare(b.horseName));
-  }, [manualResultRaceId, manualRunnersByRaceId, raceRunnersCache, meetsForPicks, races, submissionRows]);
+    return [...bestByKey.values()]
+      .map(({ horseId, horseName }) => ({ horseId, horseName }))
+      .sort((a, b) => {
+        const aNumber = extractHorseNumber(a.horseName);
+        const bNumber = extractHorseNumber(b.horseName);
+        if (aNumber !== null && bNumber !== null && aNumber !== bNumber) {
+          return aNumber - bNumber;
+        }
+        return a.horseName.localeCompare(b.horseName);
+      });
+  }, [manualResultRaceId, manualRunnersByRaceId, raceRunnersCache, meetsForPicks, races, submissionRows, raceResults]);
+
+  const manualHorseLabelById = useMemo(() => {
+    return manualHorseOptions.reduce((acc, option) => {
+      acc[option.horseId] = option.horseName;
+      return acc;
+    }, {} as Record<string, string>);
+  }, [manualHorseOptions]);
+
+  const isMissingHorseDetail = (value: string | null | undefined) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return true;
+    if (/^\d+$/.test(trimmed)) return true;
+    return isRunnerPlaceholderName(trimmed);
+  };
+
+  const getPreferredManualHorseName = (
+    horseId: string,
+    explicitName?: string | null,
+    storedName?: string | null
+  ) => {
+    const candidates = [
+      explicitName,
+      manualHorseLabelById[horseId],
+      storedName,
+      resolveRaceHorseName(manualResultRaceId, horseId, storedName),
+    ];
+
+    for (const candidate of candidates) {
+      const trimmed = String(candidate || '').trim();
+      if (trimmed && !/^\d+$/.test(trimmed)) {
+        return trimmed;
+      }
+    }
+
+    return String(explicitName || manualHorseLabelById[horseId] || storedName || resolveRaceHorseName(manualResultRaceId, horseId, storedName) || horseId || '').trim();
+  };
 
   const rankByUsername = useMemo(() => {
     const map = new Map<string, number>();
@@ -1720,8 +2091,20 @@ export default function Home() {
       });
     });
 
+    Object.entries(raceResults).forEach(([raceId, result]) => {
+      if (result.winnerId && result.winnerName) {
+        setRunner(raceId, result.winnerId, result.winnerName);
+      }
+      if (result.secondId && result.secondName) {
+        setRunner(raceId, result.secondId, result.secondName);
+      }
+      if (result.thirdId && result.thirdName) {
+        setRunner(raceId, result.thirdId, result.thirdName);
+      }
+    });
+
     return map;
-  }, [raceRunnersCache, races, submissionRows]);
+  }, [raceRunnersCache, races, submissionRows, raceResults]);
 
   const activeSelections = hasSubmitted && submittedSelections ? submittedSelections.selections : selections;
   const activeWildcard = hasSubmitted && submittedSelections ? submittedSelections.wildcard : wildcard;
@@ -1731,9 +2114,9 @@ export default function Home() {
       const result = raceResults[sel.raceId];
       const isWildcardPick = activeWildcard?.meetId === sel.meetId && activeWildcard?.raceId === sel.raceId;
       const isSettled = Boolean(result?.winnerId || result?.secondId || result?.thirdId);
-      const isWinner = result?.winnerId === sel.horseId;
-      const isSecond = result?.secondId === sel.horseId;
-      const isThird = result?.thirdId === sel.horseId;
+      const isWinner = horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.winnerId, result?.winnerName);
+      const isSecond = horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.secondId, result?.secondName);
+      const isThird = horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.thirdId, result?.thirdName);
       const winnerFallback = result?.winnerId ? runnerNameByRaceId.get(sel.raceId)?.get(result.winnerId) ?? null : null;
       const secondFallback = result?.secondId ? runnerNameByRaceId.get(sel.raceId)?.get(result.secondId) ?? null : null;
       const thirdFallback = result?.thirdId ? runnerNameByRaceId.get(sel.raceId)?.get(result.thirdId) ?? null : null;
@@ -2035,6 +2418,9 @@ export default function Home() {
                 setManualResultHorseId(existing?.winnerId || '');
                 setManualResultSecondHorseId(existing?.secondId || '');
                 setManualResultThirdHorseId(existing?.thirdId || '');
+                setManualResultHorseName(existing?.winnerName || '');
+                setManualResultSecondHorseName(existing?.secondName || '');
+                setManualResultThirdHorseName(existing?.thirdName || '');
                 setManualApplyNotice(null);
               }}
               className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
@@ -2046,7 +2432,11 @@ export default function Home() {
             </select>
             <select
               value={manualResultHorseId}
-              onChange={(e) => setManualResultHorseId(e.target.value)}
+              onChange={(e) => {
+                const nextId = e.target.value;
+                setManualResultHorseId(nextId);
+                setManualResultHorseName(nextId ? getPreferredManualHorseName(nextId) : '');
+              }}
               disabled={!manualResultRaceId || manualRunnersLoading}
               className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
             >
@@ -2057,7 +2447,11 @@ export default function Home() {
             </select>
             <select
               value={manualResultSecondHorseId}
-              onChange={(e) => setManualResultSecondHorseId(e.target.value)}
+              onChange={(e) => {
+                const nextId = e.target.value;
+                setManualResultSecondHorseId(nextId);
+                setManualResultSecondHorseName(nextId ? getPreferredManualHorseName(nextId) : '');
+              }}
               disabled={!manualResultRaceId || manualRunnersLoading}
               className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
             >
@@ -2068,7 +2462,11 @@ export default function Home() {
             </select>
             <select
               value={manualResultThirdHorseId}
-              onChange={(e) => setManualResultThirdHorseId(e.target.value)}
+              onChange={(e) => {
+                const nextId = e.target.value;
+                setManualResultThirdHorseId(nextId);
+                setManualResultThirdHorseName(nextId ? getPreferredManualHorseName(nextId) : '');
+              }}
               disabled={!manualResultRaceId || manualRunnersLoading}
               className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
             >
@@ -2077,6 +2475,27 @@ export default function Home() {
                 <option key={`third-${opt.horseId}`} value={opt.horseId}>{opt.horseName}</option>
               ))}
             </select>
+            <input
+              value={manualResultHorseName}
+              onChange={(e) => setManualResultHorseName(e.target.value)}
+              placeholder="Winner horse name"
+              disabled={!manualResultHorseId}
+              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+            />
+            <input
+              value={manualResultSecondHorseName}
+              onChange={(e) => setManualResultSecondHorseName(e.target.value)}
+              placeholder="2nd place horse name"
+              disabled={!manualResultSecondHorseId}
+              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+            />
+            <input
+              value={manualResultThirdHorseName}
+              onChange={(e) => setManualResultThirdHorseName(e.target.value)}
+              placeholder="3rd place horse name"
+              disabled={!manualResultThirdHorseId}
+              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+            />
             <button
               onClick={() => { void applyManualResult(); }}
               disabled={!manualResultRaceId || (!manualResultHorseId && !manualResultSecondHorseId && !manualResultThirdHorseId)}
@@ -2141,19 +2560,25 @@ export default function Home() {
                     <p className="text-sm text-slate-500">No selections yet.</p>
                   ) : (
                     <ul className="space-y-1 text-sm text-slate-700">
-                      {row.selections.sort((a, b) => {
-                        const raceNumA = parseInt(a.raceName.match(/R(\d+)/)?.[1] ?? '0', 10);
-                        const raceNumB = parseInt(b.raceName.match(/R(\d+)/)?.[1] ?? '0', 10);
-                        return raceNumA - raceNumB;
-                      }).map((sel, idx) => {
+                      {[...row.selections].sort(compareSelectionsByMeetAndRace).map((sel, idx) => {
                         const isWildcard = row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId;
                         const result = raceResults[sel.raceId];
-                        const isWinner = result?.winnerId === sel.horseId;
+                        const isWinner = horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.winnerId, result?.winnerName);
+                        const resolvedWinnerName = result?.winnerId
+                          ? preferResolvedHorseName(result.winnerName, resolveRaceHorseName(sel.raceId, result.winnerId, result.winnerName), result.winnerId)
+                          : null;
                         return (
                           <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`} className={`rounded px-2 py-0.5 ${isWinner ? 'bg-green-100 text-green-900 font-semibold' : isWildcard ? 'bg-yellow-100 text-yellow-900 font-semibold' : ''}`}>
-                            {getSelectionLocation(sel)} - {sel.raceName}: {sel.horseName}
-                            {isWildcard ? ' \u2b50 Wildcard' : ''}
-                            {isWinner ? ' \u2705' : (result && !isWinner ? ' \u274c' : '')}
+                            <div>
+                              {getSelectionLocation(sel)} - {sel.raceName}: {sel.horseName}
+                              {isWildcard ? ' \u2b50 Wildcard' : ''}
+                              {isWinner ? ' \u2705' : (result && !isWinner ? ' \u274c' : '')}
+                            </div>
+                            {resolvedWinnerName ? (
+                              <div className="mt-1 text-xs font-normal text-slate-600">
+                                Winner: {resolvedWinnerName}
+                              </div>
+                            ) : null}
                           </li>
                         );
                       })}
