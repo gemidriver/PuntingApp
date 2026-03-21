@@ -1293,7 +1293,7 @@ export default function Home() {
         }
       });
       if (horseNameMap.size > 0) {
-        return marketRunners.filter(r => !horseNameMap.has(r.horseId)).map(r => ({
+        return marketRunners.map(r => ({
           ...r,
           horseName: horseNameMap.get(r.horseId) || r.horseName,
         }));
