@@ -105,6 +105,7 @@ const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
 const RACE_RESULTS_SETTING_KEY = 'race_results';
 const RACE_RUNNERS_SETTING_KEY = 'race_runners';
 const PREVIOUS_ROUND_SNAPSHOT_SETTING_KEY = 'previous_round_snapshot';
+const APP_VERSION_LABEL = 'PowerChap | v 0.1.3.21.1953';
 
 type RaceResultEntry = {
   winnerId: string;
@@ -2589,6 +2590,9 @@ export default function Home() {
           )}
           </div>
         </div>
+        <div className="px-4 pb-16 pt-4 text-center text-xs text-slate-500 lg:px-0 lg:pb-0 lg:pt-6">
+          <span>&copy; {APP_VERSION_LABEL}</span>
+        </div>
         {/* Mobile bottom tab bar */}
         <nav className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 flex lg:hidden">
           <button onClick={() => setActiveScreen('home')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'home' ? 'text-blue-600' : 'text-slate-500'}`}>
@@ -2913,7 +2917,9 @@ export default function Home() {
           {activeScreen === 'submissions' ? submissionsContent : null}
 
 
-
+        <div className="pb-16 pt-4 text-center text-xs text-slate-500 lg:pb-0 lg:pt-6">
+          <span>&copy; {APP_VERSION_LABEL}</span>
+        </div>
         {/* Bottom tab nav — mobile only */}
         <nav className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 flex lg:hidden">
           <button
