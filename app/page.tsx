@@ -141,6 +141,23 @@ const formatHorseDisplayName = (name: string, number?: number | null) => {
   if (/^\d+\.\s+/.test(trimmed)) return trimmed;
   return typeof number === 'number' ? `${number}. ${trimmed}` : trimmed;
 };
+const isRunnerPlaceholderName = (value: string | null | undefined) => {
+  const trimmed = String(value || '').trim();
+  return /^(?:\d+\.\s*)?Runner\s+\d+$/i.test(trimmed);
+};
+const preferResolvedHorseName = (
+  storedName: string | null | undefined,
+  fallbackName: string | null | undefined,
+  fallbackId: string | null | undefined
+) => {
+  const stored = String(storedName || '').trim();
+  const fallback = String(fallbackName || '').trim();
+  if (stored && !isRunnerPlaceholderName(stored)) return stored;
+  if (fallback && !isRunnerPlaceholderName(fallback)) return fallback;
+  if (stored) return stored;
+  if (fallback) return fallback;
+  return fallbackId ?? null;
+};
 const getAuthRedirectUrl = () => {
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL;
@@ -1414,7 +1431,11 @@ export default function Home() {
       if (!map.has(raceId)) {
         map.set(raceId, new Map<string, string>());
       }
-      map.get(raceId)?.set(horseId, horseName);
+      const existing = map.get(raceId)?.get(horseId);
+      const shouldReplace = !existing || (isRunnerPlaceholderName(existing) && !isRunnerPlaceholderName(horseName));
+      if (shouldReplace) {
+        map.get(raceId)?.set(horseId, horseName);
+      }
     };
 
     Object.entries(raceRunnersCache).forEach(([raceId, runners]) => {
@@ -1452,14 +1473,17 @@ export default function Home() {
       const isWinner = result?.winnerId === sel.horseId;
       const isSecond = result?.secondId === sel.horseId;
       const isThird = result?.thirdId === sel.horseId;
+      const winnerFallback = result?.winnerId ? runnerNameByRaceId.get(sel.raceId)?.get(result.winnerId) ?? null : null;
+      const secondFallback = result?.secondId ? runnerNameByRaceId.get(sel.raceId)?.get(result.secondId) ?? null : null;
+      const thirdFallback = result?.thirdId ? runnerNameByRaceId.get(sel.raceId)?.get(result.thirdId) ?? null : null;
       const resolvedWinnerName = result?.winnerId
-        ? result.winnerName ?? runnerNameByRaceId.get(sel.raceId)?.get(result.winnerId) ?? null
+        ? preferResolvedHorseName(result.winnerName, winnerFallback, result.winnerId)
         : null;
       const resolvedSecondName = result?.secondId
-        ? result.secondName ?? runnerNameByRaceId.get(sel.raceId)?.get(result.secondId) ?? null
+        ? preferResolvedHorseName(result.secondName, secondFallback, result.secondId)
         : null;
       const resolvedThirdName = result?.thirdId
-        ? result.thirdName ?? runnerNameByRaceId.get(sel.raceId)?.get(result.thirdId) ?? null
+        ? preferResolvedHorseName(result.thirdName, thirdFallback, result.thirdId)
         : null;
 
       return {
@@ -1551,14 +1575,17 @@ export default function Home() {
 
     return Object.entries(raceResults).map(([raceId, result]) => {
       const meta = raceMeta.get(raceId);
+      const winnerFallback = result.winnerId ? runnerNameByRaceId.get(raceId)?.get(result.winnerId) ?? null : null;
+      const secondFallback = result.secondId ? runnerNameByRaceId.get(raceId)?.get(result.secondId) ?? null : null;
+      const thirdFallback = result.thirdId ? runnerNameByRaceId.get(raceId)?.get(result.thirdId) ?? null : null;
       const resolvedWinnerName = result.winnerId
-        ? result.winnerName ?? runnerNameByRaceId.get(raceId)?.get(result.winnerId) ?? result.winnerId
+        ? preferResolvedHorseName(result.winnerName, winnerFallback, result.winnerId)
         : null;
       const resolvedSecondName = result.secondId
-        ? result.secondName ?? runnerNameByRaceId.get(raceId)?.get(result.secondId) ?? result.secondId
+        ? preferResolvedHorseName(result.secondName, secondFallback, result.secondId)
         : null;
       const resolvedThirdName = result.thirdId
-        ? result.thirdName ?? runnerNameByRaceId.get(raceId)?.get(result.thirdId) ?? result.thirdId
+        ? preferResolvedHorseName(result.thirdName, thirdFallback, result.thirdId)
         : null;
       return {
         raceId,
