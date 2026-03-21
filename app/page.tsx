@@ -104,6 +104,7 @@ interface BetfairHealthStatus {
 const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
 const RACE_RESULTS_SETTING_KEY = 'race_results';
 const RACE_RUNNERS_SETTING_KEY = 'race_runners';
+const PREVIOUS_ROUND_SNAPSHOT_SETTING_KEY = 'previous_round_snapshot';
 
 type RaceResultEntry = {
   winnerId: string;
@@ -116,6 +117,19 @@ type RaceResultEntry = {
 
 type RaceResultsMap = Record<string, RaceResultEntry>;
 type RaceRunnersMap = Record<string, Array<{ horseId: string; horseName: string }>>;
+type PreviousRoundSnapshot = {
+  capturedAt: string;
+  meets: Meet[];
+  scoreboard: Array<{ username: string; score: number }>;
+  results: Array<{
+    raceId: string;
+    raceName: string;
+    location: string;
+    winnerName: string | null;
+    secondName: string | null;
+    thirdName: string | null;
+  }>;
+};
 
 const getTodayDate = () => {
   const now = new Date();
@@ -217,6 +231,7 @@ export default function Home() {
   const [manualRunnersByRaceId, setManualRunnersByRaceId] = useState<Record<string, Array<{ horseId: string; horseName: string }>>>({});
   const [manualRunnersLoading, setManualRunnersLoading] = useState(false);
   const [manualApplyNotice, setManualApplyNotice] = useState<string | null>(null);
+  const [previousRoundSnapshot, setPreviousRoundSnapshot] = useState<PreviousRoundSnapshot | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [betfairHealth, setBetfairHealth] = useState<BetfairHealthStatus | null>(null);
   const [betfairHealthLoading, setBetfairHealthLoading] = useState(false);
@@ -379,6 +394,22 @@ export default function Home() {
     if (data?.value && typeof data.value === 'object') {
       setRaceRunnersCache(data.value as RaceRunnersMap);
     }
+  };
+
+  const loadPreviousRoundSnapshot = async () => {
+    const supabase = getSupabaseClient();
+    const { data } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', PREVIOUS_ROUND_SNAPSHOT_SETTING_KEY)
+      .maybeSingle();
+
+    if (data?.value && typeof data.value === 'object') {
+      setPreviousRoundSnapshot(data.value as PreviousRoundSnapshot);
+      return;
+    }
+
+    setPreviousRoundSnapshot(null);
   };
 
   const persistRaceRunnersCache = async (nextCache: RaceRunnersMap) => {
@@ -614,6 +645,7 @@ export default function Home() {
     await loadSubmissionRows();
     await loadRaceResults();
     await loadRaceRunnersCache();
+    await loadPreviousRoundSnapshot();
   };
 
   const clearUserState = () => {
@@ -623,6 +655,7 @@ export default function Home() {
     setAllUsers({});
     clearSelectionState();
     clearMeetState();
+    setPreviousRoundSnapshot(null);
     setSessionNotice(null);
   };
 
@@ -741,6 +774,32 @@ export default function Home() {
 
   const resetRaceDayState = async (nextGlobalMeets: Meet[] = []) => {
     const supabase = getSupabaseClient();
+
+    const snapshotToPersist: PreviousRoundSnapshot | null =
+      scoreboard.length || lastRoundRaceResults.length
+        ? {
+            capturedAt: new Date().toISOString(),
+            meets: globalMeets,
+            scoreboard,
+            results: lastRoundRaceResults,
+          }
+        : null;
+
+    if (snapshotToPersist) {
+      const { error: snapshotError } = await supabase
+        .from('app_settings')
+        .upsert(
+          { key: PREVIOUS_ROUND_SNAPSHOT_SETTING_KEY, value: snapshotToPersist },
+          { onConflict: 'key' }
+        );
+
+      if (snapshotError) {
+        console.error(snapshotError);
+      } else {
+        setPreviousRoundSnapshot(snapshotToPersist);
+      }
+    }
+
     const { error: settingsError } = await supabase
       .from('app_settings')
       .upsert(
@@ -1598,6 +1657,17 @@ export default function Home() {
     });
   }, [raceResults, submissionRows, runnerNameByRaceId]);
 
+  const homeScoreboard =
+    previousRoundSnapshot?.scoreboard?.length ? previousRoundSnapshot.scoreboard : scoreboard;
+
+  const homeLastRoundRaceResults =
+    previousRoundSnapshot?.results?.length ? previousRoundSnapshot.results : lastRoundRaceResults;
+
+  const homePreviousMeetLabel =
+    previousRoundSnapshot?.meets?.length
+      ? previousRoundSnapshot.meets.map((meet) => `${meet.course} (${meet.date})`).join(' • ')
+      : null;
+
   const homeContent = (
     <section className="mb-10 space-y-6">
       <div className="rounded-xl bg-gradient-to-r from-sky-600 to-blue-700 p-6 text-white shadow-sm">
@@ -1609,11 +1679,11 @@ export default function Home() {
 
       <div className="rounded-lg bg-white p-4 shadow-sm">
         <h3 className="text-lg font-semibold">Last Round Points Won</h3>
-        {scoreboard.length === 0 ? (
+        {homeScoreboard.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">No scored results yet for the current round.</p>
         ) : (
           <ol className="mt-3 space-y-2">
-            {scoreboard.map((entry, i) => (
+            {homeScoreboard.map((entry, i) => (
               <li key={`home-score-${entry.username}`} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-sm">
                 <span className="font-medium">{i + 1}. {entry.username}</span>
                 <span className="font-semibold text-slate-700">{entry.score} pt{entry.score !== 1 ? 's' : ''}</span>
@@ -1625,11 +1695,14 @@ export default function Home() {
 
       <div className="rounded-lg bg-white p-4 shadow-sm">
         <h3 className="text-lg font-semibold">Last Round Results</h3>
-        {lastRoundRaceResults.length === 0 ? (
+        {homePreviousMeetLabel ? (
+          <p className="mt-2 text-xs text-slate-500">Previous meets: {homePreviousMeetLabel}</p>
+        ) : null}
+        {homeLastRoundRaceResults.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">Race results are not available yet.</p>
         ) : (
           <ul className="mt-3 space-y-2">
-            {lastRoundRaceResults.map((result) => (
+            {homeLastRoundRaceResults.map((result) => (
               <li key={`home-result-${result.raceId}`} className="rounded-md bg-slate-50 px-3 py-2 text-sm">
                 <span className="font-medium">{result.location} - {result.raceName}</span>
                 <span className="ml-2 text-slate-700">1st: {result.winnerName || 'TBC'}</span>
