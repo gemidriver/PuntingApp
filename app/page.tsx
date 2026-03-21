@@ -2590,7 +2590,7 @@ export default function Home() {
         <p className="mt-2 text-sm text-blue-100">
           Welcome to The Top Punter!
           Pick your horses, and select your wildcard for double points.
-          Track the latest round outcomes, review winners, and see points won across all users.
+ 
         </p>
       </div>
 
