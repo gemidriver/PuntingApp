@@ -10,6 +10,7 @@ interface Meet {
   course: string;
   date: string;
   state: string;
+  raceType?: 'Thoroughbred' | 'Harness';
 }
 
 interface Race {
@@ -156,6 +157,22 @@ const formatHorseDisplayName = (name: string, number?: number | null) => {
   if (/^\d+\.\s+/.test(trimmed)) return trimmed;
   return typeof number === 'number' ? `${number}. ${trimmed}` : trimmed;
 };
+const normalizeMeetRaceType = (value?: string | null): 'Thoroughbred' | 'Harness' => {
+  return value === 'Harness' ? 'Harness' : 'Thoroughbred';
+};
+const buildRacesUrl = (meetId: string, date: string, raceType?: string, debug = false) => {
+  const params = new URLSearchParams({
+    courseId: meetId,
+    date,
+  });
+  if (raceType) {
+    params.set('raceType', normalizeMeetRaceType(raceType));
+  }
+  if (debug) {
+    params.set('debug', 'true');
+  }
+  return `/api/races?${params.toString()}`;
+};
 const isRunnerPlaceholderName = (value: string | null | undefined) => {
   const trimmed = String(value || '').trim();
   return /^(?:\d+\.\s*)?Runner\s+\d+$/i.test(trimmed);
@@ -254,6 +271,13 @@ export default function Home() {
     }, {} as Record<string, ProfileRecord>);
   };
 
+  const normalizeMeetList = (items: Meet[] = []): Meet[] => {
+    return items.map((meet) => ({
+      ...meet,
+      raceType: normalizeMeetRaceType(meet.raceType),
+    }));
+  };
+
   const persistUserSelections = async (
     currentUserId: string,
     username: string,
@@ -296,7 +320,7 @@ export default function Home() {
 
     const value = data?.value;
     if (Array.isArray(value)) {
-      return value as Meet[];
+      return normalizeMeetList(value as Meet[]);
     }
 
     return [] as Meet[];
@@ -1037,7 +1061,7 @@ export default function Home() {
         return payload;
       })
       .then((data) => {
-        setMeets(data.meets || []);
+        setMeets(normalizeMeetList(data.meets || []));
       })
       .catch((err) => {
         console.error(err);
@@ -1115,7 +1139,7 @@ export default function Home() {
           const candidateDates = Array.from(new Set([meet.date, getTodayDate()].filter(Boolean)));
           for (const date of candidateDates) {
             const res = await fetch(
-              `/api/races?courseId=${encodeURIComponent(meet.meet_id)}&date=${encodeURIComponent(date)}`
+              buildRacesUrl(meet.meet_id, date, meet.raceType)
             );
             if (!res.ok) {
               continue;
@@ -1221,7 +1245,7 @@ export default function Home() {
 
       for (const date of candidateDates) {
         const res = await fetch(
-          `/api/races?courseId=${encodeURIComponent(meet.meet_id)}&date=${encodeURIComponent(date)}`
+          buildRacesUrl(meet.meet_id, date, meet.raceType)
         );
         if (!res.ok) {
           continue;
@@ -1320,11 +1344,25 @@ export default function Home() {
     });
   };
 
+  const groupedMeetChoices = useMemo(() => {
+    const groups: Record<'Thoroughbred' | 'Harness', Meet[]> = {
+      Thoroughbred: [],
+      Harness: [],
+    };
+
+    meets.forEach((meet) => {
+      groups[normalizeMeetRaceType(meet.raceType)].push(meet);
+    });
+
+    groups.Thoroughbred.sort((a, b) => a.course.localeCompare(b.course));
+    groups.Harness.sort((a, b) => a.course.localeCompare(b.course));
+
+    return groups;
+  }, [meets]);
+
   const loadRaceDebug = async (meet: Meet) => {
     try {
-      const res = await fetch(
-        `/api/races?courseId=${encodeURIComponent(meet.meet_id)}&date=${encodeURIComponent(meet.date)}&debug=true`
-      );
+      const res = await fetch(buildRacesUrl(meet.meet_id, meet.date, meet.raceType, true));
       if (!res.ok) {
         throw new Error('Unable to load debug info');
       }
@@ -2289,36 +2327,55 @@ export default function Home() {
               Then select two new meets and click <strong>Publish Meets for New Day</strong>.
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              {meets.map(meet => {
-                const isSelectedMeet = adminSelectedMeets.some(m => m.meet_id === meet.meet_id);
-                return (
-                  <div
-                    key={meet.meet_id}
-                    className={`p-4 rounded-lg shadow-sm ${
-                      isSelectedMeet ? 'bg-emerald-50 border border-emerald-200' : 'bg-white'
-                    }`}
-                  >
-                    <h3 className="text-lg font-semibold">{meet.course} ({meet.state})</h3>
-                    <p className="text-sm text-slate-500">{meet.date}</p>
-                    <button
-                      onClick={() => {
-                        if (isSelectedMeet) {
-                          removeSelectedMeet(meet.meet_id);
-                          return;
-                        }
+            <div className="mt-4 space-y-5">
+              {(['Thoroughbred', 'Harness'] as const).map((type) => {
+                const typedMeets = groupedMeetChoices[type];
+                if (!typedMeets.length) {
+                  return null;
+                }
 
-                        void selectMeet(meet);
-                      }}
-                      disabled={adminSelectedMeets.length >= 2 && !isSelectedMeet}
-                      className={`mt-4 inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium shadow-sm transition ${
-                        isSelectedMeet
-                          ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                          : 'bg-blue-600 text-white hover:bg-blue-700'
-                      } disabled:cursor-not-allowed disabled:bg-slate-300`}
-                    >
-                      {isSelectedMeet ? 'Remove' : 'Select'}
-                    </button>
+                return (
+                  <div key={`group-${type}`}>
+                    <h3 className="mb-3 text-sm font-semibold text-slate-700">{type} Meets</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {typedMeets.map((meet) => {
+                        const isSelectedMeet = adminSelectedMeets.some((m) => m.meet_id === meet.meet_id);
+                        return (
+                          <div
+                            key={meet.meet_id}
+                            className={`p-4 rounded-lg shadow-sm ${
+                              isSelectedMeet ? 'bg-emerald-50 border border-emerald-200' : 'bg-white'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <h4 className="text-lg font-semibold">{meet.course} ({meet.state})</h4>
+                              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${type === 'Harness' ? 'bg-violet-100 text-violet-700' : 'bg-sky-100 text-sky-700'}`}>
+                                {type}
+                              </span>
+                            </div>
+                            <p className="text-sm text-slate-500">{meet.date}</p>
+                            <button
+                              onClick={() => {
+                                if (isSelectedMeet) {
+                                  removeSelectedMeet(meet.meet_id);
+                                  return;
+                                }
+
+                                void selectMeet(meet);
+                              }}
+                              disabled={adminSelectedMeets.length >= 2 && !isSelectedMeet}
+                              className={`mt-4 inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium shadow-sm transition ${
+                                isSelectedMeet
+                                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                  : 'bg-blue-600 text-white hover:bg-blue-700'
+                              } disabled:cursor-not-allowed disabled:bg-slate-300`}
+                            >
+                              {isSelectedMeet ? 'Remove' : 'Select'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
@@ -2329,7 +2386,7 @@ export default function Home() {
                 <h3 className="text-sm font-semibold text-slate-700">Current Global Meets</h3>
                 <ul className="mt-2 text-sm text-slate-600">
                   {globalMeets.map(m => (
-                    <li key={m.meet_id}>{m.course} ({m.date})</li>
+                    <li key={m.meet_id}>{m.course} ({m.date}) - {normalizeMeetRaceType(m.raceType)}</li>
                   ))}
                 </ul>
               </div>
@@ -2376,6 +2433,7 @@ export default function Home() {
                       <div key={`admin-main-meet-${meet.meet_id}`} className="bg-white p-4 rounded-lg shadow-sm">
                         <h3 className="text-lg font-semibold">{meet.course} ({meet.state})</h3>
                         <p className="text-sm text-slate-500">{meet.date}</p>
+                        <p className="text-xs text-slate-500">{normalizeMeetRaceType(meet.raceType)}</p>
                       </div>
                     ))}
                   </div>
@@ -2735,6 +2793,7 @@ export default function Home() {
                 <div key={meet.meet_id} className="bg-white p-4 rounded-lg shadow-sm">
                   <h3 className="text-lg font-semibold">{meet.course} ({meet.state})</h3>
                   <p className="text-sm text-slate-500">{meet.date}</p>
+                  <p className="text-xs text-slate-500">{normalizeMeetRaceType(meet.raceType)}</p>
                 </div>
               ))}
             </div>

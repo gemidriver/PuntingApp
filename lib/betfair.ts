@@ -3,6 +3,7 @@ export interface Meet {
   course: string;
   date: string;
   state: string;
+  raceType: 'Thoroughbred' | 'Harness';
 }
 
 export interface Race {
@@ -364,22 +365,26 @@ async function listMarketBook(params: Record<string, unknown>): Promise<BetfairM
 }
 
 function isThoroughbredMarket(market: BetfairMarketCatalogue): boolean {
+  return getMarketRaceType(market) === 'Thoroughbred';
+}
+
+function getMarketRaceType(market: BetfairMarketCatalogue): 'Thoroughbred' | 'Harness' {
   const raceType = String(market.description?.raceType ?? '').toLowerCase();
   const marketName = String(market.marketName ?? '').toLowerCase();
   const eventName = String(market.event?.name ?? '').toLowerCase();
   const competitionName = String(market.competition?.name ?? '').toLowerCase();
   const combined = `${marketName} ${eventName} ${competitionName}`;
 
-  // Betfair can expose harness metadata either in description.raceType or market/event naming.
-  if (raceType.includes('harness')) return false;
-  if (raceType.includes('trot')) return false;
-  if (raceType.includes('pace')) return false;
+  // Betfair can expose harness metadata in description.raceType and/or event naming.
+  if (raceType.includes('harness')) return 'Harness';
+  if (raceType.includes('trot')) return 'Harness';
+  if (raceType.includes('pace')) return 'Harness';
 
-  if (/\bpace\b/.test(combined)) return false;
-  if (/\btrot\b/.test(combined)) return false;
-  if (/\bharness\b/.test(combined)) return false;
+  if (/\bpace\b/.test(combined)) return 'Harness';
+  if (/\btrot\b/.test(combined)) return 'Harness';
+  if (/\bharness\b/.test(combined)) return 'Harness';
 
-  return true;
+  return 'Thoroughbred';
 }
 
 export async function runBetfairHealthCheck(date: string): Promise<BetfairHealthCheckResult> {
@@ -486,37 +491,45 @@ export async function fetchMeets(date: string): Promise<{ meets: Meet[] }> {
     maxResults: '1000',
   });
 
-  const filteredMarkets = markets.filter(isThoroughbredMarket);
+  const competitionMap = new Map<string, { name: string; raceType: 'Thoroughbred' | 'Harness' }>();
+  const eventMap = new Map<string, { name: string; raceType: 'Thoroughbred' | 'Harness' }>();
 
-  const competitionMap = new Map<string, string>();
-  const eventMap = new Map<string, string>();
+  for (const market of markets) {
+    const raceType = getMarketRaceType(market);
+    const prefix = raceType === 'Harness' ? 'h:' : 't:';
 
-  for (const market of filteredMarkets) {
     const id = String(market.competition?.id ?? '').trim();
     const name = String(market.competition?.name ?? '').trim();
-    if (!id || !name || competitionMap.has(id)) {
+    if (!id || !name || competitionMap.has(`${prefix}${id}`)) {
       const eventId = String(market.event?.id ?? '').trim();
       const eventName = String(market.event?.name ?? '').trim();
-      if (eventId && eventName && !eventMap.has(eventId)) {
-        eventMap.set(eventId, eventName);
+      const eventKey = `${prefix}event:${eventId}`;
+      if (eventId && eventName && !eventMap.has(eventKey)) {
+        eventMap.set(eventKey, { name: eventName, raceType });
       }
       continue;
     }
-    competitionMap.set(id, name);
+    competitionMap.set(`${prefix}${id}`, { name, raceType });
   }
 
   const meetEntries = competitionMap.size
-    ? [...competitionMap.entries()].map(([id, name]) => ({ id, name }))
-    : [...eventMap.entries()].map(([id, name]) => ({ id: `event:${id}`, name }));
+    ? [...competitionMap.entries()].map(([id, meta]) => ({ id, ...meta }))
+    : [...eventMap.entries()].map(([id, meta]) => ({ id, ...meta }));
 
   const meets: Meet[] = meetEntries
-    .map(({ id, name }) => ({
+    .map(({ id, name, raceType }) => ({
       meet_id: id,
       course: name,
       date,
       state: 'AUS',
+      raceType,
     }))
-    .sort((a, b) => a.course.localeCompare(b.course));
+    .sort((a, b) => {
+      if (a.raceType !== b.raceType) {
+        return a.raceType.localeCompare(b.raceType);
+      }
+      return a.course.localeCompare(b.course);
+    });
 
   return { meets };
 }
@@ -524,15 +537,28 @@ export async function fetchMeets(date: string): Promise<{ meets: Meet[] }> {
 export async function fetchRacesForCourse(
   courseId: string,
   date: string,
-  debug = false
+  debug = false,
+  raceType?: 'Thoroughbred' | 'Harness'
 ): Promise<{ races: Race[]; raw?: unknown }> {
   const trimmedCourseId = String(courseId || '').trim();
   if (!trimmedCourseId) {
     return { races: [] };
   }
 
-  const isEventScoped = trimmedCourseId.startsWith('event:');
-  const scopedId = isEventScoped ? trimmedCourseId.slice('event:'.length) : trimmedCourseId;
+  let parsedCourseId = trimmedCourseId;
+  let meetScopedRaceType: 'Thoroughbred' | 'Harness' | undefined;
+  if (trimmedCourseId.startsWith('h:')) {
+    meetScopedRaceType = 'Harness';
+    parsedCourseId = trimmedCourseId.slice(2);
+  } else if (trimmedCourseId.startsWith('t:')) {
+    meetScopedRaceType = 'Thoroughbred';
+    parsedCourseId = trimmedCourseId.slice(2);
+  }
+
+  const desiredRaceType = raceType || meetScopedRaceType || 'Thoroughbred';
+
+  const isEventScoped = parsedCourseId.startsWith('event:');
+  const scopedId = isEventScoped ? parsedCourseId.slice('event:'.length) : parsedCourseId;
 
   const window = toIsoDateWindow(date);
   const markets = await listMarketCatalogue({
@@ -551,7 +577,7 @@ export async function fetchRacesForCourse(
     maxResults: '200',
   });
 
-  const filteredMarkets = markets.filter(isThoroughbredMarket);
+  const filteredMarkets = markets.filter((market) => getMarketRaceType(market) === desiredRaceType);
 
   if (!filteredMarkets.length) {
     return { races: [] };
@@ -586,7 +612,7 @@ export async function fetchRacesForCourse(
   }
 
   const races: Race[] = targetMarkets.map((market, marketIndex) => {
-    const raceId = String(market.marketId ?? `${trimmedCourseId}-${marketIndex + 1}`);
+    const raceId = String(market.marketId ?? `${parsedCourseId}-${marketIndex + 1}`);
     const book = bookMap.get(raceId);
     const bookRunnerMap = new Map<number, NonNullable<BetfairMarketBook['runners']>[number]>();
 
@@ -630,7 +656,7 @@ export async function fetchRacesForCourse(
       id: raceId,
       name: String(market.marketName ?? `Race ${marketIndex + 1}`),
       time: String(market.marketStartTime ?? ''),
-      courseId: trimmedCourseId,
+      courseId: parsedCourseId,
       runners,
     };
   });
