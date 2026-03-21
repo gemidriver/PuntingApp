@@ -2678,19 +2678,35 @@ export default function Home() {
                         const isWildcard = row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId;
                         const result = raceResults[sel.raceId];
                         const isWinner = horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.winnerId, result?.winnerName);
-                        const resolvedWinnerName = result?.winnerId
+                        const isSecond = horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.secondId, result?.secondName);
+                        const isThird = horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.thirdId, result?.thirdName);
+                        const resolvedFirstName = result?.winnerId
                           ? preferResolvedHorseName(result.winnerName, resolveRaceHorseName(sel.raceId, result.winnerId, result.winnerName), result.winnerId)
                           : null;
+                        const resolvedSecondName = result?.secondId
+                          ? preferResolvedHorseName(result.secondName, resolveRaceHorseName(sel.raceId, result.secondId, result.secondName), result.secondId)
+                          : null;
+                        const resolvedThirdName = result?.thirdId
+                          ? preferResolvedHorseName(result.thirdName, resolveRaceHorseName(sel.raceId, result.thirdId, result.thirdName), result.thirdId)
+                          : null;
+                        const hasResolvedPlacings = Boolean(resolvedFirstName || resolvedSecondName || resolvedThirdName);
+                        const placingClass = isWinner
+                          ? 'bg-green-100 text-green-900 font-semibold'
+                          : isSecond
+                            ? 'bg-slate-200 text-slate-900 font-semibold'
+                            : isThird
+                              ? 'bg-amber-100 text-amber-900 font-semibold'
+                              : '';
                         return (
-                          <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`} className={`rounded px-2 py-0.5 ${isWinner ? 'bg-green-100 text-green-900 font-semibold' : isWildcard ? 'bg-yellow-100 text-yellow-900 font-semibold' : ''}`}>
+                          <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`} className={`rounded px-2 py-0.5 ${placingClass}`}>
                             <div>
                               {getSelectionLocation(sel)} - {sel.raceName}: {sel.horseName}
                               {isWildcard ? ' \u2b50 Wildcard' : ''}
-                              {isWinner ? ' \u2705' : (result && !isWinner ? ' \u274c' : '')}
+                              {isWinner ? ' \u2705' : (result && !isSecond && !isThird ? ' \u274c' : '')}
                             </div>
-                            {resolvedWinnerName ? (
+                            {hasResolvedPlacings ? (
                               <div className="mt-1 text-xs font-normal text-slate-600">
-                                Winner: {resolvedWinnerName}
+                                Results: 1st {resolvedFirstName || '-'} | 2nd {resolvedSecondName || '-'} | 3rd {resolvedThirdName || '-'}
                               </div>
                             ) : null}
                           </li>

@@ -1,4 +1,4 @@
 // Auto-generated at build time by scripts/generate-version.mjs
 // Timezone used for version stamp: Australia/Sydney
-export const APP_VERSION = '0.1.3.21.2247';
-export const APP_VERSION_LABEL = 'BrewedBuilder | v 0.1.3.21.2247';
+export const APP_VERSION = '0.1.3.21.2300';
+export const APP_VERSION_LABEL = 'BrewedBuilder | v 0.1.3.21.2300';
