@@ -921,11 +921,32 @@ export default function Home() {
       return;
     }
 
+    const buildPlaceKey = (horseId: string, horseName: string) => {
+      const trimmedId = String(horseId || '').trim();
+      const normalizedName = normalizeHorseNameForComparison(horseName);
+
+      // Legacy numeric IDs and synthetic IDs can collide across runners; prefer name identity there.
+      if (trimmedId.startsWith('manual:') || /^\d+$/.test(trimmedId)) {
+        return normalizedName || trimmedId;
+      }
+
+      return trimmedId || normalizedName;
+    };
+
     const selectedPlaceKeys = [
-      manualResultHorseId || normalizeHorseNameForComparison(manualResultHorseName),
-      manualResultSecondHorseId || normalizeHorseNameForComparison(manualResultSecondHorseName),
-      manualResultThirdHorseId || normalizeHorseNameForComparison(manualResultThirdHorseName),
+      buildPlaceKey(manualResultHorseId, manualResultHorseName),
+      buildPlaceKey(manualResultSecondHorseId, manualResultSecondHorseName),
+      buildPlaceKey(manualResultThirdHorseId, manualResultThirdHorseName),
     ].filter(Boolean);
+
+    const selectedRawIds = [manualResultHorseId, manualResultSecondHorseId, manualResultThirdHorseId]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    if (new Set(selectedRawIds).size !== selectedRawIds.length) {
+      addNotification('Winner, 2nd, and 3rd must be different horses.', 'warning');
+      return;
+    }
+
     if (new Set(selectedPlaceKeys).size !== selectedPlaceKeys.length) {
       addNotification('Winner, 2nd, and 3rd must be different horses.', 'warning');
       return;
@@ -1009,7 +1030,7 @@ export default function Home() {
     const supabase = getSupabaseClient();
     const { error: tableSaveError } = await persistRaceResultsRows(map, [manualResultRaceId]);
     if (tableSaveError) {
-      addNotification('Unable to save manual placings to race_results.', 'error');
+      addNotification(`Unable to save manual placings to race_results. ${tableSaveError}`, 'error');
       return;
     }
 
@@ -1928,16 +1949,20 @@ export default function Home() {
       pushCandidate(runner.horseId, runner.horseName, 100);
     });
 
+    const knownSourceIds = new Set(candidates.map((candidate) => candidate.horseId));
     const existingResult = raceResults[manualResultRaceId];
-    if (existingResult?.winnerId) {
-      pushCandidate(existingResult.winnerId, resolveRaceHorseName(manualResultRaceId, existingResult.winnerId, existingResult.winnerName) || existingResult.winnerId, 350);
-    }
-    if (existingResult?.secondId) {
-      pushCandidate(existingResult.secondId, resolveRaceHorseName(manualResultRaceId, existingResult.secondId, existingResult.secondName) || existingResult.secondId, 350);
-    }
-    if (existingResult?.thirdId) {
-      pushCandidate(existingResult.thirdId, resolveRaceHorseName(manualResultRaceId, existingResult.thirdId, existingResult.thirdName) || existingResult.thirdId, 350);
-    }
+    const addTrustedResultCandidate = (horseId?: string | null, horseName?: string | null) => {
+      const id = String(horseId || '').trim();
+      const name = String(horseName || '').trim();
+      if (!id || !name) return;
+      if (isBadName(name)) return;
+      if (!knownSourceIds.has(id)) return;
+      pushCandidate(id, name, 250);
+    };
+
+    addTrustedResultCandidate(existingResult?.winnerId, existingResult?.winnerName);
+    addTrustedResultCandidate(existingResult?.secondId, existingResult?.secondName);
+    addTrustedResultCandidate(existingResult?.thirdId, existingResult?.thirdName);
 
     const bestByKey = new Map<string, { horseId: string; horseName: string; priority: number }>();
     candidates.forEach((candidate) => {
@@ -1958,7 +1983,17 @@ export default function Home() {
       }
     });
 
-    return [...bestByKey.values()]
+    const bestById = new Map<string, { horseId: string; horseName: string; priority: number }>();
+    [...bestByKey.values()].forEach((candidate) => {
+      const existing = bestById.get(candidate.horseId);
+      const candidateQuality = candidate.priority + (isBadName(candidate.horseName) ? 0 : 1000);
+      const existingQuality = existing ? existing.priority + (isBadName(existing.horseName) ? 0 : 1000) : -1;
+      if (!existing || candidateQuality > existingQuality) {
+        bestById.set(candidate.horseId, candidate);
+      }
+    });
+
+    return [...bestById.values()]
       .map(({ horseId, horseName }) => ({
         horseId,
         horseName: /^\d+$/.test(String(horseName || '').trim()) ? 'Runner details unavailable' : horseName,
@@ -2472,9 +2507,9 @@ export default function Home() {
                     setManualResultHorseId(existing?.winnerId || '');
                     setManualResultSecondHorseId(existing?.secondId || '');
                     setManualResultThirdHorseId(existing?.thirdId || '');
-                    setManualResultHorseName(existing?.winnerName || '');
-                    setManualResultSecondHorseName(existing?.secondName || '');
-                    setManualResultThirdHorseName(existing?.thirdName || '');
+                    setManualResultHorseName(existing?.winnerId ? (resolveRaceHorseName(raceId, existing.winnerId, existing.winnerName) || '') : (existing?.winnerName || ''));
+                    setManualResultSecondHorseName(existing?.secondId ? (resolveRaceHorseName(raceId, existing.secondId, existing.secondName) || '') : (existing?.secondName || ''));
+                    setManualResultThirdHorseName(existing?.thirdId ? (resolveRaceHorseName(raceId, existing.thirdId, existing.thirdName) || '') : (existing?.thirdName || ''));
                     setManualApplyNotice(null);
                   }}
                   className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
