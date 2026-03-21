@@ -1474,7 +1474,7 @@ export default function Home() {
 
     return [...raceMap.entries()].map(([raceId, info]) => ({
       raceId,
-      label: `${info.location} - ${info.raceName} (${raceId})`,
+      label: `${info.location} - ${info.raceName}`,
     }));
   }, [meetsForPicks, races, submissionRows]);
 
