@@ -199,6 +199,7 @@ export default function Home() {
   const [manualResultThirdHorseId, setManualResultThirdHorseId] = useState('');
   const [manualRunnersByRaceId, setManualRunnersByRaceId] = useState<Record<string, Array<{ horseId: string; horseName: string }>>>({});
   const [manualRunnersLoading, setManualRunnersLoading] = useState(false);
+  const [manualApplyNotice, setManualApplyNotice] = useState<string | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [betfairHealth, setBetfairHealth] = useState<BetfairHealthStatus | null>(null);
   const [betfairHealthLoading, setBetfairHealthLoading] = useState(false);
@@ -434,6 +435,8 @@ export default function Home() {
   };
 
   const applyManualResult = async () => {
+    setManualApplyNotice(null);
+
     if (!manualResultRaceId) {
       setError('Choose a race before applying manual placings.');
       return;
@@ -508,6 +511,12 @@ export default function Home() {
 
     setRaceResults(map);
     setError(null);
+
+    const raceLabel = manualRaceOptions.find((race) => race.raceId === manualResultRaceId)?.label || manualResultRaceId;
+    const winnerName = map[manualResultRaceId]?.winnerName || map[manualResultRaceId]?.winnerId || 'N/A';
+    const secondName = map[manualResultRaceId]?.secondName || map[manualResultRaceId]?.secondId || 'N/A';
+    const thirdName = map[manualResultRaceId]?.thirdName || map[manualResultRaceId]?.thirdId || 'N/A';
+    setManualApplyNotice(`Manual placings saved for ${raceLabel}: 1st ${winnerName}, 2nd ${secondName}, 3rd ${thirdName}.`);
   };
 
   const hydrateForUser = async (authUser: User) => {
@@ -1687,6 +1696,7 @@ export default function Home() {
                 setManualResultHorseId(existing?.winnerId || '');
                 setManualResultSecondHorseId(existing?.secondId || '');
                 setManualResultThirdHorseId(existing?.thirdId || '');
+                setManualApplyNotice(null);
               }}
               className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
             >
@@ -1736,6 +1746,11 @@ export default function Home() {
               Apply Manual Placings
             </button>
           </div>
+          {manualApplyNotice ? (
+            <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              {manualApplyNotice}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {scoreboard.length > 0 ? (
