@@ -489,7 +489,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ marketIds }),
       });
-      const data = await res.json() as { results?: { marketId: string; winnerId: string | null; settled: boolean }[]; error?: string };
+      const data = await res.json() as { results?: { marketId: string; winnerId: string | null; secondId?: string | null; thirdId?: string | null; settled: boolean; inferredPlaces?: boolean }[]; error?: string };
 
       if (!res.ok) {
         setError(data.error || 'Failed to fetch results from /api/results.');
@@ -504,19 +504,40 @@ export default function Home() {
       setError(null);
 
       const map: RaceResultsMap = { ...raceResults };
-      data.results.forEach(r => {
-        if (r.winnerId) {
-          let winnerName: string | null = null;
-          for (const row of submissionRows) {
-            const sel = row.selections.find(s => s.raceId === r.marketId && s.horseId === r.winnerId);
-            if (sel) { winnerName = sel.horseName; break; }
+      const resolveName = (marketId: string, horseId: string | null | undefined): string | null => {
+        if (!horseId) return null;
+
+        const fromCache = (raceRunnersCache[marketId] || []).find((runner) => runner.horseId === horseId);
+        if (fromCache?.horseName) return fromCache.horseName;
+
+        for (const row of submissionRows) {
+          const sel = row.selections.find((s) => s.raceId === marketId && s.horseId === horseId);
+          if (sel?.horseName) {
+            return sel.horseName;
           }
-          map[r.marketId] = {
-            ...(map[r.marketId] || {}),
-            winnerId: r.winnerId,
-            winnerName,
-          };
         }
+
+        return horseId;
+      };
+
+      data.results.forEach(r => {
+        if (!r.winnerId) {
+          return;
+        }
+
+        const existing = map[r.marketId] || { winnerId: '', winnerName: null };
+        const nextSecondId = existing.secondId || r.secondId || null;
+        const nextThirdId = existing.thirdId || r.thirdId || null;
+
+        map[r.marketId] = {
+          ...existing,
+          winnerId: r.winnerId,
+          winnerName: resolveName(r.marketId, r.winnerId),
+          secondId: nextSecondId,
+          secondName: nextSecondId ? resolveName(r.marketId, nextSecondId) : existing.secondName ?? null,
+          thirdId: nextThirdId,
+          thirdName: nextThirdId ? resolveName(r.marketId, nextThirdId) : existing.thirdName ?? null,
+        };
       });
 
       const supabase = getSupabaseClient();

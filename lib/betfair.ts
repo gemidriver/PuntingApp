@@ -28,7 +28,10 @@ export interface Race {
 export interface RaceResult {
   marketId: string;
   winnerId: string | null;
+  secondId?: string | null;
+  thirdId?: string | null;
   settled: boolean;
+  inferredPlaces?: boolean;
 }
 
 export interface MarketRunner {
@@ -683,7 +686,8 @@ export async function fetchMarketResults(marketIds: string[]): Promise<RaceResul
   if (!ids.length) return [];
 
   const books = await listMarketBook({ marketIds: ids });
-  return books
+
+  const baseResults = books
     .filter((book) => Boolean(book.marketId))
     .map((book) => {
       const winner = (book.runners ?? []).find(
@@ -696,8 +700,136 @@ export async function fetchMarketResults(marketIds: string[]): Promise<RaceResul
         marketId: String(book.marketId),
         winnerId: winner?.selectionId ? String(winner.selectionId) : null,
         settled: status === 'CLOSED' || status === 'SETTLED',
-      };
+      } as RaceResult;
     });
+
+  const winnerByMarketId = new Map<string, string>();
+  baseResults.forEach((result) => {
+    if (result.winnerId) {
+      winnerByMarketId.set(result.marketId, result.winnerId);
+    }
+  });
+
+  const winCatalogues = await listMarketCatalogue({
+    filter: {
+      marketIds: ids,
+    },
+    marketProjection: ['EVENT', 'MARKET_START_TIME'],
+    maxResults: String(Math.max(1, ids.length)),
+  });
+
+  const eventByWinMarketId = new Map<string, string>();
+  const eventIds = new Set<string>();
+  winCatalogues.forEach((market) => {
+    const marketId = String(market.marketId ?? '').trim();
+    const eventId = String(market.event?.id ?? '').trim();
+    if (marketId && eventId) {
+      eventByWinMarketId.set(marketId, eventId);
+      eventIds.add(eventId);
+    }
+  });
+
+  if (!eventIds.size) {
+    return baseResults;
+  }
+
+  const placeCatalogues = await listMarketCatalogue({
+    filter: {
+      eventIds: [...eventIds],
+      marketTypeCodes: ['PLACE'],
+    },
+    marketProjection: ['EVENT'],
+    sort: 'FIRST_TO_START',
+    maxResults: '1000',
+  });
+
+  const placeMarketIds = placeCatalogues
+    .map((market) => String(market.marketId ?? '').trim())
+    .filter(Boolean);
+
+  if (!placeMarketIds.length) {
+    return baseResults;
+  }
+
+  const placeBooks = await listMarketBook({ marketIds: placeMarketIds });
+
+  const placeWinnersByEvent = new Map<string, Array<Set<string>>>();
+  placeBooks.forEach((book) => {
+    const marketId = String(book.marketId ?? '').trim();
+    if (!marketId) return;
+
+    const catalogue = placeCatalogues.find((m) => String(m.marketId ?? '').trim() === marketId);
+    const eventId = String(catalogue?.event?.id ?? '').trim();
+    if (!eventId) return;
+
+    const winners = (book.runners ?? [])
+      .filter((runner) => String(runner.status ?? '').toUpperCase() === 'WINNER')
+      .map((runner) => String(runner.selectionId ?? '').trim())
+      .filter(Boolean);
+
+    // Only use classic place market winner sets (top-2 / top-3).
+    if (winners.length !== 2 && winners.length !== 3) {
+      return;
+    }
+
+    const existing = placeWinnersByEvent.get(eventId) ?? [];
+    existing.push(new Set(winners));
+    placeWinnersByEvent.set(eventId, existing);
+  });
+
+  return baseResults.map((result) => {
+    const winnerId = result.winnerId;
+    if (!winnerId) {
+      return result;
+    }
+
+    const eventId = eventByWinMarketId.get(result.marketId);
+    if (!eventId) {
+      return result;
+    }
+
+    const placeSets = placeWinnersByEvent.get(eventId) ?? [];
+    if (!placeSets.length) {
+      return result;
+    }
+
+    const top2Sets = placeSets.filter((set) => set.size === 2 && set.has(winnerId));
+    const top3Sets = placeSets.filter((set) => set.size === 3 && set.has(winnerId));
+
+    let inferredSecondId: string | null = null;
+    let inferredThirdId: string | null = null;
+
+    if (top2Sets.length === 1) {
+      const candidates = [...top2Sets[0]].filter((id) => id !== winnerId);
+      if (candidates.length === 1) {
+        inferredSecondId = candidates[0];
+      }
+    }
+
+    if (inferredSecondId && top3Sets.length >= 1) {
+      // If multiple top-3 sets exist, they must agree on the remaining third runner.
+      const thirdCandidates = top3Sets
+        .map((set) => [...set].filter((id) => id !== winnerId && id !== inferredSecondId))
+        .filter((arr) => arr.length === 1)
+        .map((arr) => arr[0]);
+
+      const uniqueThird = [...new Set(thirdCandidates)];
+      if (uniqueThird.length === 1) {
+        inferredThirdId = uniqueThird[0];
+      }
+    }
+
+    if (!inferredSecondId && !inferredThirdId) {
+      return result;
+    }
+
+    return {
+      ...result,
+      secondId: inferredSecondId,
+      thirdId: inferredThirdId,
+      inferredPlaces: true,
+    };
+  });
 }
 
 export async function fetchMarketRunners(marketId: string): Promise<MarketRunner[]> {
