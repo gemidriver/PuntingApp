@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../lib/supabase';
+import { APP_VERSION_LABEL } from './version';
 
 interface Meet {
   meet_id: string;
@@ -105,7 +106,6 @@ const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
 const RACE_RESULTS_SETTING_KEY = 'race_results';
 const RACE_RUNNERS_SETTING_KEY = 'race_runners';
 const PREVIOUS_ROUND_SNAPSHOT_SETTING_KEY = 'previous_round_snapshot';
-const APP_VERSION_LABEL = 'PowerChap | v 0.1.3.21.1953';
 
 type RaceResultEntry = {
   winnerId: string;
