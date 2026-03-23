@@ -1555,12 +1555,25 @@ export default function Home() {
         return;
       }
 
-      const response = await fetch('/api/notifications', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-      });
+      const fetchNotifications = (token: string) => {
+        return fetch('/api/notifications', {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      };
+
+      let accessToken = sessionData.session.access_token;
+      let response = await fetchNotifications(accessToken);
+
+      if (response.status === 401) {
+        const { data: refreshedData, error: refreshError } = await supabase.auth.refreshSession();
+        if (!refreshError && refreshedData.session?.access_token) {
+          accessToken = refreshedData.session.access_token;
+          response = await fetchNotifications(accessToken);
+        }
+      }
 
       if (!response.ok) {
         return;
@@ -1591,7 +1604,7 @@ export default function Home() {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionData.session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({ notificationIds: unreadIds }),
       });
@@ -1610,12 +1623,25 @@ export default function Home() {
         return;
       }
 
-      const response = await fetch('/api/notifications/test', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-      });
+      const sendTestRequest = (token: string) => {
+        return fetch('/api/notifications/test', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      };
+
+      let accessToken = sessionData.session.access_token;
+      let response = await sendTestRequest(accessToken);
+
+      if (response.status === 401) {
+        const { data: refreshedData, error: refreshError } = await supabase.auth.refreshSession();
+        if (!refreshError && refreshedData.session?.access_token) {
+          accessToken = refreshedData.session.access_token;
+          response = await sendTestRequest(accessToken);
+        }
+      }
 
       const payload = await response.json().catch(() => ({} as { error?: string }));
       if (!response.ok) {
