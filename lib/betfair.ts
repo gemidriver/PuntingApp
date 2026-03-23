@@ -72,6 +72,15 @@ export interface BetfairHealthCheckResult {
   };
 }
 
+export interface BetfairProxyProbeResult {
+  configured: boolean;
+  ok: boolean;
+  status: number | null;
+  contentType: string | null;
+  url: string | null;
+  preview: string | null;
+}
+
 type BetfairRunnerDescription = {
   selectionId?: number;
   runnerName?: string;
@@ -406,6 +415,60 @@ async function listMarketCatalogue(params: Record<string, unknown>): Promise<Bet
 async function listMarketBook(params: Record<string, unknown>): Promise<BetfairMarketBook[]> {
   const result = await betfairRpc<BetfairMarketBook[]>('listMarketBook', params);
   return Array.isArray(result) ? result : [];
+}
+
+export async function runBetfairProxyProbe(): Promise<BetfairProxyProbeResult> {
+  if (!BETFAIR_PROXY_URL) {
+    return {
+      configured: false,
+      ok: false,
+      status: null,
+      contentType: null,
+      url: null,
+      preview: null,
+    };
+  }
+
+  const proxyUrl = `${BETFAIR_PROXY_URL.replace(/\/$/, '')}/rpc`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+
+  if (BETFAIR_PROXY_TOKEN) {
+    headers['X-Proxy-Token'] = BETFAIR_PROXY_TOKEN;
+  }
+
+  try {
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ method: 'listEventTypes', params: { filter: {} } }),
+      cache: 'no-store',
+    });
+
+    const contentType = response.headers.get('content-type');
+    const rawText = await response.text();
+    const preview = compactPreview(rawText);
+
+    return {
+      configured: true,
+      ok: response.ok && Boolean(contentType?.includes('application/json')),
+      status: response.status,
+      contentType,
+      url: proxyUrl,
+      preview: preview || null,
+    };
+  } catch (error) {
+    return {
+      configured: true,
+      ok: false,
+      status: null,
+      contentType: null,
+      url: proxyUrl,
+      preview: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 function isThoroughbredMarket(market: BetfairMarketCatalogue): boolean {

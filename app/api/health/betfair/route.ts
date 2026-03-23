@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { runBetfairHealthCheck } from '../../../../lib/betfair';
+import { runBetfairHealthCheck, runBetfairProxyProbe } from '../../../../lib/betfair';
 
 export const preferredRegion = 'syd1';
 
@@ -12,12 +12,14 @@ export async function GET(request: NextRequest) {
   const proxyUrlConfigured = Boolean(process.env.BETFAIR_PROXY_URL);
   const proxyTokenConfigured = Boolean(process.env.BETFAIR_PROXY_TOKEN);
   const proxyUrlValue = process.env.BETFAIR_PROXY_URL ? process.env.BETFAIR_PROXY_URL.slice(0, 40) + '...' : null;
+  const proxyProbe = await runBetfairProxyProbe();
 
   try {
     const result = await runBetfairHealthCheck(date);
     return NextResponse.json({
       ...result,
       proxy: { proxyUrlConfigured, proxyTokenConfigured, proxyUrlPrefix: proxyUrlValue },
+      proxyProbe,
     });
   } catch (error) {
     const missingVars: string[] = [];
@@ -35,6 +37,7 @@ export async function GET(request: NextRequest) {
           proxyTokenConfigured,
           proxyUrlPrefix: proxyUrlValue,
         },
+        proxyProbe,
         envMissing: missingVars,
         error: (error as Error).message ?? 'Betfair health check failed',
       },
