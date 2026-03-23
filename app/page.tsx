@@ -358,6 +358,7 @@ export default function Home() {
   const [betfairHealthError, setBetfairHealthError] = useState<string | null>(null);
   const [betfairHealthCheckedAt, setBetfairHealthCheckedAt] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [abandonedMeetAlerts, setAbandonedMeetAlerts] = useState<Record<string, boolean>>({});
 
   const addNotification = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration: number = 5000) => {
     const id = String(Date.now() + Math.random());
@@ -377,6 +378,23 @@ export default function Home() {
   };
 
   const meetsForPicks = globalMeets.length ? globalMeets : selectedMeets;
+  const liveMeetIds = useMemo(() => new Set(meets.map((meet) => meet.meet_id)), [meets]);
+  const unavailableGlobalMeets = useMemo(
+    () => globalMeets.filter((meet) => !liveMeetIds.has(meet.meet_id)),
+    [globalMeets, liveMeetIds]
+  );
+  const unavailableGlobalMeetIds = useMemo(
+    () => new Set(unavailableGlobalMeets.map((meet) => meet.meet_id)),
+    [unavailableGlobalMeets]
+  );
+  const unavailableAdminSelectedMeets = useMemo(
+    () => adminSelectedMeets.filter((meet) => !liveMeetIds.has(meet.meet_id)),
+    [adminSelectedMeets, liveMeetIds]
+  );
+  const unavailableAdminSelectedMeetIds = useMemo(
+    () => new Set(unavailableAdminSelectedMeets.map((meet) => meet.meet_id)),
+    [unavailableAdminSelectedMeets]
+  );
   const selectedRunnerMissingFields = selectedRunnerDetails
     ? getRunnerMissingFields(selectedRunnerDetails.runner)
     : [];
@@ -1758,6 +1776,33 @@ export default function Home() {
   }, [isAdmin, globalMeets]);
 
   useEffect(() => {
+    if (!isAdmin || !unavailableGlobalMeets.length) {
+      return;
+    }
+
+    const unseenUnavailable = unavailableGlobalMeets.filter((meet) => !abandonedMeetAlerts[meet.meet_id]);
+    if (!unseenUnavailable.length) {
+      return;
+    }
+
+    unseenUnavailable.forEach((meet) => {
+      addNotification(
+        `${meet.course} appears unavailable/abandoned. Remove it, select another meet, and publish again.`,
+        'warning',
+        0
+      );
+    });
+
+    setAbandonedMeetAlerts((prev) => {
+      const next = { ...prev };
+      unseenUnavailable.forEach((meet) => {
+        next[meet.meet_id] = true;
+      });
+      return next;
+    });
+  }, [isAdmin, unavailableGlobalMeets, abandonedMeetAlerts]);
+
+  useEffect(() => {
     if (!isAdmin && activeScreen === 'admin') {
       setActiveScreen('main');
     }
@@ -2019,6 +2064,23 @@ export default function Home() {
       return next;
     });
   };
+
+  useEffect(() => {
+    if (!isAdmin || unavailableAdminSelectedMeets.length === 0) {
+      return;
+    }
+
+    setAdminSelectedMeets((prev) =>
+      prev.filter((meet) => !unavailableAdminSelectedMeetIds.has(meet.meet_id))
+    );
+
+    unavailableAdminSelectedMeets.forEach((meet) => {
+      addNotification(
+        `${meet.course} was removed from selection because it is unavailable/abandoned. Please choose another meet.`,
+        'warning'
+      );
+    });
+  }, [isAdmin, unavailableAdminSelectedMeets, unavailableAdminSelectedMeetIds]);
 
   const groupedMeetChoices = useMemo(() => {
     const groups: Record<'Thoroughbred' | 'Harness', Meet[]> = {
@@ -3566,6 +3628,38 @@ export default function Home() {
               Then select two new meets and click <strong>Publish Meets for New Day</strong>.
             </p>
 
+            {adminSelectedMeets.length ? (
+              <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
+                <h3 className="text-sm font-semibold text-slate-700">Selected Meets for Next Publish ({adminSelectedMeets.length}/2)</h3>
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {adminSelectedMeets.map((meet) => {
+                    const isUnavailable = unavailableAdminSelectedMeetIds.has(meet.meet_id);
+                    return (
+                      <div key={`selected-admin-meet-${meet.meet_id}`} className={`rounded-lg border p-3 ${isUnavailable ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50'}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium text-slate-800">{meet.course}</p>
+                            <p className="text-xs text-slate-500">{meet.date} • {normalizeMeetRaceType(meet.raceType)}</p>
+                            {isUnavailable ? (
+                              <p className="mt-1 text-xs font-medium text-amber-700">Unavailable now (possibly abandoned). Replace this meet before publishing.</p>
+                            ) : null}
+                          </div>
+                          <button
+                            onClick={() => {
+                              removeSelectedMeet(meet.meet_id);
+                            }}
+                            className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
             <div className="mt-6 space-y-5">
               {(['Thoroughbred', 'Harness'] as const).map((type) => {
                 const typedMeets = groupedMeetChoices[type];
@@ -3623,9 +3717,19 @@ export default function Home() {
             {globalMeets.length ? (
               <div className="mt-6 rounded-lg bg-slate-50 p-4">
                 <h3 className="text-sm font-semibold text-slate-700">Current Global Meets</h3>
+                {unavailableGlobalMeets.length ? (
+                  <p className="mt-2 text-xs font-medium text-amber-700">
+                    One or more published meets are unavailable right now. Select replacements and publish again.
+                  </p>
+                ) : null}
                 <ul className="mt-2 text-sm text-slate-600">
                   {globalMeets.map(m => (
-                    <li key={m.meet_id}>{m.course} ({m.date}) - {normalizeMeetRaceType(m.raceType)}</li>
+                    <li key={m.meet_id}>
+                      {m.course} ({m.date}) - {normalizeMeetRaceType(m.raceType)}
+                      {unavailableGlobalMeetIds.has(m.meet_id) ? (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Unavailable</span>
+                      ) : null}
+                    </li>
                   ))}
                 </ul>
               </div>

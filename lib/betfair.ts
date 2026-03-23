@@ -149,6 +149,10 @@ function shouldFallbackFromProxy(errorMessage: string) {
   );
 }
 
+function isHtmlContentType(contentType: string) {
+  return /text\/html|application\/xhtml\+xml/i.test(contentType);
+}
+
 function requireBetfairAppKey() {
   if (!BETFAIR_APP_KEY) {
     throw new Error('BETFAIR_APP_KEY is not configured. Add it to .env.local and restart the app.');
@@ -357,6 +361,13 @@ async function betfairRpc<T>(
   if (!response.ok) {
     const rpcError = Array.isArray(payload) ? payload[0]?.error : payload?.error;
     const statusMessage = rpcError?.message || preview || 'Betfair request failed';
+
+    if (response.status === 403 && isHtmlContentType(contentType)) {
+      const guidance = BETFAIR_PROXY_URL && !preferProxy
+        ? 'Direct Betfair access from your cloud region is blocked and the proxy path also failed. Check BETFAIR_PROXY_URL/BETFAIR_PROXY_TOKEN and confirm your proxy endpoint returns JSON on /rpc.'
+        : 'Direct Betfair access from your cloud region is blocked. Route requests through an AU/NZ proxy (BETFAIR_PROXY_URL + BETFAIR_PROXY_TOKEN).';
+      throw new Error(`Betfair HTTP 403 HTML block page detected. ${guidance}`);
+    }
 
     if (allowRetry && /ANGX-0003|INVALID_SESSION_INFORMATION|NO_SESSION/i.test(statusMessage)) {
       await ensureFreshSessionToken();
