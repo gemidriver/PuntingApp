@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../lib/supabase';
@@ -3382,7 +3383,16 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 p-6 flex items-center justify-center">
         <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg">
-          <h1 className="text-2xl font-bold mb-2">The Top Punter</h1>
+          <div className="mb-2">
+            <Image
+              src="/TheTopPunter.png"
+              alt="The Top Punter"
+              width={320}
+              height={90}
+              priority
+              className="h-12 w-auto"
+            />
+          </div>
           <p className="text-sm text-slate-500 mb-6">
             Sign in or create an account to start selecting horses.
           </p>
@@ -3473,7 +3483,13 @@ export default function Home() {
       <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 text-slate-900">
         {/* Mobile sticky top bar */}
         <header className="sticky top-0 z-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 py-3 lg:hidden">
-          <span className="font-bold text-base">🏇 The Top Punter</span>
+          <Image
+            src="/TheTopPunter.png"
+            alt="The Top Punter"
+            width={240}
+            height={68}
+            className="h-9 w-auto"
+          />
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500 max-w-[110px] truncate">{user}</span>
             <button onClick={() => { void logout(); }} className="rounded-lg bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-200">Log out</button>
@@ -3536,6 +3552,13 @@ export default function Home() {
           {/* Desktop header */}
           <header className="mb-8 hidden lg:flex items-start justify-between gap-3">
             <div>
+              <Image
+                src="/TheTopPunter.png"
+                alt="The Top Punter"
+                width={320}
+                height={90}
+                className="mb-3 h-10 w-auto"
+              />
               <h1 className="text-3xl font-bold">
                 {activeScreen === 'home' && 'Home'}
                 {activeScreen === 'main' && 'My Picks'}
@@ -4030,7 +4053,13 @@ export default function Home() {
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 text-slate-900">
       {/* Mobile sticky top bar */}
       <div className="sticky top-0 z-20 flex items-center justify-between bg-white px-4 py-3 shadow-sm lg:hidden">
-        <span className="text-base font-bold tracking-tight">🏇 Braddo&apos;s Punting</span>
+        <Image
+          src="/TheTopPunter.png"
+          alt="The Top Punter"
+          width={240}
+          height={68}
+          className="h-9 w-auto"
+        />
         <div className="flex items-center gap-2">
           <span className="max-w-[110px] truncate text-xs text-slate-500">{user}</span>
           <button
@@ -4083,6 +4112,13 @@ export default function Home() {
         <div className="flex-1 px-4 py-4 pb-24 lg:px-0 lg:py-0 lg:pb-0">
         <header className="mb-8 hidden lg:flex items-start justify-between gap-3">
           <div>
+            <Image
+              src="/TheTopPunter.png"
+              alt="The Top Punter"
+              width={320}
+              height={90}
+              className="mb-3 h-10 w-auto"
+            />
             <h1 className="text-3xl font-bold">
               {activeScreen === 'home' ? 'Home' : activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
             </h1>
