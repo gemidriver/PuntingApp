@@ -272,7 +272,11 @@ const buildRacesUrl = (meetId: string, date: string, raceType?: string, debug = 
 };
 const isRunnerPlaceholderName = (value: string | null | undefined) => {
   const trimmed = String(value || '').trim();
-  return /^(?:\d+\.\s*)?Runner\s+\d+$/i.test(trimmed);
+  return (
+    /^(?:\d+\.\s*)?Runner\s+\d+$/i.test(trimmed) ||
+    /^UnknownRunner\d+$/i.test(trimmed) ||
+    /^\d+$/.test(trimmed)
+  );
 };
 const preferResolvedHorseName = (
   storedName: string | null | undefined,

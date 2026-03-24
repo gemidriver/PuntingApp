@@ -162,6 +162,26 @@ function isHtmlContentType(contentType: string) {
   return /text\/html|application\/xhtml\+xml/i.test(contentType);
 }
 
+function buildProxyRpcCandidates(proxyUrl: string) {
+  const trimmed = proxyUrl.trim().replace(/\/+$/, '');
+  if (!trimmed) return [] as string[];
+
+  const candidates = new Set<string>();
+  candidates.add(trimmed);
+
+  if (!/\/rpc$/i.test(trimmed)) {
+    candidates.add(`${trimmed}/rpc`);
+  }
+
+  if (!/\/endpoint(?:\/rpc)?$/i.test(trimmed)) {
+    candidates.add(`${trimmed}/endpoint/rpc`);
+  } else if (/\/endpoint$/i.test(trimmed)) {
+    candidates.add(`${trimmed}/rpc`);
+  }
+
+  return [...candidates];
+}
+
 function requireBetfairAppKey() {
   if (!BETFAIR_APP_KEY) {
     throw new Error('BETFAIR_APP_KEY is not configured. Add it to .env.local and restart the app.');
@@ -278,7 +298,6 @@ async function betfairRpc<T>(
 
   if (BETFAIR_PROXY_URL && preferProxy) {
     try {
-      const proxyUrl = `${BETFAIR_PROXY_URL.replace(/\/$/, '')}/rpc`;
       const proxyHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
         Accept: 'application/json',
@@ -288,36 +307,42 @@ async function betfairRpc<T>(
         proxyHeaders['X-Proxy-Token'] = BETFAIR_PROXY_TOKEN;
       }
 
-      const proxyResponse = await fetch(proxyUrl, {
-        method: 'POST',
-        headers: proxyHeaders,
-        body: JSON.stringify({ method, params }),
-        cache: 'no-store',
-      });
+      const proxyCandidates = buildProxyRpcCandidates(BETFAIR_PROXY_URL);
+      let lastProxyError = '';
 
-      const proxyContentType = proxyResponse.headers.get('content-type') || '';
-      const proxyRaw = await proxyResponse.text();
-      const proxyPreview = compactPreview(proxyRaw);
+      for (const proxyUrl of proxyCandidates) {
+        const proxyResponse = await fetch(proxyUrl, {
+          method: 'POST',
+          headers: proxyHeaders,
+          body: JSON.stringify({ method, params }),
+          cache: 'no-store',
+        });
 
-      if (!proxyContentType.includes('application/json')) {
-        throw new Error(
-          `Betfair proxy returned non-JSON (${proxyResponse.status}, ${proxyContentType || 'unknown content-type'}). ` +
-            `Preview: ${proxyPreview || '[empty response]'}`
-        );
+        const proxyContentType = proxyResponse.headers.get('content-type') || '';
+        const proxyRaw = await proxyResponse.text();
+        const proxyPreview = compactPreview(proxyRaw);
+
+        if (!proxyContentType.includes('application/json')) {
+          lastProxyError =
+            `Betfair proxy returned non-JSON (${proxyResponse.status}, ${proxyContentType || 'unknown content-type'}) at ${proxyUrl}. ` +
+            `Preview: ${proxyPreview || '[empty response]'}`;
+          continue;
+        }
+
+        const proxyPayload = JSON.parse(proxyRaw) as { result?: T; error?: unknown } | T;
+        const wrapped = proxyPayload as { result?: T; error?: unknown };
+
+        if (!proxyResponse.ok || wrapped.error) {
+          lastProxyError = `Betfair proxy error (${proxyResponse.status}) at ${proxyUrl}: ${String(wrapped.error ?? proxyPreview ?? 'Unknown error')}`;
+          continue;
+        }
+
+        // Node-RED may return the result unwrapped (direct array/object) or wrapped in { result: T }
+        const result = wrapped.result !== undefined ? wrapped.result : (proxyPayload as T);
+        return result as T;
       }
 
-      const proxyPayload = JSON.parse(proxyRaw) as { result?: T; error?: unknown } | T;
-      const wrapped = proxyPayload as { result?: T; error?: unknown };
-
-      if (!proxyResponse.ok || wrapped.error) {
-        throw new Error(
-          `Betfair proxy error (${proxyResponse.status}): ${String(wrapped.error ?? proxyPreview ?? 'Unknown error')}`
-        );
-      }
-
-      // Node-RED may return the result unwrapped (direct array/object) or wrapped in { result: T }
-      const result = wrapped.result !== undefined ? wrapped.result : (proxyPayload as T);
-      return result as T;
+      throw new Error(lastProxyError || 'Betfair proxy request failed for all candidate URLs');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (shouldFallbackFromProxy(message)) {
@@ -429,7 +454,7 @@ export async function runBetfairProxyProbe(): Promise<BetfairProxyProbeResult> {
     };
   }
 
-  const proxyUrl = `${BETFAIR_PROXY_URL.replace(/\/$/, '')}/rpc`;
+  const proxyCandidates = buildProxyRpcCandidates(BETFAIR_PROXY_URL);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -439,36 +464,67 @@ export async function runBetfairProxyProbe(): Promise<BetfairProxyProbeResult> {
     headers['X-Proxy-Token'] = BETFAIR_PROXY_TOKEN;
   }
 
-  try {
-    const response = await fetch(proxyUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ method: 'listEventTypes', params: { filter: {} } }),
-      cache: 'no-store',
-    });
+  let lastFailure: {
+    status: number | null;
+    contentType: string | null;
+    url: string | null;
+    preview: string | null;
+  } = {
+    status: null,
+    contentType: null,
+    url: proxyCandidates[0] ?? null,
+    preview: null,
+  };
 
-    const contentType = response.headers.get('content-type');
-    const rawText = await response.text();
-    const preview = compactPreview(rawText);
+  for (const proxyUrl of proxyCandidates) {
+    try {
+      const response = await fetch(proxyUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ method: 'listEventTypes', params: { filter: {} } }),
+        cache: 'no-store',
+      });
 
-    return {
-      configured: true,
-      ok: response.ok && Boolean(contentType?.includes('application/json')),
-      status: response.status,
-      contentType,
-      url: proxyUrl,
-      preview: preview || null,
-    };
-  } catch (error) {
-    return {
-      configured: true,
-      ok: false,
-      status: null,
-      contentType: null,
-      url: proxyUrl,
-      preview: error instanceof Error ? error.message : String(error),
-    };
+      const contentType = response.headers.get('content-type');
+      const rawText = await response.text();
+      const preview = compactPreview(rawText);
+      const ok = response.ok && Boolean(contentType?.includes('application/json'));
+
+      if (ok) {
+        return {
+          configured: true,
+          ok: true,
+          status: response.status,
+          contentType,
+          url: proxyUrl,
+          preview: preview || null,
+        };
+      }
+
+      lastFailure = {
+        status: response.status,
+        contentType,
+        url: proxyUrl,
+        preview: preview || null,
+      };
+    } catch (error) {
+      lastFailure = {
+        status: null,
+        contentType: null,
+        url: proxyUrl,
+        preview: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
+
+  return {
+    configured: true,
+    ok: false,
+    status: lastFailure.status,
+    contentType: lastFailure.contentType,
+    url: lastFailure.url,
+    preview: lastFailure.preview,
+  };
 }
 
 function isThoroughbredMarket(market: BetfairMarketCatalogue): boolean {
@@ -492,6 +548,73 @@ function getMarketRaceType(market: BetfairMarketCatalogue): 'Thoroughbred' | 'Ha
   if (/\bharness\b/.test(combined)) return 'Harness';
 
   return 'Thoroughbred';
+}
+
+function normalizeMetaKey(key: string) {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function buildMetadataLookup(metadata?: Record<string, string>) {
+  const metadataLookup = new Map<string, string>();
+
+  for (const [rawKey, rawValue] of Object.entries(metadata ?? {})) {
+    const value = String(rawValue ?? '').trim();
+    if (!value) continue;
+    const lower = rawKey.toLowerCase();
+    const normalized = normalizeMetaKey(rawKey);
+    if (!metadataLookup.has(lower)) {
+      metadataLookup.set(lower, value);
+    }
+    if (!metadataLookup.has(normalized)) {
+      metadataLookup.set(normalized, value);
+    }
+  }
+
+  return metadataLookup;
+}
+
+function firstMetadataValue(
+  metadataLookup: Map<string, string>,
+  metadata: Record<string, string> | undefined,
+  ...keys: string[]
+) {
+  for (const key of keys) {
+    const value =
+      metadataLookup.get(key.toLowerCase()) ||
+      metadataLookup.get(normalizeMetaKey(key)) ||
+      String(metadata?.[key] ?? '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function isPlaceholderRunnerName(value: string) {
+  const trimmed = String(value || '').trim();
+  return /^(?:\d+\.\s*)?runner\s+\d+$/i.test(trimmed) || /^unknownrunner\d+$/i.test(trimmed) || /^\d+$/.test(trimmed);
+}
+
+function resolveRunnerDisplayName(runner: BetfairRunnerDescription, runnerIndex: number) {
+  const metadata = runner.metadata ?? {};
+  const metadataLookup = buildMetadataLookup(metadata);
+
+  const directName = String(runner.runnerName || '').trim();
+  if (directName && !isPlaceholderRunnerName(directName)) {
+    return directName;
+  }
+
+  const metadataName = firstMetadataValue(
+    metadataLookup,
+    metadata,
+    'HORSE_NAME',
+    'RUNNER_NAME',
+    'NAME'
+  );
+  if (metadataName && !isPlaceholderRunnerName(metadataName)) {
+    return metadataName;
+  }
+
+  const displayNumber = typeof runner.sortPriority === 'number' ? runner.sortPriority : runnerIndex + 1;
+  return `Runner ${displayNumber}`;
 }
 
 export async function runBetfairHealthCheck(date: string): Promise<BetfairHealthCheckResult> {
@@ -679,7 +802,7 @@ export async function fetchRacesForCourse(
         to: window.to,
       },
     },
-    marketProjection: ['RUNNER_DESCRIPTION', 'MARKET_START_TIME', 'MARKET_DESCRIPTION', 'EVENT'],
+    marketProjection: ['RUNNER_DESCRIPTION', 'RUNNER_METADATA', 'MARKET_START_TIME', 'MARKET_DESCRIPTION', 'EVENT'],
     sort: 'FIRST_TO_START',
     maxResults: '200',
   });
@@ -737,41 +860,9 @@ export async function fetchRacesForCourse(
       const ltp = bookRunner?.lastPriceTraded;
       const oddsValue = typeof bestBack === 'number' ? bestBack : ltp;
       const metadata = runner.metadata ?? {};
-
-      const normalizeMetaKey = (key: string) => key.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const metadataLookup = new Map<string, string>();
-
-      for (const [rawKey, rawValue] of Object.entries(metadata)) {
-        const value = String(rawValue ?? '').trim();
-        if (!value) continue;
-        const lower = rawKey.toLowerCase();
-        const normalized = normalizeMetaKey(rawKey);
-        if (!metadataLookup.has(lower)) {
-          metadataLookup.set(lower, value);
-        }
-        if (!metadataLookup.has(normalized)) {
-          metadataLookup.set(normalized, value);
-        }
-      }
-
-      const firstMeta = (...keys: string[]) => {
-        for (const key of keys) {
-          const value =
-            metadataLookup.get(key.toLowerCase()) ||
-            metadataLookup.get(normalizeMetaKey(key)) ||
-            String(metadata[key] ?? '').trim();
-          if (value) return value;
-        }
-        return '';
-      };
-      
-      // Use runnerName if available, otherwise try to build from metadata
-      let runnerName = String(runner.runnerName || '').trim();
-      if (!runnerName) {
-        // Fallback: if no runnerName, keep the index-based placeholder but mark it
-        // This ensures consistent behavior if Betfair doesn't return the name
-        runnerName = `${String(runner.selectionId || `UnknownRunner${runnerIndex + 1}`)}`;
-      }
+      const metadataLookup = buildMetadataLookup(metadata);
+      const firstMeta = (...keys: string[]) => firstMetadataValue(metadataLookup, metadata, ...keys);
+      const runnerName = resolveRunnerDisplayName(runner, runnerIndex);
 
       return {
         id: String(runner.selectionId ?? `${raceId}-${runnerIndex + 1}`),
@@ -962,7 +1053,7 @@ export async function fetchMarketRunners(marketId: string): Promise<MarketRunner
     filter: {
       marketIds: [id],
     },
-    marketProjection: ['RUNNER_DESCRIPTION'],
+    marketProjection: ['RUNNER_DESCRIPTION', 'RUNNER_METADATA'],
     maxResults: '1',
   });
 
@@ -970,11 +1061,7 @@ export async function fetchMarketRunners(marketId: string): Promise<MarketRunner
   if (market?.runners?.length) {
     return market.runners
       .map((runner, idx) => {
-        let name = String(runner.runnerName || '').trim();
-        if (!name) {
-          // Use selectionId as fallback instead of index-based name
-          name = `${String(runner.selectionId || `UnknownRunner${idx + 1}`)}`;
-        }
+        const name = resolveRunnerDisplayName(runner, idx);
         return {
           id: String(runner.selectionId ?? ''),
           name,
