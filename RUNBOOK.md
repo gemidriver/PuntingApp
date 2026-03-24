@@ -234,3 +234,43 @@ Historical rounds (append-only):
 - Do not store secrets in source-controlled files.
 - Restrict Supabase write policies to admins where intended.
 - Keep Home Assistant / add-ons updated.
+
+## 11. Node-RED Self-Healing Flow (Recommended)
+
+Use the importable flow template in `tools/betfair-proxy/node-red-self-healing-flow.json`.
+
+### What this flow adds
+
+- Token watchdog with proactive refresh.
+- Retry once after auth/session errors (`ANGX-0003`, `INVALID_SESSION_INFORMATION`, `NO_SESSION`).
+- Circuit breaker after repeated upstream failures.
+- Heartbeat every 2 minutes with structured telemetry.
+
+### Import and activate
+
+1. In Node-RED, open menu -> Import.
+2. Paste/import `tools/betfair-proxy/node-red-self-healing-flow.json`.
+3. Deploy.
+4. Disable old `/endpoint/rpc` flow so only one endpoint is active.
+
+### Required Node-RED env vars
+
+- `PROXY_TOKEN` (must match app `BETFAIR_PROXY_TOKEN`)
+- `BETFAIR_APP_KEY`
+- `BETFAIR_USERNAME`
+- `BETFAIR_PASSWORD`
+
+Optional tuning env vars:
+
+- `BETFAIR_BETTING_API_URL` (default `https://api-au.betfair.com/exchange/betting/json-rpc/v1`)
+- `BETFAIR_LOGIN_URL` (default `https://identitysso.betfair.com.au/api/login`)
+- `BETFAIR_TOKEN_MAX_AGE_MS` (default ~3.5h)
+- `BETFAIR_BREAKER_THRESHOLD` (default `3`)
+- `BETFAIR_BREAKER_COOLDOWN_MS` (default `120000`)
+
+### Expected behavior
+
+- Success: returns `{ result, telemetry }` JSON.
+- Upstream error: returns `502` with structured details and breaker state.
+- Breaker open: returns `503` quickly until cooldown ends.
+- Heartbeat logs show `ok`/`fail` state in debug panel.
