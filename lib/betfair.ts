@@ -308,10 +308,23 @@ async function betfairRpc<T>(
         proxyHeaders['X-Proxy-Token'] = BETFAIR_PROXY_TOKEN;
       }
 
+
+      const proxyCandidates = buildProxyRpcCandidates(BETFAIR_PROXY_URL);
       // Debug: Log proxy headers and token value
       console.log('[Betfair Proxy] Using proxy URL:', proxyCandidates[0]);
       console.log('[Betfair Proxy] X-Proxy-Token:', BETFAIR_PROXY_TOKEN);
       console.log('[Betfair Proxy] Outgoing headers:', proxyHeaders);
+      let lastProxyError = '';
+
+      for (const proxyUrl of proxyCandidates) {
+        const proxyResponse = await fetch(proxyUrl, {
+          method: 'POST',
+          headers: proxyHeaders,
+          body: JSON.stringify({ method, params }),
+          cache: 'no-store',
+        });
+        // ...existing code...
+      }
 
       const proxyCandidates = buildProxyRpcCandidates(BETFAIR_PROXY_URL);
       let lastProxyError = '';
