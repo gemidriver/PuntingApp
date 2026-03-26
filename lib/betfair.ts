@@ -333,12 +333,12 @@ async function betfairRpc<T>(
           method: 'POST',
           headers: proxyHeaders,
           body: JSON.stringify({ method, params }),
-          cache: 'no-store',
         });
 
         const proxyContentType = proxyResponse.headers.get('content-type') || '';
         const proxyRaw = await proxyResponse.text();
         const proxyPreview = compactPreview(proxyRaw);
+                const proxyCandidates = buildProxyRpcCandidates(BETFAIR_PROXY_URL);
 
         if (!proxyContentType.includes('application/json')) {
           lastProxyError =
