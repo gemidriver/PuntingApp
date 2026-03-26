@@ -309,12 +309,13 @@ async function betfairRpc<T>(
       }
 
 
+
       const proxyCandidates = buildProxyRpcCandidates(BETFAIR_PROXY_URL);
       // Debug: Log proxy headers and token value
       console.log('[Betfair Proxy] Using proxy URL:', proxyCandidates[0]);
       console.log('[Betfair Proxy] X-Proxy-Token:', BETFAIR_PROXY_TOKEN);
       console.log('[Betfair Proxy] Outgoing headers:', proxyHeaders);
-      // lastProxyError is already declared above, so do not redeclare it here
+      let lastProxyError = '';
       for (const proxyUrl of proxyCandidates) {
         const proxyResponse = await fetch(proxyUrl, {
           method: 'POST',
@@ -324,9 +325,6 @@ async function betfairRpc<T>(
         });
         // ...existing code...
       }
-
-      const proxyCandidates = buildProxyRpcCandidates(BETFAIR_PROXY_URL);
-      let lastProxyError = '';
 
       for (const proxyUrl of proxyCandidates) {
         const proxyResponse = await fetch(proxyUrl, {
