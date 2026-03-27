@@ -34,4 +34,11 @@ const file = `// Auto-generated at build time by scripts/generate-version.mjs\n`
   `export const APP_VERSION_LABEL = '${label}';\n`;
 
 writeFileSync(outPath, file, 'utf8');
+
+// Also write to public/version.json for client-side update checks
+const publicDir = resolve(process.cwd(), 'public');
+mkdirSync(publicDir, { recursive: true });
+const versionJson = JSON.stringify({ version, label, timestamp: now.toISOString() }, null, 2);
+writeFileSync(resolve(publicDir, 'version.json'), versionJson, 'utf8');
+
 console.log(`Generated app version: ${label}`);

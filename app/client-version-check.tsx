@@ -10,9 +10,11 @@ export default function ClientVersionCheck() {
   useEffect(() => {
     async function checkVersion() {
       try {
-        const mod = await import("./version");
-        if (mod.APP_VERSION !== APP_VERSION) {
-          setLatest(mod.APP_VERSION);
+        const res = await fetch("/version.json?_=" + Date.now());
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.version && data.version !== APP_VERSION) {
+          setLatest(data.version);
           setShow(true);
         }
       } catch (e) {
