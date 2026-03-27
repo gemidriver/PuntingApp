@@ -3414,14 +3414,16 @@ export default function Home() {
       <div className="min-h-screen bg-slate-50 text-slate-900 p-6 flex items-center justify-center">
         <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg">
           <div className="mb-2">
-            <Image
-              src="/TheTopPunter.png"
-              alt="The Top Punter"
-              width={320}
-              height={90}
-              priority
-              className="h-12 w-auto"
-            />
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <Image
+                src="/TheTopPunter.png"
+                alt="The Top Punter"
+                width={200}
+                height={200}
+                priority
+                style={{ width: '200px', height: '200px', maxWidth: 'none', maxHeight: 'none', display: 'block', objectFit: 'contain', margin: '0 auto', boxSizing: 'content-box' }}
+              />
+            </div>
           </div>
           <p className="text-sm text-slate-500 mb-6">
             Sign in or create an account to start selecting horses.
@@ -3525,7 +3527,7 @@ export default function Home() {
             <button onClick={() => { void logout(); }} className="rounded-lg bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-200">Log out</button>
           </div>
         </header>
-        <div className="lg:flex lg:gap-6 lg:max-w-6xl lg:mx-auto lg:p-6">
+        <div className="lg:flex lg:gap-6 lg:p-6">
           <aside
             className={`hidden lg:flex lg:flex-col lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:shrink-0 lg:rounded-xl lg:bg-white lg:p-4 lg:shadow-sm ${sidebarCollapsed ? 'lg:w-20' : 'lg:w-64'}`}
           >
@@ -3582,13 +3584,16 @@ export default function Home() {
           {/* Desktop header */}
           <header className="mb-8 hidden lg:flex items-start justify-between gap-3">
             <div>
-              <Image
-                src="/TheTopPunter.png"
-                alt="The Top Punter"
-                width={320}
-                height={90}
-                className="mb-3 h-10 w-auto"
-              />
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <Image
+                  src="/TheTopPunter.png"
+                  alt="The Top Punter"
+                  width={200}
+                  height={200}
+                  priority
+                  style={{ width: '200px', height: '200px', maxWidth: 'none', maxHeight: 'none', display: 'block', objectFit: 'contain', margin: '0 auto', boxSizing: 'content-box' }}
+                />
+              </div>
               <h1 className="text-3xl font-bold">
                 {activeScreen === 'home' && 'Home'}
                 {activeScreen === 'main' && 'My Picks'}
@@ -4142,13 +4147,16 @@ export default function Home() {
         <div className="flex-1 px-4 py-4 pb-24 lg:px-0 lg:py-0 lg:pb-0">
         <header className="mb-8 hidden lg:flex items-start justify-between gap-3">
           <div>
-            <Image
-              src="/TheTopPunter.png"
-              alt="The Top Punter"
-              width={320}
-              height={90}
-              className="mb-3 h-10 w-auto"
-            />
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <Image
+                src="/TheTopPunter.png"
+                alt="The Top Punter"
+                width={200}
+                height={200}
+                priority
+                style={{ width: '200px', height: '200px', maxWidth: 'none', maxHeight: 'none', display: 'block', objectFit: 'contain', margin: '0 auto', boxSizing: 'content-box' }}
+              />
+            </div>
             <h1 className="text-3xl font-bold">
               {activeScreen === 'home' ? 'Home' : activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
             </h1>
