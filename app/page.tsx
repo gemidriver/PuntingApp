@@ -1,4 +1,6 @@
-﻿"use client";
+﻿
+"use client";
+type MeetTypeFilter = 'All' | 'Thoroughbred' | 'Harness';
 
 import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
@@ -328,6 +330,8 @@ export default function Home() {
   const [allUsers, setAllUsers] = useState<Record<string, ProfileRecord>>({});
   const [globalMeets, setGlobalMeets] = useState<Meet[]>([]);
   const [adminSelectedMeets, setAdminSelectedMeets] = useState<Meet[]>([]);
+  // Meet type filter for admin meets
+  const [meetTypeFilter, setMeetTypeFilter] = useState<MeetTypeFilter>('All');
 
   const [submittedSelections, setSubmittedSelections] = useState<UserSelections | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
@@ -3718,59 +3722,87 @@ export default function Home() {
               </div>
             ) : null}
 
-            <div className="mt-6 space-y-5">
-              {(['Thoroughbred', 'Harness'] as const).map((type) => {
-                const typedMeets = groupedMeetChoices[type];
-                if (!typedMeets.length) {
-                  return null;
-                }
-
-                return (
-                  <div key={`group-${type}`}>
-                    <h3 className="mb-3 text-sm font-semibold text-slate-700">{type} Meets</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {typedMeets.map((meet) => {
-                        const isSelectedMeet = adminSelectedMeets.some((m) => m.meet_id === meet.meet_id);
-                        return (
-                          <div
-                            key={meet.meet_id}
-                            className={`p-4 rounded-lg shadow-sm ${
-                              isSelectedMeet ? 'bg-emerald-50 border border-emerald-200' : 'bg-white'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <h4 className="text-lg font-semibold">{meet.course} ({meet.state})</h4>
-                              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${type === 'Harness' ? 'bg-violet-100 text-violet-700' : 'bg-sky-100 text-sky-700'}`}>
-                                {type}
-                              </span>
-                            </div>
-                            <p className="text-sm text-slate-500">{meet.date}</p>
-                            <button
-                              onClick={() => {
-                                if (isSelectedMeet) {
-                                  removeSelectedMeet(meet.meet_id);
-                                  return;
-                                }
-
-                                void selectMeet(meet);
-                              }}
-                              disabled={adminSelectedMeets.length >= 2 && !isSelectedMeet}
-                              className={`mt-4 inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium shadow-sm transition ${
-                                isSelectedMeet
-                                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                                  : 'bg-blue-600 text-white hover:bg-blue-700'
-                              } disabled:cursor-not-allowed disabled:bg-slate-300`}
-                            >
-                              {isSelectedMeet ? 'Remove' : 'Select'}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
+            {/* Meet type filter buttons */}
+            <div className="mt-6 mb-4 flex gap-3">
+              <button
+                type="button"
+                className={`rounded-full px-4 py-2 text-sm font-medium shadow-sm border transition ${meetTypeFilter === 'All' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-50'}`}
+                onClick={() => setMeetTypeFilter('All')}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={`rounded-full px-4 py-2 text-sm font-medium shadow-sm border transition ${meetTypeFilter === 'Thoroughbred' ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-sky-700 border-sky-200 hover:bg-sky-50'}`}
+                onClick={() => setMeetTypeFilter('Thoroughbred')}
+              >
+                Thoroughbred
+              </button>
+              <button
+                type="button"
+                className={`rounded-full px-4 py-2 text-sm font-medium shadow-sm border transition ${meetTypeFilter === 'Harness' ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-violet-700 border-violet-200 hover:bg-violet-50'}`}
+                onClick={() => setMeetTypeFilter('Harness')}
+              >
+                Harness
+              </button>
             </div>
+
+            <div className="space-y-5">
+              {(['Thoroughbred', 'Harness'] as const)
+                .filter(type => meetTypeFilter === 'All' || meetTypeFilter === type)
+                .map((type) => {
+                  const typedMeets = groupedMeetChoices[type];
+                  if (!typedMeets.length) {
+                    return null;
+                  }
+
+                  return (
+                    <div key={`group-${type}`}>
+                      <h3 className="mb-3 text-sm font-semibold text-slate-700">{type} Meets</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {typedMeets.map((meet) => {
+                          const isSelectedMeet = adminSelectedMeets.some((m) => m.meet_id === meet.meet_id);
+                          return (
+                            <div
+                              key={meet.meet_id}
+                              className={`p-4 rounded-lg shadow-sm ${
+                                isSelectedMeet ? 'bg-emerald-50 border border-emerald-200' : 'bg-white'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <h4 className="text-lg font-semibold">{meet.course} ({meet.state})</h4>
+                                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${type === 'Harness' ? 'bg-violet-100 text-violet-700' : 'bg-sky-100 text-sky-700'}`}>
+                                  {type}
+                                </span>
+                              </div>
+                              <p className="text-sm text-slate-500">{meet.date}</p>
+                              <button
+                                onClick={() => {
+                                  if (isSelectedMeet) {
+                                    removeSelectedMeet(meet.meet_id);
+                                    return;
+                                  }
+
+                                  void selectMeet(meet);
+                                }}
+                                disabled={adminSelectedMeets.length >= 2 && !isSelectedMeet}
+                                className={`mt-4 inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium shadow-sm transition ${
+                                  isSelectedMeet
+                                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                                } disabled:cursor-not-allowed disabled:bg-slate-300`}
+                              >
+                                {isSelectedMeet ? 'Remove' : 'Select'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+// Add meet type filter state
 
             {globalMeets.length ? (
               <div className="mt-6 rounded-lg bg-slate-50 p-4">
