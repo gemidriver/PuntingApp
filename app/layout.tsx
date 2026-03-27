@@ -2,8 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-import dynamic from "next/dynamic";
-const ClientVersionCheck = dynamic(() => import("./client-version-check"), { ssr: false });
+import LayoutShell from "./layout-shell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,8 +40,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ClientVersionCheck />
-        {children}
+        <LayoutShell>{children}</LayoutShell>
       </body>
     </html>
   );
