@@ -3490,6 +3490,7 @@ export default function Home() {
             </button>
           </div>
 
+
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Username or Email</label>
@@ -3519,6 +3520,41 @@ export default function Home() {
                 className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
               />
             </div>
+            {authMode === 'login' ? (
+              <div className="flex justify-end mt-1">
+                <button
+                  type="button"
+                  className="text-xs text-blue-600 hover:underline"
+                  onClick={async () => {
+                    const supabase = getSupabaseClient();
+                    let email = authUsername;
+                    if (email && !email.includes('@')) {
+                      // Lookup email by username
+                      const { data: profile } = await supabase
+                        .from('profiles')
+                        .select('email')
+                        .eq('username', email)
+                        .maybeSingle();
+                      if (profile?.email) email = profile.email;
+                    }
+                    if (!email || !email.includes('@')) {
+                      setAuthError('Enter your email (or username) above to reset your password.');
+                      return;
+                    }
+                    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                      redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/reset` : undefined,
+                    });
+                    if (error) {
+                      setAuthError(error.message);
+                    } else {
+                      setAuthError('Password reset email sent (if the account exists).');
+                    }
+                  }}
+                >
+                  Forgot password?
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {authError ? (
