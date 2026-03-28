@@ -1825,17 +1825,29 @@ export default function Home() {
     }
   }, [isAdmin, globalMeets]);
 
-  // Debounce unavailable meet warnings: wait 2 seconds and re-check before showing
+  // Debounce unavailable meet warnings: wait 5 seconds and re-check before showing
   useEffect(() => {
     if (!isAdmin || !unavailableGlobalMeets.length) {
       return;
     }
+
+    // Debug logging: show all meet IDs and unavailable meets
+    // eslint-disable-next-line no-console
+    console.log('[DEBUG] All meets:', meets.map(m => m.meet_id));
+    // eslint-disable-next-line no-console
+    console.log('[DEBUG] Selected global meets:', globalMeets.map(m => m.meet_id));
+    // eslint-disable-next-line no-console
+    console.log('[DEBUG] Unavailable global meets:', unavailableGlobalMeets.map(m => m.meet_id));
 
     const timer = setTimeout(() => {
       const unseenUnavailable = unavailableGlobalMeets.filter((meet) => !abandonedMeetAlerts[meet.meet_id]);
       if (!unseenUnavailable.length) {
         return;
       }
+
+      // Debug logging: show which meets will trigger warnings
+      // eslint-disable-next-line no-console
+      console.log('[DEBUG] Triggering warnings for:', unseenUnavailable.map(m => m.meet_id));
 
       unseenUnavailable.forEach((meet) => {
         addNotification(
@@ -1852,10 +1864,10 @@ export default function Home() {
         });
         return next;
       });
-    }, 2000); // 2 second debounce
+    }, 5000); // 5 second debounce
 
     return () => clearTimeout(timer);
-  }, [isAdmin, unavailableGlobalMeets, abandonedMeetAlerts]);
+  }, [isAdmin, unavailableGlobalMeets, abandonedMeetAlerts, meets, globalMeets]);
 
   useEffect(() => {
     if (!isAdmin && activeScreen === 'admin') {
