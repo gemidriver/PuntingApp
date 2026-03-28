@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useUser } from "../lib/useUser";
 import { useContext } from "react";
 import AllUsersContext from "./all-users-context";
-import { PullNotificationsContext } from "./page";
+import PullNotificationsContext from "./pull-notifications-context";
 
 function ChatFloatingButton() {
   const [open, setOpen] = useState(false);
