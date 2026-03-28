@@ -1697,6 +1697,30 @@ export default function Home() {
   const canSubmit = () => {
     if (!globalMeets.length || hasSubmitted) return false;
 
+    // Find the earliest race time among all selected meets
+    let earliestRaceTime: Date | null = null;
+    for (const meet of meetsForPicks) {
+      const meetRaces = (races[meet.meet_id] || []).slice(-4);
+      if (meetRaces.length) {
+        const firstRace = meetRaces.reduce((min, race) => {
+          const raceTime = new Date(race.time);
+          return (!min || raceTime < min) ? raceTime : min;
+        }, null as Date | null);
+        if (firstRace && (!earliestRaceTime || firstRace < earliestRaceTime)) {
+          earliestRaceTime = firstRace;
+        }
+      }
+    }
+
+    // Lockout: block submission if within 1 hour of first race
+    if (earliestRaceTime) {
+      const now = new Date();
+      const lockoutTime = new Date(earliestRaceTime.getTime() - 60 * 60 * 1000);
+      if (now >= lockoutTime) {
+        return false;
+      }
+    }
+
     const totalRaces = meetsForPicks.reduce((sum, meet) => {
       return sum + (races[meet.meet_id] || []).slice(-4).length;
     }, 0);
