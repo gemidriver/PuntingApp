@@ -1,13 +1,31 @@
 import { Resend } from 'resend';
 import { getSupabaseClient } from '../../../lib/supabase';
+import { fetchRacesForCourse } from '../../../lib/betfair';
 
 export const maxDuration = 30;
 
 export async function POST(request: Request) {
   try {
+
     const { username, selections, wildcard } = await request.json();
     if (!username || !Array.isArray(selections)) {
       return Response.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    // Prepare user-friendly wildcard info
+    let wildcardText = '';
+    if (wildcard && wildcard.meetId && wildcard.raceId) {
+      try {
+        const { races } = await fetchRacesForCourse(wildcard.meetId, new Date().toISOString().slice(0, 10));
+        const race = races.find(r => String(r.id) === String(wildcard.raceId));
+        if (race) {
+          wildcardText = `${race.courseId} - ${race.name}`;
+        } else {
+          wildcardText = `${wildcard.meetId} - ${wildcard.raceId}`;
+        }
+      } catch {
+        wildcardText = `${wildcard.meetId} - ${wildcard.raceId}`;
+      }
     }
 
     const supabase = getSupabaseClient();
@@ -32,15 +50,15 @@ export async function POST(request: Request) {
 
     const subject = `New Tips Submitted by ${username}`;
     const html = `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style=\"font-family: sans-serif; max-width: 600px; margin: 0 auto;\">
         <h2>New Tips Submitted</h2>
         <p><strong>User:</strong> ${username}</p>
         <p><strong>Selections:</strong></p>
         <ul>
           ${selections.map((sel: any) => `<li>${sel.meetCourse || sel.meetId} - ${sel.raceName}: ${sel.horseName}</li>`).join('')}
         </ul>
-        ${wildcard ? `<p><strong>Wildcard:</strong> ${wildcard.meetId} - ${wildcard.raceId}</p>` : ''}
-        <p style="color: #999; font-size: 12px;">This is an automated notification from The Top Punter.</p>
+        ${wildcardText ? `<p><strong>Wildcard:</strong> ${wildcardText}</p>` : ''}
+        <p style=\"color: #999; font-size: 12px;\">This is an automated notification from The Top Punter.</p>
       </div>
     `;
 
