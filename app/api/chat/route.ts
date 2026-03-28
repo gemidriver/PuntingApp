@@ -38,7 +38,7 @@ export async function POST(request: Request) {
       race_id: 'chat',
       race_name: 'Chat',
       course: 'Chat',
-      notification_type: 'race_started', // Use allowed value, or add 'chat' to allowed types in schema if desired
+      notification_type: 'chat',
       message: `You were mentioned in chat by @${username}: ${message}`,
     });
   }
