@@ -1827,7 +1827,7 @@ export default function Home() {
 
   // Debounce unavailable meet warnings: wait 5 seconds and re-check before showing
   useEffect(() => {
-    if (!isAdmin || !unavailableGlobalMeets.length) {
+    if (!isAdmin || !unavailableGlobalMeets.length || meets.length === 0) {
       return;
     }
 
