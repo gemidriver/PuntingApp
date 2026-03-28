@@ -1446,6 +1446,21 @@ export default function Home() {
       await loadSubmissionRows();
       setShowSubmitConfirm(false);
       addNotification('Your selections have been submitted successfully!', 'success', 5000);
+
+      // Notify all admins by email
+      try {
+        await fetch('/api/notify-admin-tip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: user,
+            selections,
+            wildcard,
+          }),
+        });
+      } catch (e) {
+        // Optionally log or show a notification if needed
+      }
     } finally {
       setIsSubmitting(false);
     }
