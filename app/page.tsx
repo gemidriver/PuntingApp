@@ -1810,31 +1810,36 @@ export default function Home() {
     }
   }, [isAdmin, globalMeets]);
 
+  // Debounce unavailable meet warnings: wait 2 seconds and re-check before showing
   useEffect(() => {
     if (!isAdmin || !unavailableGlobalMeets.length) {
       return;
     }
 
-    const unseenUnavailable = unavailableGlobalMeets.filter((meet) => !abandonedMeetAlerts[meet.meet_id]);
-    if (!unseenUnavailable.length) {
-      return;
-    }
+    const timer = setTimeout(() => {
+      const unseenUnavailable = unavailableGlobalMeets.filter((meet) => !abandonedMeetAlerts[meet.meet_id]);
+      if (!unseenUnavailable.length) {
+        return;
+      }
 
-    unseenUnavailable.forEach((meet) => {
-      addNotification(
-        `${meet.course} appears unavailable/abandoned. Remove it, select another meet, and publish again.`,
-        'warning',
-        0
-      );
-    });
-
-    setAbandonedMeetAlerts((prev) => {
-      const next = { ...prev };
       unseenUnavailable.forEach((meet) => {
-        next[meet.meet_id] = true;
+        addNotification(
+          `${meet.course} appears unavailable/abandoned. Remove it, select another meet, and publish again.`,
+          'warning',
+          0
+        );
       });
-      return next;
-    });
+
+      setAbandonedMeetAlerts((prev) => {
+        const next = { ...prev };
+        unseenUnavailable.forEach((meet) => {
+          next[meet.meet_id] = true;
+        });
+        return next;
+      });
+    }, 2000); // 2 second debounce
+
+    return () => clearTimeout(timer);
   }, [isAdmin, unavailableGlobalMeets, abandonedMeetAlerts]);
 
   useEffect(() => {
