@@ -32,11 +32,14 @@ export async function POST(request: Request) {
     if (user.email) {
       await sendMentionEmail(user.email, username, message);
     }
-    // In-app notification
+    // In-app notification (provide all required fields)
     await supabase.from('notifications').insert({
       user_id: user.id,
+      race_id: 'chat',
+      race_name: 'Chat',
+      course: 'Chat',
+      notification_type: 'race_started', // Use allowed value, or add 'chat' to allowed types in schema if desired
       message: `You were mentioned in chat by @${username}: ${message}`,
-      type: 'info',
     });
   }
 
