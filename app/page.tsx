@@ -3881,6 +3881,17 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 p-6 flex items-center justify-center">
         <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg">
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              if (authMode === 'login') {
+                void login();
+              } else {
+                void register();
+              }
+            }}
+            autoComplete="on"
+          >
           <div className="mb-2">
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
               <Image
@@ -3930,6 +3941,7 @@ export default function Home() {
                 value={authUsername}
                 onChange={(e) => setAuthUsername(e.target.value)}
                 className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+                autoComplete="username"
               />
             </div>
             {authMode === 'register' ? (
@@ -3940,6 +3952,7 @@ export default function Home() {
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
                   className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+                  autoComplete="email"
                 />
               </div>
             ) : null}
@@ -3950,6 +3963,7 @@ export default function Home() {
                 value={authPassword}
                 onChange={(e) => setAuthPassword(e.target.value)}
                 className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+                autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
               />
             </div>
             {authMode === 'login' ? (
@@ -3996,17 +4010,12 @@ export default function Home() {
           ) : null}
 
           <button
-            onClick={() => {
-              if (authMode === 'login') {
-                void login();
-              } else {
-                void register();
-              }
-            }}
+            type="submit"
             className="mt-6 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             {authMode === 'login' ? 'Sign In' : 'Create Account'}
           </button>
+          </form>
         </div>
         {versionBadge}
       </div>
