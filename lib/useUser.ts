@@ -1,30 +1,34 @@
-import { useSession } from '@supabase/auth-helpers-react';
-import { useEffect, useState } from 'react';
-import { getSupabaseClient } from './supabase';
+
+import { useEffect, useState } from "react";
+import { getSupabaseClient } from "./supabase";
 
 export function useUser() {
-  const session = useSession();
-  const [username, setUsername] = useState('');
-  const [userId, setUserId] = useState('');
+  const [user, setUser] = useState<any>(null);
+  const [username, setUsername] = useState("");
+  const [userId, setUserId] = useState("");
+
   useEffect(() => {
-    if (session?.user) {
-      setUserId(session.user.id);
-      // Try to get username from metadata, fallback to profiles
-      const metaUsername = session.user.user_metadata?.username;
-      if (metaUsername) {
-        setUsername(metaUsername);
-      } else {
-        // fallback: fetch from profiles
-        getSupabaseClient()
-          .from('profiles')
-          .select('username')
-          .eq('id', session.user.id)
-          .single()
-          .then(({ data }) => {
-            if (data?.username) setUsername(data.username);
-          });
+    const supabase = getSupabaseClient();
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) {
+        setUser(data.user);
+        setUserId(data.user.id);
+        const metaUsername = data.user.user_metadata?.username;
+        if (metaUsername) {
+          setUsername(metaUsername);
+        } else {
+          supabase
+            .from("profiles")
+            .select("username")
+            .eq("id", data.user.id)
+            .single()
+            .then(({ data }) => {
+              if (data?.username) setUsername(data.username);
+            });
+        }
       }
-    }
-  }, [session]);
-  return { user: session?.user, username, userId };
+    });
+  }, []);
+
+  return { user, username, userId };
 }

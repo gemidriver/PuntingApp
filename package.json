@@ -11,12 +11,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@supabase/auth-helpers-react": "^0.15.0",
     "@supabase/supabase-js": "^2.99.1",
-    "next": "16.1.6",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
+    "next": "^14.2.35",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "resend": "^4.0.0",
-    "tailwind": "^4.0.0"
+    "tailwind": "^2.3.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

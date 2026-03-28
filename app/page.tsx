@@ -4,9 +4,11 @@ type MeetTypeFilter = 'All' | 'Thoroughbred' | 'Harness';
 
 import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
+import AllUsersContext from './all-users-context';
 import type { User } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../lib/supabase';
 import { APP_VERSION_LABEL } from './version';
+import type { Race } from '../lib/betfair';
 
 interface Meet {
   meet_id: string;
@@ -16,33 +18,6 @@ interface Meet {
   raceType?: 'Thoroughbred' | 'Harness';
 }
 
-interface Race {
-  id: string;
-  name: string;
-  time: string;
-  courseId: string;
-  runners: {
-    id: string;
-    name: string;
-    number: number;
-    odds: string;
-    jockey: string;
-    trainer: string;
-    weight: string;
-    age: string;
-    form: string;
-    colours: string;
-  }[];
-}
-
-interface Selection {
-  meetId: string;
-  meetCourse?: string;
-  raceId: string;
-  raceName: string;
-  horseId: string;
-  horseName: string;
-}
 
 interface Wildcard {
   meetId: string;
@@ -57,12 +32,7 @@ interface UserSelections {
   submittedAt?: string;
 }
 
-interface ProfileRecord {
-  id: string;
-  email: string;
-  username: string;
-  isAdmin: boolean;
-}
+import type { ProfileRecord, Selection } from './types';
 
 interface SubmissionRow {
   user_id: string;
@@ -139,7 +109,7 @@ type RaceResultRow = {
   result_date: string | null;
 };
 type ScoreboardEntry = { username: string; score: number };
-type RankedScoreboardEntry = ScoreboardEntry & { rank: number; isTied: boolean };
+type RankedScoreboardEntry = ScoreboardEntry & { rank: number; isTied: boolean; wins?: number; seconds?: number; thirds?: number };
 type PodiumGroup = { rank: number; score: number; entries: RankedScoreboardEntry[] };
 type PreviousRoundSnapshot = {
   capturedAt: string;
@@ -369,6 +339,7 @@ export default function Home() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [abandonedMeetAlerts, setAbandonedMeetAlerts] = useState<Record<string, boolean>>({});
 
+  const clearNotifications = () => setNotifications([]);
   const addNotification = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration: number = 5000) => {
     const id = String(Date.now() + Math.random());
     const notification: Notification = { id, message, type, duration };
@@ -389,7 +360,7 @@ export default function Home() {
   const meetsForPicks = globalMeets.length ? globalMeets : selectedMeets;
   const liveMeetIds = useMemo(() => new Set(meets.map((meet) => meet.meet_id)), [meets]);
   const unavailableGlobalMeets = useMemo(
-    () => globalMeets.filter((meet) => !liveMeetIds.has(meet.meet_id)),
+    () => globalMeets.length ? globalMeets.filter((meet) => !liveMeetIds.has(meet.meet_id)) : [],
     [globalMeets, liveMeetIds]
   );
   const unavailableGlobalMeetIds = useMemo(
@@ -628,24 +599,16 @@ export default function Home() {
       }
     });
 
-    const { error: deleteError } = await supabase
-      .from('race_results')
-      .delete()
-      .in('race_id', uniqueRaceIds);
-
-    if (deleteError) {
-      return { error: deleteError.message };
-    }
-
     if (!rowsToInsert.length) {
       return { error: null };
     }
 
-    const { error: insertError } = await supabase
+    // Use upsert to avoid duplicate entries and preserve all results
+    const { error: upsertError } = await supabase
       .from('race_results')
-      .insert(rowsToInsert);
+      .upsert(rowsToInsert, { onConflict: 'meet_id,race_id,horse_id' });
 
-    return { error: insertError?.message ?? null };
+    return { error: upsertError?.message ?? null };
   };
 
   const mapProfiles = (rows: Array<{ id: string; email: string; username: string; is_admin: boolean }>): Record<string, ProfileRecord> => {
@@ -1312,11 +1275,23 @@ export default function Home() {
   const resetRaceDayState = async (nextGlobalMeets: Meet[] = []) => {
     const supabase = getSupabaseClient();
 
+    // If closing (no meets), move globalMeets to previousRoundSnapshot, then clear globalMeets
+    let meetsForSnapshot = globalMeets;
+    if (!nextGlobalMeets.length && globalMeets.length) {
+      meetsForSnapshot = globalMeets;
+      setGlobalMeets([]);
+      setSelectedMeets([]);
+      setAdminSelectedMeets([]);
+      const supabase = getSupabaseClient();
+      await supabase.from('app_settings').upsert({ key: GLOBAL_MEETS_SETTING_KEY, value: [] }, { onConflict: 'key' });
+    } else if (nextGlobalMeets.length) {
+      meetsForSnapshot = nextGlobalMeets;
+    }
     const snapshotToPersist: PreviousRoundSnapshot | null =
       scoreboard.length || lastRoundRaceResults.length
         ? {
             capturedAt: new Date().toISOString(),
-            meets: globalMeets,
+            meets: meetsForSnapshot,
             scoreboard,
             results: lastRoundRaceResults,
           }
@@ -1400,6 +1375,14 @@ export default function Home() {
     clearMeetState();
     setGlobalMeets(nextGlobalMeets);
     setSelectedMeets(nextGlobalMeets);
+    if (!nextGlobalMeets.length) {
+      setPreviousRoundSnapshot(null);
+      setAbandonedMeetAlerts({});
+      clearNotifications();
+      // Remove global meets from DB as well
+      const supabase = getSupabaseClient();
+      await supabase.from('app_settings').upsert({ key: GLOBAL_MEETS_SETTING_KEY, value: [] }, { onConflict: 'key' });
+    }
     setSessionNotice(
       nextGlobalMeets.length
         ? 'New meets have been published. Ready to pick horses for the next race day!'
@@ -2300,7 +2283,7 @@ export default function Home() {
   const rankedScoreboard = useMemo(() => rankScoreboard(scoreboard), [scoreboard]);
 
   const manualRaceOptions = useMemo(() => {
-    const raceMap = new Map<string, { raceName: string; location: string; meetId: string | null }>();
+    const raceMap = new Map<string, { raceName: string; location: string; meetId: string | undefined }>();
 
     meetsForPicks.forEach(meet => {
       const location = meet.course ?? meet.meet_id;
@@ -2321,7 +2304,7 @@ export default function Home() {
         if (!raceMap.has(sel.raceId)) {
           raceMap.set(sel.raceId, {
             raceName: sel.raceName,
-            location: sel.meetCourse ?? meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId,
+            location: (sel.meetCourse ?? meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId) ?? '',
             meetId: sel.meetId,
           });
         }
@@ -2561,8 +2544,8 @@ export default function Home() {
     const raceNumB = parseInt(b.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
     return raceNumA - raceNumB;
   }).map(sel => {
-    const course = meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId;
-    const race = races[sel.meetId]?.find(r => r.id === sel.raceId);
+    const course = meetsForPicks.find(m => m.meet_id === sel.meetId)?.course ?? sel.meetId ?? '';
+    const race = sel.meetId ? races[sel.meetId]?.find(r => r.id === sel.raceId) : undefined;
     const runner = race?.runners.find(r => r.id === sel.horseId);
     const oddsLabel = runner?.odds ? ` - $${runner.odds}` : '';
 
@@ -2746,7 +2729,7 @@ export default function Home() {
         if (!raceMeta.has(sel.raceId)) {
           raceMeta.set(sel.raceId, {
             raceName: sel.raceName,
-            location: getSelectionLocation(sel),
+            location: getSelectionLocation(sel) ?? '',
           });
         }
       });
@@ -2778,16 +2761,21 @@ export default function Home() {
     });
   }, [raceResults, submissionRows, runnerNameByRaceId]);
 
+  // Prefer current scoreboard/results if previousRoundSnapshot is null or outdated
   const homeScoreboard =
-    previousRoundSnapshot?.scoreboard?.length ? previousRoundSnapshot.scoreboard : scoreboard;
+    previousRoundSnapshot && previousRoundSnapshot.scoreboard?.length && previousRoundSnapshot.capturedAt !== undefined
+      ? previousRoundSnapshot.scoreboard
+      : scoreboard;
 
   const homeRankedScoreboard = useMemo(() => rankScoreboard(homeScoreboard), [homeScoreboard]);
 
   const homeLastRoundRaceResults =
-    previousRoundSnapshot?.results?.length ? previousRoundSnapshot.results : lastRoundRaceResults;
+    previousRoundSnapshot && previousRoundSnapshot.results && previousRoundSnapshot.results.length > 0 && previousRoundSnapshot.capturedAt !== undefined
+      ? previousRoundSnapshot.results
+      : lastRoundRaceResults;
 
   const homePreviousMeetLabel =
-    previousRoundSnapshot?.meets?.length
+    previousRoundSnapshot && previousRoundSnapshot.meets?.length && previousRoundSnapshot.capturedAt !== undefined
       ? previousRoundSnapshot.meets.map((meet) => `${meet.course} (${meet.date})`).join(' • ')
       : null;
 
@@ -3205,20 +3193,126 @@ export default function Home() {
     </section>
   );
 
+// All-time leaderboard state and logic
+  const [allTimeMode, setAllTimeMode] = useState(false);
+
+  // Aggregate all-time scoreboard from all race_results and user_submissions
+  type AllTimePodiumGroups = { first: null | PodiumGroup; second: null | PodiumGroup; third: null | PodiumGroup };
+  type AllTimeScoreboardEntry = { username: string; score: number; wins: number; seconds: number; thirds: number };
+  const [allTimeScoreboard, setAllTimeScoreboard] = useState<AllTimeScoreboardEntry[]>([]);
+  const [allTimeRankedScoreboard, setAllTimeRankedScoreboard] = useState<RankedScoreboardEntry[]>([]);
+  const [allTimePodiumGroups, setAllTimePodiumGroups] = useState<AllTimePodiumGroups>({ first: null, second: null, third: null });
+  const [allTimeLoading, setAllTimeLoading] = useState(false);
+
+  useEffect(() => {
+    if (!allTimeMode) return;
+    setAllTimeLoading(true);
+    // Fetch all race_results and user_submissions for all-time aggregation
+    (async () => {
+      try {
+        const supabase = getSupabaseClient();
+        // Get all race_results
+        const { data: allResults, error: allResultsError } = await supabase
+          .from('race_results')
+          .select('meet_id,race_id,horse_id,horse_name,finishing_position,result_date');
+        // Get all user_submissions
+        const { data: allSubs, error: allSubsError } = await supabase
+          .from('user_submissions')
+          .select('user_id,username,selections,wildcard,submitted');
+        if (allResultsError || allSubsError) {
+          setAllTimeScoreboard([]);
+          setAllTimeRankedScoreboard([]);
+          setAllTimePodiumGroups({ first: null, second: null, third: null });
+          setAllTimeLoading(false);
+          return;
+        }
+        // Build all-time raceResults map
+        const allTimeRaceResults = buildRaceResultsMapFromRows(allResults || []);
+        // Aggregate all-time scoreboard
+        const allTimeRows = (allSubs || []).filter(row => row.submitted);
+        const allTimeBoard = allTimeRows.map((row: any) => {
+          let score = 0, wins = 0, seconds = 0, thirds = 0;
+          (row.selections || []).forEach((sel: any) => {
+            const result = allTimeRaceResults[sel.raceId];
+            let points = 0;
+            if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.winnerId, result?.winnerName)) {
+              points = 4;
+              wins++;
+            } else if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.secondId, result?.secondName)) {
+              points = 2;
+              seconds++;
+            } else if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.thirdId, result?.thirdName)) {
+              points = 1;
+              thirds++;
+            }
+            if (points > 0) {
+              const isWild = row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId;
+              score += isWild ? points * 2 : points;
+            }
+          });
+          return { username: row.username, score, wins, seconds, thirds };
+        });
+        // Rank and group
+        const ranked = rankScoreboard(allTimeBoard);
+        const groups = new Map();
+        ranked.forEach((entry) => {
+          if (entry.rank > 3) return;
+          const existing = groups.get(entry.rank);
+          if (existing) {
+            existing.entries.push(entry);
+            return;
+          }
+          groups.set(entry.rank, {
+            rank: entry.rank,
+            score: entry.score,
+            entries: [entry],
+          });
+        });
+        setAllTimeScoreboard(allTimeBoard);
+        setAllTimeRankedScoreboard(ranked);
+        setAllTimePodiumGroups({
+          first: groups.get(1) ?? null,
+          second: groups.get(2) ?? null,
+          third: groups.get(3) ?? null,
+        });
+        setAllTimeLoading(false);
+      } catch {
+        setAllTimeScoreboard([]);
+        setAllTimeRankedScoreboard([]);
+        setAllTimePodiumGroups({ first: null, second: null, third: null });
+        setAllTimeLoading(false);
+      }
+    })();
+  }, [allTimeMode]);
+
   const leaderboardContent = (
     <section className="mb-10">
       <div className="mb-8">
-        <div className="rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 p-6 text-white">
-          <h2 className="text-2xl font-bold mb-2">Current Race Day Standings</h2>
-          <p className="text-sm text-purple-100">
-            {globalMeets.length > 0
-              ? globalMeets.map((m) => `${m.course} (${m.date})`).join(' • ')
-              : 'No meets selected'}
-          </p>
+        <div className="rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 p-6 text-white flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold mb-2">{allTimeMode ? 'All-Time Standings' : 'Current Race Day Standings'}</h2>
+            <p className="text-sm text-purple-100">
+              {allTimeMode
+                ? 'Aggregated scores from all meets.'
+                : globalMeets.length > 0
+                  ? globalMeets.map((m) => `${m.course} (${m.date})`).join(' • ')
+                  : 'No meets selected'}
+            </p>
+          </div>
+          <button
+            className={`rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition border-2 ${allTimeMode ? 'bg-white text-purple-700 border-purple-600' : 'bg-purple-100 text-purple-700 border-purple-300 hover:bg-purple-200'}`}
+            onClick={() => setAllTimeMode((v) => !v)}
+          >
+            {allTimeMode ? 'Show Current Day' : 'Show All-Time Leaders'}
+          </button>
         </div>
       </div>
 
-      {scoreboard.length === 0 ? (
+      {(allTimeMode ? allTimeLoading : false) ? (
+        <div className="rounded-lg bg-white p-8 shadow-sm text-center">
+          <p className="text-slate-500">Loading all-time leaderboard...</p>
+        </div>
+      ) : (allTimeMode ? allTimeScoreboard.length === 0 : scoreboard.length === 0) ? (
         <div className="rounded-lg bg-white p-8 shadow-sm text-center">
           <p className="text-slate-500">No race results yet. Check back once races are submitted.</p>
         </div>
@@ -3228,7 +3322,7 @@ export default function Home() {
             {[
               {
                 key: 'second',
-                group: podiumGroups.second,
+                group: allTimeMode ? allTimePodiumGroups.second : podiumGroups.second,
                 rank: 2,
                 orderClass: 'order-1',
                 cardClass: 'border-2 border-slate-400 bg-slate-100',
@@ -3244,7 +3338,7 @@ export default function Home() {
               },
               {
                 key: 'first',
-                group: podiumGroups.first,
+                group: allTimeMode ? allTimePodiumGroups.first : podiumGroups.first,
                 rank: 1,
                 orderClass: 'order-2',
                 cardClass: 'border-4 border-yellow-400 bg-yellow-100',
@@ -3260,7 +3354,7 @@ export default function Home() {
               },
               {
                 key: 'third',
-                group: podiumGroups.third,
+                group: allTimeMode ? allTimePodiumGroups.third : podiumGroups.third,
                 rank: 3,
                 orderClass: 'order-3',
                 cardClass: 'border-2 border-amber-700 bg-amber-100',
@@ -3305,7 +3399,7 @@ export default function Home() {
                     </div>
                     <div className="p-2 text-center">
                       <div className="space-y-1">
-                        {slot.group.entries.map((entry) => (
+                        {(slot.group.entries as any[]).map((entry: any) => (
                           <div key={`${slot.key}-${entry.username}`} className="rounded bg-white/60 px-1 py-1">
                             <p className={`text-xs font-bold truncate ${slot.nameClass}`}>{entry.username}</p>
                           </div>
@@ -3323,17 +3417,20 @@ export default function Home() {
         </div>
       )}
 
-      {rankedScoreboard.some((entry) => entry.rank > 3) && (
+      {(allTimeMode ? allTimeRankedScoreboard : rankedScoreboard).some((entry) => entry.rank > 3) && (
         <div className="mt-12 rounded-lg bg-white p-6 shadow-sm">
           <h3 className="text-lg font-semibold mb-4">Other Competitors</h3>
           <ol className="space-y-2">
-            {rankedScoreboard.filter((entry) => entry.rank > 3).map((entry) => (
+            {(allTimeMode ? allTimeRankedScoreboard : rankedScoreboard).filter((entry) => entry.rank > 3).map((entry) => (
               <li key={entry.username} className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3 text-sm">
                 <div className="flex items-center gap-3">
                   <span className="w-6 text-center font-bold text-slate-600">#{entry.rank}</span>
                   <span className="font-medium text-slate-900">{entry.username}</span>
                 </div>
                 <span className="font-semibold text-slate-700">{entry.score} pt{entry.score !== 1 ? 's' : ''}</span>
+                {allTimeMode && (
+                  <span className="ml-2 text-xs text-slate-500">🏆 {entry.wins} | 🥈 {entry.seconds} | 🥉 {entry.thirds}</span>
+                )}
               </li>
             ))}
           </ol>
