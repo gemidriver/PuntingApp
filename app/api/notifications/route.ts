@@ -49,6 +49,8 @@ export async function GET(request: Request) {
       );
     }
 
+    // Log the user id being queried
+    console.log('Fetching notifications for user_id:', user.id);
     // Get unread notifications for user
     const { data: notifications, error } = await supabase
       .from('notifications')

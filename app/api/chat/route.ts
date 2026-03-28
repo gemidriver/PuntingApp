@@ -28,19 +28,26 @@ export async function POST(request: Request) {
   // --- Mention logic ---
   const mentionedUsers = await getMentionedUsers(message);
   for (const user of mentionedUsers) {
-    // Send email
-    if (user.email) {
-      await sendMentionEmail(user.email, username, message);
-    }
-    // In-app notification (provide all required fields)
-    await supabase.from('notifications').insert({
+    // Log user.id and notification payload for debugging
+    const notificationPayload = {
       user_id: user.id,
       race_id: 'chat',
       race_name: 'Chat',
       course: 'Chat',
       notification_type: 'chat',
       message: `You were mentioned in chat by @${username}: ${message}`,
-    });
+    };
+    console.log('Attempting to upsert notification:', notificationPayload);
+    // Send email
+    if (user.email) {
+      await sendMentionEmail(user.email, username, message);
+    }
+    // In-app notification (provide all required fields)
+    const { error: notifError } = await supabase.from('notifications')
+      .upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' });
+    if (notifError) {
+      console.error('Failed to insert chat notification:', notifError.message);
+    }
   }
 
   return Response.json({ success: true });
