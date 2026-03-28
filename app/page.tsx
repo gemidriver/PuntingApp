@@ -343,7 +343,7 @@ export default function Home() {
 
   const clearNotifications = () => setNotifications([]);
   // Always show notification banner, even if chat is open or user is focused elsewhere
-  const addNotification = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration: number = 5000) => {
+  const addNotification = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration: number = 0) => {
     // Detect chat notification by message content
     const isChat = !!(message && message.toLowerCase().includes('mentioned in chat'));
     const id = String(Date.now() + Math.random());
