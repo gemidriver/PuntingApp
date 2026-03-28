@@ -11,7 +11,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "The Top Punter",
-  description: "Powered by the BrewedBuilder.",
+  description: "Powered by ChapStackDev.",
   icons: {
     icon: "/TheTopPunter.png?v=20260323",
     shortcut: "/TheTopPunter.png?v=20260323",

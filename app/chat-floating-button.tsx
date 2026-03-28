@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useUser } from "../lib/useUser";
 import { useContext } from "react";
 import AllUsersContext from "./all-users-context";
+import { PullNotificationsContext } from "./page";
 
 function ChatFloatingButton() {
   const [open, setOpen] = useState(false);
@@ -40,6 +41,7 @@ function ChatFloatingButton() {
 export default ChatFloatingButton;
 
 function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames?: string[] }) {
+    const pullInAppNotifications = useContext(PullNotificationsContext);
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -98,6 +100,10 @@ function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames
     setShowMentions(false);
     setLoading(false);
     fetchMessages();
+    // Pull notifications immediately after sending
+    if (typeof pullInAppNotifications === 'function') {
+      pullInAppNotifications();
+    }
   }
 
   // Helper to highlight @username in messages
