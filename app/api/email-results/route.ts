@@ -259,7 +259,7 @@ export async function POST(request: Request) {
 
     const { data: raceResultRows, error: raceResultsError } = await supabase
       .from('race_results')
-      .select('race_id,horse_id,horse_name,finishing_position')
+      .select('meet_id,race_id,horse_id,horse_name,finishing_position')
       .in('finishing_position', [1, 2, 3]);
 
     if (raceResultsError) {
@@ -267,6 +267,13 @@ export async function POST(request: Request) {
     }
 
     const raceResultsMap = buildRaceResultsMap((raceResultRows || []) as RaceResultRow[]);
+    // map race_id -> meet_id so we can show meet details instead of raw race ids
+    const raceToMeet: Record<string, string | null> = {};
+    (raceResultRows || []).forEach((r: any) => {
+      if (r && r.race_id) {
+        raceToMeet[r.race_id] = r.meet_id || null;
+      }
+    });
 
     const scoreboard = submissionRows
       .map((row) => {
@@ -284,8 +291,9 @@ export async function POST(request: Request) {
       ? meets.map((meet) => `${meet.course} (${meet.date})`).join(' | ')
       : 'Current race day';
 
+    // use an ordered list for numbering; avoid duplicating the numeric prefix inside the li
     const leaderboardHtml = scoreboard
-      .map((entry, index) => `<li>${index + 1}. ${escapeHtml(entry.username)} - ${entry.score} pts</li>`)
+      .map((entry) => `<li>${escapeHtml(entry.username)} - ${entry.score} pts</li>`)
       .join('');
 
     const raceResultsHtml = Object.entries(raceResultsMap)
@@ -293,7 +301,12 @@ export async function POST(request: Request) {
         const first = result.winnerName || result.winnerId || '-';
         const second = result.secondName || result.secondId || '-';
         const third = result.thirdName || result.thirdId || '-';
-        return `<li>${escapeHtml(raceId)}: 1st ${escapeHtml(first)} | 2nd ${escapeHtml(second)} | 3rd ${escapeHtml(third)}</li>`;
+        const meetId = raceToMeet[raceId];
+        const meet = meets.find((m) => m.meet_id === meetId);
+        const meetLabelForRace = meet ? `${meet.course} (${meet.date})` : '';
+        // Prefer showing meet details; fall back to race id if none found
+        const prefix = meetLabelForRace ? `${escapeHtml(meetLabelForRace)} — ` : `${escapeHtml(raceId)}: `;
+        return `<li>${prefix}1st ${escapeHtml(first)} | 2nd ${escapeHtml(second)} | 3rd ${escapeHtml(third)}</li>`;
       })
       .join('');
 

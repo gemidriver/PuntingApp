@@ -45,6 +45,7 @@ function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [mentionList, setMentionList] = useState<string[]>([]);
   const [showMentions, setShowMentions] = useState(false);
   const { user, username, userId } = useUser();
@@ -55,6 +56,15 @@ function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames
     const interval = setInterval(fetchMessages, 4000);
     return () => clearInterval(interval);
     // eslint-disable-next-line
+  }, []);
+
+  useEffect(() => {
+    function check() {
+      setIsMobile(typeof window !== 'undefined' && window.innerWidth <= 640);
+    }
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
   }, []);
 
   useEffect(() => {
@@ -122,13 +132,13 @@ function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames
     <div style={{
       position: "fixed",
       inset: 0,
-      background: "rgba(0,0,0,0.3)",
+      background: isMobile ? "#fff" : "rgba(0,0,0,0.3)",
       zIndex: 1002,
       display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
+      alignItems: isMobile ? "stretch" : "center",
+      justifyContent: isMobile ? "stretch" : "center",
     }}>
-      <div style={{ background: "#fff", borderRadius: 12, width: 360, maxWidth: "95vw", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 4px 24px rgba(0,0,0,0.18)" }}>
+      <div style={{ background: "#fff", borderRadius: isMobile ? 0 : 12, width: isMobile ? '100%' : 360, maxWidth: "95vw", height: isMobile ? '100vh' : undefined, maxHeight: isMobile ? '100vh' : "80vh", display: "flex", flexDirection: "column", boxShadow: "0 4px 24px rgba(0,0,0,0.18)" }}>
         <div style={{ padding: 16, borderBottom: "1px solid #eee", fontWeight: 600, fontSize: 18, display: "flex", justifyContent: "space-between", alignItems: "center", color: '#222' }}>
           Chat
           <button onClick={onClose} style={{ background: "#2563eb", color: "#fff", border: "none", fontSize: 22, cursor: "pointer", borderRadius: 6, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>&times;</button>

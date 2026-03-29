@@ -3,7 +3,10 @@
 type MeetTypeFilter = 'All' | 'Thoroughbred' | 'Harness';
 
 import Image from 'next/image';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import Avatar from '../components/Avatar';
+import MobileBottomNav from '../components/MobileBottomNav';
 import AllUsersContext from './all-users-context';
 import PullNotificationsContext from './pull-notifications-context';
 import type { User } from '@supabase/supabase-js';
@@ -292,6 +295,7 @@ export default function Home() {
 
   const [user, setUser] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authUsername, setAuthUsername] = useState('');
@@ -1084,6 +1088,8 @@ export default function Home() {
 
     setUserId(authUser.id);
     setUser(username);
+    const metaAvatar = typeof authUser.user_metadata?.avatar_url === 'string' ? authUser.user_metadata.avatar_url : null;
+    setAvatarUrl(metaAvatar);
 
     const { error: profileError } = await supabase
       .from('profiles')
@@ -1166,6 +1172,7 @@ export default function Home() {
     clearMeetState();
     setPreviousRoundSnapshot(null);
     setSessionNotice(null);
+    setAvatarUrl(null);
   };
 
   const login = async () => {
@@ -2983,6 +2990,40 @@ export default function Home() {
           >
             {resultsFetching ? 'Fetching...' : 'Fetch Results'}
           </button>
+          <button
+            onClick={async () => {
+              try {
+                setResultsFetching(true);
+                const marketIds = [...new Set(submissionRows.flatMap(row => row.selections.map(s => s.raceId)))];
+                const supabase = getSupabaseClient();
+                const { data: sessionData } = await supabase.auth.getSession();
+                if (!sessionData?.session?.access_token) {
+                  addNotification('Admin session not available.', 'error');
+                  return;
+                }
+                const res = await fetch('/api/persist-results', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
+                  body: JSON.stringify({ marketIds }),
+                });
+                const payload = await res.json().catch(() => ({} as any));
+                if (!res.ok) {
+                  addNotification(payload.error || 'Failed to persist results.', 'error');
+                  return;
+                }
+                addNotification(`Persisted ${payload.inserted ?? 0} result rows.`, 'success');
+              } catch (e) {
+                console.error(e);
+                addNotification('Failed to persist results.', 'error');
+              } finally {
+                setResultsFetching(false);
+              }
+            }}
+            disabled={resultsFetching || submissionRows.length === 0}
+            className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {resultsFetching ? 'Persisting...' : 'Persist Results (Server)'}
+          </button>
           <label className="inline-flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
@@ -4017,7 +4058,11 @@ export default function Home() {
           />
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500 max-w-[110px] truncate">{user}</span>
-            <button onClick={() => { void logout(); }} className="rounded-lg bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-200">Log out</button>
+            {user ? (
+              <Link href={`/${'user'}/${user}`}>
+                <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={28} />
+              </Link>
+            ) : null}
           </div>
         </header>
         <div className="lg:flex lg:gap-6 lg:p-6">
@@ -4071,9 +4116,18 @@ export default function Home() {
                 <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>U</span>
               </button>
             </div>
+            <div className={`mt-auto ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
+              <button
+                onClick={() => { void logout(); }}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 ${sidebarCollapsed ? 'lg:text-center' : ''}`}
+              >
+                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Log out</span>
+                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>⎋</span>
+              </button>
+            </div>
           </aside>
 
-          <div className="flex-1 px-4 py-4 pb-24 lg:px-0 lg:py-0 lg:pb-0">
+          <div className="flex-1 px-4 py-4 pb-24 lg:px-0 lg:py-0 lg:pb-0 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
           {/* Desktop header */}
           <header className="mb-8 hidden lg:flex items-start justify-between gap-3">
             <div>
@@ -4103,12 +4157,11 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong></span>
-              <button
-                onClick={() => { void logout(); }}
-                className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300"
-              >
-                Log out
-              </button>
+              {user ? (
+                <Link href={`/${'user'}/${user}`}>
+                  <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={36} />
+                </Link>
+              ) : null}
             </div>
           </header>
           {/* Mobile page title */}
@@ -4612,24 +4665,7 @@ export default function Home() {
         </div>
         {versionBadge}
         {/* Mobile bottom tab bar */}
-        <nav className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 flex lg:hidden">
-          <button onClick={() => setActiveScreen('home')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'home' ? 'text-blue-600' : 'text-slate-500'}`}>
-            <span className="text-xl leading-none">🏠</span>
-            <span>Home</span>
-          </button>
-          <button onClick={() => setActiveScreen('main')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'main' ? 'text-blue-600' : 'text-slate-500'}`}>
-            <span className="text-xl leading-none">🏇</span>
-            <span>Picks</span>
-          </button>
-          <button onClick={() => setActiveScreen('leaderboard')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'leaderboard' ? 'text-blue-600' : 'text-slate-500'}`}>
-            <span className="text-xl leading-none">🏆</span>
-            <span>Leaderboard</span>
-          </button>
-          <button onClick={() => setActiveScreen('submissions')} className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${activeScreen === 'submissions' ? 'text-blue-600' : 'text-slate-500'}`}>
-            <span className="text-xl leading-none">📋</span>
-            <span>Submissions</span>
-          </button>
-        </nav>
+        <MobileBottomNav activeScreen={activeScreen} setActiveScreen={setActiveScreen} />
         {notificationContainer}
       </div>
     );
@@ -4648,12 +4684,11 @@ export default function Home() {
         />
         <div className="flex items-center gap-2">
           <span className="max-w-[110px] truncate text-xs text-slate-500">{user}</span>
-          <button
-            onClick={() => { void logout(); }}
-            className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
-          >
-            Log out
-          </button>
+          {user ? (
+            <Link href={`/${'user'}/${user}`}>
+              <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={28} />
+            </Link>
+          ) : null}
         </div>
       </div>
       <div className="lg:flex lg:gap-6 lg:max-w-6xl lg:mx-auto lg:p-6">
@@ -4693,9 +4728,18 @@ export default function Home() {
               <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>U</span>
             </button>
           </div>
+          <div className={`mt-auto ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
+            <button
+              onClick={() => { void logout(); }}
+              className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 ${sidebarCollapsed ? 'lg:text-center' : ''}`}
+            >
+              <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Log out</span>
+              <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>⎋</span>
+            </button>
+          </div>
         </aside>
 
-        <div className="flex-1 px-4 py-4 pb-24 lg:px-0 lg:py-0 lg:pb-0">
+        <div className="flex-1 px-4 py-4 pb-24 lg:px-0 lg:py-0 lg:pb-0 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
         <header className="mb-8 hidden lg:flex items-start justify-between gap-3">
           <div>
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
@@ -4721,12 +4765,11 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong></span>
-            <button
-              onClick={() => { void logout(); }}
-              className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300"
-            >
-              Log out
-            </button>
+            {user ? (
+              <Link href={`/${'user'}/${user}`}>
+                <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={36} />
+              </Link>
+            ) : null}
           </div>
         </header>
         <div className="mb-5 lg:hidden">
@@ -4939,45 +4982,7 @@ export default function Home() {
           {activeScreen === 'leaderboard' ? leaderboardContent : null}
 
         {versionBadge}
-        {/* Bottom tab nav — mobile only */}
-        <nav className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 flex lg:hidden">
-          <button
-            onClick={() => setActiveScreen('home')}
-            className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-xs font-medium ${
-              activeScreen === 'home' ? 'text-blue-600' : 'text-slate-500'
-            }`}
-          >
-            <span className="text-lg">🏠</span>
-            <span>Home</span>
-          </button>
-          <button
-            onClick={() => setActiveScreen('main')}
-            className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-xs font-medium ${
-              activeScreen === 'main' ? 'text-blue-600' : 'text-slate-500'
-            }`}
-          >
-            <span className="text-lg">🏇</span>
-            <span>Picks</span>
-          </button>
-          <button
-            onClick={() => setActiveScreen('leaderboard')}
-            className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-xs font-medium ${
-              activeScreen === 'leaderboard' ? 'text-blue-600' : 'text-slate-500'
-            }`}
-          >
-            <span className="text-lg">🏆</span>
-            <span>Leaderboard</span>
-          </button>
-          <button
-            onClick={() => setActiveScreen('submissions')}
-            className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-xs font-medium ${
-              activeScreen === 'submissions' ? 'text-blue-600' : 'text-slate-500'
-            }`}
-          >
-            <span className="text-lg">📋</span>
-            <span>Submissions</span>
-          </button>
-        </nav>
+        <MobileBottomNav activeScreen={activeScreen} setActiveScreen={setActiveScreen} />
 
         {activeScreen === 'main' && selectedRunnerDetails && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
