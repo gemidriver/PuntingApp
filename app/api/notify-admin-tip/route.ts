@@ -12,16 +12,23 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Prepare user-friendly wildcard info
+    // Prepare user-friendly wildcard info. Prefer labels available in the submitted selections.
     let wildcardText = '';
     if (wildcard && wildcard.meetId && wildcard.raceId) {
+      // If the wildcard matches one of the provided selections, use that selection's friendly labels
       try {
-        const { races } = await fetchRacesForCourse(wildcard.meetId, new Date().toISOString().slice(0, 10));
-        const race = races.find(r => String(r.id) === String(wildcard.raceId));
-        if (race) {
-          wildcardText = `${race.courseId} - ${race.name}`;
+        const match = Array.isArray(selections) ? selections.find((s: any) => String(s.meetId) === String(wildcard.meetId) && String(s.raceId) === String(wildcard.raceId)) : null;
+        if (match) {
+          wildcardText = `${match.meetCourse || match.meetId} - ${match.raceName}${match.horseName ? `: ${match.horseName}` : ''}`;
         } else {
-          wildcardText = `${wildcard.meetId} - ${wildcard.raceId}`;
+          // Fallback: fetch race info to provide a human-friendly label
+          const { races } = await fetchRacesForCourse(wildcard.meetId, new Date().toISOString().slice(0, 10));
+          const race = races.find(r => String(r.id) === String(wildcard.raceId));
+          if (race) {
+            wildcardText = `${race.courseId} - ${race.name}`;
+          } else {
+            wildcardText = `${wildcard.meetId} - ${wildcard.raceId}`;
+          }
         }
       } catch {
         wildcardText = `${wildcard.meetId} - ${wildcard.raceId}`;
