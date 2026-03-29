@@ -1408,18 +1408,21 @@ export default function Home() {
       return false;
     }
 
-    const { error: submissionsError } = await supabase
-      .from('user_submissions')
-      .update({
-        selections: [],
-        wildcard: null,
-        submitted: false,
-        submitted_at: null,
-      })
-      .not('user_id', 'is', null);
-
-    if (submissionsError) {
-      console.error(submissionsError);
+    // Use server-side admin route to reset submissions and settings (bypass RLS/lockout)
+    try {
+      const resp = await fetch('/api/admin/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nextGlobalMeets }),
+      });
+      const json = await resp.json();
+      if (!resp.ok) {
+        console.error('Admin reset failed', json);
+        addNotification('Race meets were updated, but user selections could not be reset.', 'warning');
+        return false;
+      }
+    } catch (err) {
+      console.error(err);
       addNotification('Race meets were updated, but user selections could not be reset.', 'warning');
       return false;
     }
@@ -4395,6 +4398,36 @@ export default function Home() {
                     {canSubmit() ? 'Review and Submit' : 'Complete all race picks to submit'}
                   </button>
                 )}
+                {process.env.NODE_ENV === 'development' ? (
+                  <div className="mt-3 p-3 text-xs bg-yellow-50 rounded border border-yellow-100">
+                    <div><strong>Debug:</strong></div>
+                    <div>hasSubmitted: {String(hasSubmitted)}</div>
+                    <div>globalMeets: {globalMeets.length}</div>
+                    <div>selections: {selections.length}</div>
+                    <div>
+                      totalRaces: {meetsForPicks.reduce((sum, meet) => sum + (races[meet.meet_id] || []).slice(-4).length, 0)}
+                    </div>
+                    <div>
+                      lockout: {(() => {
+                        let earliestRaceTime = null as Date | null;
+                        for (const meet of meetsForPicks) {
+                          const meetRaces = (races[meet.meet_id] || []).slice(-4);
+                          if (meetRaces.length) {
+                            const firstRace = meetRaces.reduce((min: Date | null, race: any) => {
+                              const raceTime = new Date(race.time);
+                              return (!min || raceTime < min) ? raceTime : min;
+                            }, null);
+                            if (firstRace && (!earliestRaceTime || firstRace < earliestRaceTime)) earliestRaceTime = firstRace;
+                          }
+                        }
+                        if (!earliestRaceTime) return 'none';
+                        const now = new Date();
+                        const lockoutTime = new Date(earliestRaceTime.getTime() - 60 * 60 * 1000);
+                        return `${now.toISOString()} >= ${lockoutTime.toISOString()} -> ${now >= lockoutTime}`;
+                      })()}
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {hasSubmitted && submittedSelections ? (
