@@ -4665,7 +4665,7 @@ export default function Home() {
         </div>
         {versionBadge}
         {/* Mobile bottom tab bar */}
-        <MobileBottomNav activeScreen={activeScreen} setActiveScreen={setActiveScreen} />
+        <MobileBottomNav activeScreen={activeScreen} setActiveScreen={(s: string) => setActiveScreen(s as any)} />
         {notificationContainer}
       </div>
     );
@@ -4982,7 +4982,7 @@ export default function Home() {
           {activeScreen === 'leaderboard' ? leaderboardContent : null}
 
         {versionBadge}
-        <MobileBottomNav activeScreen={activeScreen} setActiveScreen={setActiveScreen} />
+        <MobileBottomNav activeScreen={activeScreen} setActiveScreen={(s: string) => setActiveScreen(s as any)} />
 
         {activeScreen === 'main' && selectedRunnerDetails && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
