@@ -848,11 +848,20 @@ export default function Home() {
   };
 
   const persistRaceRunnersCache = async (nextCache: RaceRunnersMap) => {
-    const supabase = getSupabaseClient();
-    await supabase.from('app_settings').upsert(
-      { key: RACE_RUNNERS_SETTING_KEY, value: nextCache },
-      { onConflict: 'key' }
-    );
+    // Only admins are allowed to write to `app_settings` (RLS).
+    // If the current user is not an admin, skip persistence silently.
+    if (!isAdmin) return;
+    try {
+      const supabase = getSupabaseClient();
+      await supabase.from('app_settings').upsert(
+        { key: RACE_RUNNERS_SETTING_KEY, value: nextCache },
+        { onConflict: 'key' }
+      );
+    } catch (err) {
+      // Don't surface write errors from RLS to end users; log for diagnostics.
+      // eslint-disable-next-line no-console
+      console.warn('persistRaceRunnersCache skipped or failed:', err);
+    }
   };
 
   const fetchAndSaveResults = async () => {
@@ -1848,18 +1857,20 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (user && globalMeets.length) {
-      setSelectedMeets(globalMeets);
-      const loadRacesSequentially = async () => {
-        for (const meet of globalMeets) {
-          if (!(races[meet.meet_id]?.length)) {
-            await loadRacesForMeet(meet);
-          }
+    // Ensure races are loaded whenever published global meets change.
+    // Do not gate on `user` so mobile clients will fetch races as soon
+    // as an admin publishes meets.
+    if (!globalMeets.length) return;
+    setSelectedMeets(globalMeets);
+    const loadRacesSequentially = async () => {
+      for (const meet of globalMeets) {
+        if (!(races[meet.meet_id]?.length)) {
+          await loadRacesForMeet(meet);
         }
-      };
-      void loadRacesSequentially();
-    }
-  }, [user, isAdmin, globalMeets, activeScreen]);
+      }
+    };
+    void loadRacesSequentially();
+  }, [globalMeets]);
 
   useEffect(() => {
     if (isAdmin) {

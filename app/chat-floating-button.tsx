@@ -7,9 +7,18 @@ import PullNotificationsContext from "./pull-notifications-context";
 
 function ChatFloatingButton() {
   const [open, setOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   // Get all usernames from context
   const allUsers = useContext(AllUsersContext) || {};
   const usernames = Object.keys(allUsers);
+  useEffect(() => {
+    function check() {
+      setIsMobile(typeof window !== 'undefined' && window.innerWidth <= 640);
+    }
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
   return (
     <>
       <button
@@ -18,7 +27,7 @@ function ChatFloatingButton() {
         style={{
           position: "fixed",
           right: 16,
-          bottom: 64,
+          bottom: isMobile ? 96 : 64,
           zIndex: 1001,
           background: "#2563eb",
           color: "#fff",
