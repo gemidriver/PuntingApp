@@ -3,10 +3,12 @@
 type MeetTypeFilter = 'All' | 'Thoroughbred' | 'Harness';
 
 import Image from 'next/image';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import Avatar from '../components/Avatar';
 import MobileBottomNav from '../components/MobileBottomNav';
+const ChatFloatingButton = dynamic(() => import('./chat-floating-button'), { ssr: false });
 import AllUsersContext from './all-users-context';
 import PullNotificationsContext from './pull-notifications-context';
 import type { User } from '@supabase/supabase-js';
@@ -315,6 +317,41 @@ export default function Home() {
   const [showEmailResultsConfirm, setShowEmailResultsConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeScreen, setActiveScreen] = useState<'home' | 'main' | 'admin' | 'submissions' | 'leaderboard'>('home');
+
+  // Sync active screen from URL so external navigation (layout/router) and
+  // direct hash/query changes update the page's UI state.
+  useEffect(() => {
+    function applyLocation() {
+      try {
+        const hash = typeof window !== 'undefined' ? window.location.hash : '';
+        const qs = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+        if (hash === '#races') {
+          setActiveScreen('main');
+          return;
+        }
+        const screen = qs.get('screen');
+        if (screen === 'leaderboard') {
+          setActiveScreen('leaderboard');
+          return;
+        }
+        if (screen === 'submissions') {
+          setActiveScreen('submissions');
+          return;
+        }
+        setActiveScreen('home');
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    applyLocation();
+    window.addEventListener('hashchange', applyLocation);
+    window.addEventListener('popstate', applyLocation);
+    return () => {
+      window.removeEventListener('hashchange', applyLocation);
+      window.removeEventListener('popstate', applyLocation);
+    };
+  }, []);
   const [submissionRows, setSubmissionRows] = useState<SubmissionRow[]>([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -4168,6 +4205,7 @@ export default function Home() {
                   <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={36} />
                 </Link>
               ) : null}
+              {user ? <ChatFloatingButton inline /> : null}
             </div>
           </header>
           {/* Mobile page title */}
@@ -4670,8 +4708,7 @@ export default function Home() {
           </div>
         </div>
         {versionBadge}
-        {/* Mobile bottom tab bar */}
-        <MobileBottomNav activeScreen={activeScreen} setActiveScreen={(s: string) => setActiveScreen(s as any)} />
+        {/* Mobile bottom tab bar provided by layout-shell */}
         {notificationContainer}
       </div>
     );
@@ -4776,6 +4813,7 @@ export default function Home() {
                 <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={36} />
               </Link>
             ) : null}
+            {user ? <ChatFloatingButton inline /> : null}
           </div>
         </header>
         <div className="mb-5 lg:hidden">
@@ -4988,7 +5026,6 @@ export default function Home() {
           {activeScreen === 'leaderboard' ? leaderboardContent : null}
 
         {versionBadge}
-        <MobileBottomNav activeScreen={activeScreen} setActiveScreen={(s: string) => setActiveScreen(s as any)} />
 
         {activeScreen === 'main' && selectedRunnerDetails && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

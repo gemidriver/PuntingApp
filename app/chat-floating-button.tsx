@@ -5,7 +5,7 @@ import { useContext } from "react";
 import AllUsersContext from "./all-users-context";
 import PullNotificationsContext from "./pull-notifications-context";
 
-function ChatFloatingButton() {
+function ChatFloatingButton({ inline = false }: { inline?: boolean }) {
   const [open, setOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   // Get all usernames from context
@@ -24,7 +24,20 @@ function ChatFloatingButton() {
       <button
         aria-label="Open chat"
         onClick={() => setOpen(true)}
-        style={{
+        style={inline ? {
+          background: "#2563eb",
+          color: "#fff",
+          border: "none",
+          borderRadius: 8,
+          width: 36,
+          height: 36,
+          boxShadow: "0 1px 6px rgba(0,0,0,0.08)",
+          fontSize: 16,
+          cursor: "pointer",
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        } : {
           position: "fixed",
           right: 16,
           bottom: isMobile ? 96 : 64,
@@ -40,7 +53,7 @@ function ChatFloatingButton() {
           cursor: "pointer",
         }}
       >
-        💬
+        {inline ? '💬' : '💬'}
       </button>
       {open && <ChatModal onClose={() => setOpen(false)} usernames={usernames} />}
     </>
