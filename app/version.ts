@@ -1,4 +1,4 @@
 // Auto-generated at build time by scripts/generate-version.mjs
 // Timezone used for version stamp: Australia/Sydney
-export const APP_VERSION = '0.1.3.29.2058';
-export const APP_VERSION_LABEL = 'ChapStackDev | v 0.1.3.29.2058';
+export const APP_VERSION = '0.1.4.3.0757';
+export const APP_VERSION_LABEL = 'ChapStackDev | v 0.1.4.3.0757';

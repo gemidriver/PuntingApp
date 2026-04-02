@@ -9,16 +9,8 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseAdminClient();
 
-    // Clear race results
-    const { error: raceResultsResetError } = await supabase
-      .from('race_results')
-      .delete()
-      .gte('finishing_position', 1);
-
-    if (raceResultsResetError) {
-      console.error(raceResultsResetError);
-      return NextResponse.json({ error: 'Unable to reset race results' }, { status: 500 });
-    }
+    // NOTE: Do not clear the historical `race_results` table here.
+    // Historical results are preserved in `race_results` and `round_history`.
 
     // Upsert app settings for global meets and blank runners/results
     const { error: settingsError } = await supabase.from('app_settings').upsert(

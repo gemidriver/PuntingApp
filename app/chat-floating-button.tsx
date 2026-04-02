@@ -51,6 +51,12 @@ function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames
   const { user, username, userId } = useUser();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const fetchMessages = async () => {
+    const res = await fetch("/api/chat");
+    const data = await res.json();
+    if (data.messages) setMessages(data.messages);
+  };
+
   useEffect(() => {
     fetchMessages();
     const interval = setInterval(fetchMessages, 4000);
@@ -71,18 +77,14 @@ function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function fetchMessages() {
-    const res = await fetch("/api/chat");
-    const data = await res.json();
-    if (data.messages) setMessages(data.messages);
-  }
+  
 
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     const value = e.target.value;
     setInput(value);
     // Show mention list if @ is typed
     const match = value.match(/@([\w\d_]*)$/);
-    if (match) {
+    if (match && match[1] != null) {
       const search = match[1].toLowerCase();
       setMentionList(usernames.filter(u => u.toLowerCase().startsWith(search)));
       setShowMentions(true);

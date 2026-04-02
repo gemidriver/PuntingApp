@@ -1387,16 +1387,11 @@ export default function Home() {
       }
     }
 
-    const { error: raceResultsResetError } = await supabase
-      .from('race_results')
-      .delete()
-      .gte('finishing_position', 1);
-
-    if (raceResultsResetError) {
-      console.error(raceResultsResetError);
-      addNotification('Unable to reset the current race day.', 'error');
-      return false;
-    }
+    // NOTE: preserve historical `race_results` rows. Do not delete the
+    // `race_results` table here — historical results are used for the
+    // all-time leaderboard and round history. The admin reset route will
+    // reset user_submissions and app settings; we've already persisted a
+    // snapshot to `round_history` above.
 
     const { error: settingsError } = await supabase
       .from('app_settings')
