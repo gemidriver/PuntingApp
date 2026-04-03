@@ -55,14 +55,14 @@ function ChatFloatingButton({ inline = false }: { inline?: boolean }) {
       >
         {inline ? '💬' : '💬'}
       </button>
-      {open && <ChatModal onClose={() => setOpen(false)} usernames={usernames} />}
+      {open && <ChatModal inline={inline} onClose={() => setOpen(false)} usernames={usernames} />}
     </>
   );
 }
 
 export default ChatFloatingButton;
 
-function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames?: string[] }) {
+function ChatModal({ onClose, usernames = [], inline = false }: { onClose: () => void, usernames?: string[], inline?: boolean }) {
     const pullInAppNotifications = useContext(PullNotificationsContext);
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState("");
@@ -95,6 +95,9 @@ function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames
     return () => window.removeEventListener('resize', check);
   }, []);
 
+  // If the modal was opened from an inline header button, prefer centered modal
+  const effectiveMobile = isMobile && !inline;
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -108,7 +111,10 @@ function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames
     const match = value.match(/@([\w\d_]*)$/);
     if (match && match[1] != null) {
       const search = match[1].toLowerCase();
-      setMentionList(usernames.filter(u => u.toLowerCase().startsWith(search)));
+      const matched = usernames.filter(u => u.toLowerCase().startsWith(search));
+      // allow @everyone as a special mention
+      if ('everyone'.startsWith(search)) matched.unshift('everyone');
+      setMentionList(matched);
       setShowMentions(true);
     } else {
       setShowMentions(false);
@@ -125,15 +131,29 @@ function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames
     e.preventDefault();
     if (!input.trim()) return;
     setLoading(true);
-    await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: userId, username, message: input }),
-    });
-    setInput("");
-    setShowMentions(false);
-    setLoading(false);
-    fetchMessages();
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, username, message: input }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        console.error('Chat send error', json);
+        alert(json.error || 'Unable to send message');
+        setLoading(false);
+        return;
+      }
+      setInput("");
+      setShowMentions(false);
+      setLoading(false);
+      fetchMessages();
+    } catch (err) {
+      console.error('Chat send exception', err);
+      alert('Unable to send message');
+      setLoading(false);
+      return;
+    }
     // Pull notifications immediately after sending
     if (typeof pullInAppNotifications === 'function') {
       pullInAppNotifications();
@@ -145,7 +165,7 @@ function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames
     const parts = text.split(/(@[\w\d_]+)/g);
     return parts.map((part, i) =>
       part.startsWith('@') ? (
-        <span key={i} style={{ color: '#d97706', fontWeight: 600 }}>{part}</span>
+        <span key={i} style={{ color: part.toLowerCase() === '@everyone' ? '#b91c1c' : '#d97706', fontWeight: 600 }}>{part}</span>
       ) : (
         <span key={i}>{part}</span>
       )
@@ -156,13 +176,13 @@ function ChatModal({ onClose, usernames = [] }: { onClose: () => void, usernames
     <div style={{
       position: "fixed",
       inset: 0,
-      background: isMobile ? "#fff" : "rgba(0,0,0,0.3)",
+      background: effectiveMobile ? "#fff" : "rgba(0,0,0,0.3)",
       zIndex: 1002,
       display: "flex",
-      alignItems: isMobile ? "stretch" : "center",
-      justifyContent: isMobile ? "stretch" : "center",
+      alignItems: effectiveMobile ? "flex-end" : "center",
+      justifyContent: effectiveMobile ? "stretch" : "center",
     }}>
-      <div style={{ background: "#fff", borderRadius: isMobile ? 0 : 12, width: isMobile ? '100%' : 360, maxWidth: "95vw", height: isMobile ? '100vh' : undefined, maxHeight: isMobile ? '100vh' : "80vh", display: "flex", flexDirection: "column", boxShadow: "0 4px 24px rgba(0,0,0,0.18)" }}>
+      <div style={{ background: "#fff", borderRadius: effectiveMobile ? '12px 12px 0 0' : 12, width: effectiveMobile ? '100%' : 360, maxWidth: "95vw", height: effectiveMobile ? '50vh' : undefined, maxHeight: effectiveMobile ? '50vh' : "80vh", display: "flex", flexDirection: "column", boxShadow: "0 4px 24px rgba(0,0,0,0.18)", marginBottom: effectiveMobile ? 64 : undefined }}>
         <div style={{ padding: 16, borderBottom: "1px solid #eee", fontWeight: 600, fontSize: 18, display: "flex", justifyContent: "space-between", alignItems: "center", color: '#222' }}>
           Chat
           <button onClick={onClose} style={{ background: "#2563eb", color: "#fff", border: "none", fontSize: 22, cursor: "pointer", borderRadius: 6, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>&times;</button>

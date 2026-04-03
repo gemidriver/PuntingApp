@@ -43,7 +43,7 @@ export default function MobileBottomNav({ activeScreen, setActiveScreen, showLog
           onClick={() => onLogout && onLogout()}
           className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium text-slate-700`}
         >
-          <span className="text-xl leading-none">⎋</span>
+          <span className="text-xl leading-none">🚪</span>
           <span>Log out</span>
         </button>
       )}

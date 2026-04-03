@@ -347,9 +347,21 @@ export default function Home() {
     applyLocation();
     window.addEventListener('hashchange', applyLocation);
     window.addEventListener('popstate', applyLocation);
+      function handleAppSet(e: any) {
+        try {
+          const s = e?.detail;
+          if (s === 'main' || s === 'home' || s === 'leaderboard' || s === 'submissions' || s === 'admin') {
+            setActiveScreen(s);
+          }
+        } catch (err) {
+          // ignore
+        }
+      }
+      window.addEventListener('app:setActiveScreen', handleAppSet as EventListener);
     return () => {
       window.removeEventListener('hashchange', applyLocation);
       window.removeEventListener('popstate', applyLocation);
+        window.removeEventListener('app:setActiveScreen', handleAppSet as EventListener);
     };
   }, []);
   const [submissionRows, setSubmissionRows] = useState<SubmissionRow[]>([]);
@@ -2231,12 +2243,10 @@ export default function Home() {
       prev.filter((meet) => !unavailableAdminSelectedMeetIds.has(meet.meet_id))
     );
 
-    unavailableAdminSelectedMeets.forEach((meet) => {
-      addNotification(
-        `${meet.course} was removed from selection because it is unavailable/abandoned. Please choose another meet.`,
-        'warning'
-      );
-    });
+    // Suppress noisy automatic "removed from selection" notifications
+    // previously we called addNotification for each unavailable admin meet,
+    // but these messages were triggering undesired notifications for users.
+    // Keep removal silent.
   }, [isAdmin, unavailableAdminSelectedMeets, unavailableAdminSelectedMeetIds]);
 
   const groupedMeetChoices = useMemo(() => {
@@ -4106,6 +4116,7 @@ export default function Home() {
                 <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={28} />
               </Link>
             ) : null}
+            {user ? <ChatFloatingButton inline /> : null}
           </div>
         </header>
         <div className="lg:flex lg:gap-6 lg:p-6">
@@ -4732,6 +4743,7 @@ export default function Home() {
               <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={28} />
             </Link>
           ) : null}
+          {user ? <ChatFloatingButton inline /> : null}
         </div>
       </div>
       <div className="lg:flex lg:gap-6 lg:max-w-6xl lg:mx-auto lg:p-6">

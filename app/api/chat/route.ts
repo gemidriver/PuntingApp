@@ -1,11 +1,11 @@
-import { getSupabaseClient } from '../../../lib/supabase';
+import { getSupabaseAdminClient } from '../../../lib/supabaseAdmin';
 import { getMentionedUsers } from './mention-utils';
 import { sendMentionEmail } from './email-utils';
 
 export const maxDuration = 30;
 
 export async function GET() {
-  const supabase = getSupabaseClient();
+  const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from('chat_messages')
     .select('id, user_id, username, message, created_at')
@@ -15,7 +15,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const supabase = getSupabaseClient();
+  const supabase = getSupabaseAdminClient();
   const { user_id, username, message } = await request.json();
   if (!user_id || !username || !message) {
     return Response.json({ error: 'Missing fields' }, { status: 400 });
