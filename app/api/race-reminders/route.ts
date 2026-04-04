@@ -342,90 +342,102 @@ export async function POST(request: Request) {
 
                   if (rows.length) {
                     try {
+                      // Determine previous winner for this race (if any)
+                      const { data: prevWinnerRow } = await admin.from('race_results').select('horse_id').eq('race_id', race.id).eq('finishing_position', 1).maybeSingle();
+                      const prevWinnerId = prevWinnerRow?.horse_id ?? null;
+                      const newWinnerId = raceRes?.winnerId ?? null;
+
                       const { error: upsertErr } = await admin.from('race_results').upsert(rows, { onConflict: 'meet_id,race_id,horse_id' });
-                      if (upsertErr) console.error('Failed to upsert race_results from cron:', upsertErr);
-                      else console.log(`Persisted ${rows.length} race_results for race ${race.id}`);
+                      if (upsertErr) {
+                        console.error('Failed to upsert race_results from cron:', upsertErr);
+                      } else {
+                        console.log(`Persisted ${rows.length} race_results for race ${race.id}`);
+                      }
+
+                      // Only recalculate scores and notify if the winner is new/changed
+                      if (String(prevWinnerId) !== String(newWinnerId)) {
+                        try {
+                          await admin.rpc('recalculate_scores_for_meet', { target_meet_id: meet.meet_id });
+                          console.log(`Recalculated scores for meet ${meet.meet_id} (cron)`);
+                        } catch (err) {
+                          console.error('Failed to recalculate scores from cron for meet', meet.meet_id, err);
+                        }
+
+                        try {
+                          const winnerName = raceRes?.winnerId ? runnerMap[String(raceRes.winnerId)] || null : null;
+                          const secondName = raceRes?.secondId ? runnerMap[String(raceRes.secondId)] || null : null;
+                          const thirdName = raceRes?.thirdId ? runnerMap[String(raceRes.thirdId)] || null : null;
+                          const resultMessage = `Results: Winner: ${winnerName || raceRes?.winnerId || 'N/A'}${secondName ? `, 2nd: ${secondName}` : ''}${thirdName ? `, 3rd: ${thirdName}` : ''}`;
+
+                          // find users who submitted for this meet
+                          try {
+                            const { data: allSubs } = await admin.from('user_submissions').select('user_id,selections').eq('submitted', true);
+                            const notifyUserIds = new Set<string>();
+                            for (const s of (allSubs || [])) {
+                              try {
+                                const sels = Array.isArray(s.selections) ? s.selections : [];
+                                if (sels.find((x: any) => String(x?.meetId || '') === String(meet.meet_id))) {
+                                  if (s.user_id) notifyUserIds.add(String(s.user_id));
+                                }
+                              } catch (e) {
+                                // ignore malformed row
+                              }
+                            }
+
+                            if (notifyUserIds.size) {
+                              const { data: profilesToNotify, error: profErr } = await admin.from('profiles').select('id,email,username').in('id', [...notifyUserIds]);
+                              if (profErr) {
+                                console.error('Failed to load profiles for results notifications', profErr);
+                              } else if (Array.isArray(profilesToNotify) && profilesToNotify.length) {
+                                const payload = (profilesToNotify || []).map((user: any) => ({
+                                  user_id: user.id,
+                                  race_id: race.id,
+                                  race_name: race.name,
+                                  course: meet.course,
+                                  notification_type: 'race_results',
+                                  message: resultMessage,
+                                  read_at: null,
+                                }));
+
+                                try {
+                                  const { data: notifData, error: notifErr } = await admin.from('notifications').upsert(payload, { onConflict: 'user_id,race_id,notification_type' });
+                                  if (notifErr) console.error('Failed to upsert race_results notifications:', notifErr);
+                                  else {
+                                    const upserted = Array.isArray(notifData as any) ? (notifData as any).length : 0;
+                                    console.log(`Upserted ${upserted} race_results notifications for race ${race.id}`);
+                                  }
+                                } catch (e) {
+                                  console.error('Exception upserting race_results notifications:', e);
+                                }
+
+                                // Send emails to these users if configured
+                                if (canSendEmail && resend) {
+                                  try {
+                                    const emails = (profilesToNotify || []).map((u: any) => String(u.email || '')).filter(Boolean);
+                                    const unique = [...new Set(emails)];
+                                    const subject = `Results: ${meet.course} - ${race.name}`;
+                                    const html = `<p>${resultMessage}</p><p>Thanks for participating — scores have been updated.</p>`;
+                                    const sendPromises = unique.map((to) => resend.emails.send({ from: resendFromEmail, to, subject, html }));
+                                    await Promise.allSettled(sendPromises);
+                                  } catch (e) {
+                                    console.error('Failed sending race result emails', e);
+                                  }
+                                }
+                              }
+                            }
+                          } catch (e) {
+                            console.error('Error preparing results notifications', e);
+                          }
+                        } catch (e) {
+                          console.error('Error creating result notifications/emails', e);
+                        }
+                      } else {
+                        console.log(`No new winner for race ${race.id}; skipping notifications/recalculation.`);
+                      }
                     } catch (e) {
                       console.error('Exception upserting race_results from cron:', e);
                     }
-
-                    // Recalculate scores for the meet
-                    try {
-                      await admin.rpc('recalculate_scores_for_meet', { target_meet_id: meet.meet_id });
-                      console.log(`Recalculated scores for meet ${meet.meet_id} (cron)`);
-                    } catch (err) {
-                      console.error('Failed to recalculate scores from cron for meet', meet.meet_id, err);
-                    }
-
-                    // Notify users of the race results (only users who submitted for this meet)
-                    try {
-                      const winnerName = raceRes?.winnerId ? runnerMap[String(raceRes.winnerId)] || null : null;
-                      const secondName = raceRes?.secondId ? runnerMap[String(raceRes.secondId)] || null : null;
-                      const thirdName = raceRes?.thirdId ? runnerMap[String(raceRes.thirdId)] || null : null;
-                      const resultMessage = `Results: Winner: ${winnerName || raceRes?.winnerId || 'N/A'}${secondName ? `, 2nd: ${secondName}` : ''}${thirdName ? `, 3rd: ${thirdName}` : ''}`;
-
-                      // find users who submitted for this meet
-                      try {
-                        const { data: allSubs } = await admin.from('user_submissions').select('user_id,selections').eq('submitted', true);
-                        const notifyUserIds = new Set<string>();
-                        for (const s of (allSubs || [])) {
-                          try {
-                            const sels = Array.isArray(s.selections) ? s.selections : [];
-                            if (sels.find((x: any) => String(x?.meetId || '') === String(meet.meet_id))) {
-                              if (s.user_id) notifyUserIds.add(String(s.user_id));
-                            }
-                          } catch (e) {
-                            // ignore malformed row
-                          }
-                        }
-
-                        if (notifyUserIds.size) {
-                          const { data: profilesToNotify, error: profErr } = await admin.from('profiles').select('id,email,username').in('id', [...notifyUserIds]);
-                          if (profErr) {
-                            console.error('Failed to load profiles for results notifications', profErr);
-                          } else if (Array.isArray(profilesToNotify) && profilesToNotify.length) {
-                            const payload = (profilesToNotify || []).map((user: any) => ({
-                              user_id: user.id,
-                              race_id: race.id,
-                              race_name: race.name,
-                              course: meet.course,
-                              notification_type: 'race_results',
-                              message: resultMessage,
-                              read_at: null,
-                            }));
-
-                            try {
-                              const { data: notifData, error: notifErr } = await admin.from('notifications').upsert(payload, { onConflict: 'user_id,race_id,notification_type' });
-                              if (notifErr) console.error('Failed to upsert race_results notifications:', notifErr);
-                              else {
-                                const upserted = Array.isArray(notifData as any) ? (notifData as any).length : 0;
-                                console.log(`Upserted ${upserted} race_results notifications for race ${race.id}`);
-                              }
-                            } catch (e) {
-                              console.error('Exception upserting race_results notifications:', e);
-                            }
-
-                            // Send emails to these users if configured
-                            if (canSendEmail && resend) {
-                              try {
-                                const emails = (profilesToNotify || []).map((u: any) => String(u.email || '')).filter(Boolean);
-                                const unique = [...new Set(emails)];
-                                const subject = `Results: ${meet.course} - ${race.name}`;
-                                const html = `<p>${resultMessage}</p><p>Thanks for participating — scores have been updated.</p>`;
-                                const sendPromises = unique.map((to) => resend.emails.send({ from: resendFromEmail, to, subject, html }));
-                                await Promise.allSettled(sendPromises);
-                              } catch (e) {
-                                console.error('Failed sending race result emails', e);
-                              }
-                            }
-                          }
-                        }
-                      } catch (e) {
-                        console.error('Error preparing results notifications', e);
-                      }
-                    } catch (e) {
-                      console.error('Error creating result notifications/emails', e);
-                    }
+                  }
                   }
                 }
               } catch (e) {
