@@ -391,7 +391,8 @@ export async function POST(request: Request) {
       const { data: lastBackfillRow } = await admin.from('app_settings').select('value').eq('key', 'last_backfill_at').maybeSingle();
       const lastBackfillValue = lastBackfillRow?.value ?? null;
       const lastBackfill = lastBackfillValue ? new Date(String(lastBackfillValue)) : null;
-      const shouldBackfill = !lastBackfill || (new Date().getTime() - lastBackfill.getTime()) >= BACKFILL_INTERVAL_MINUTES * 60 * 1000;
+      const lastBackfillTs = lastBackfill ? lastBackfill.getTime() : 0;
+      const shouldBackfill = lastBackfill === null || (Date.now() - lastBackfillTs) >= BACKFILL_INTERVAL_MINUTES * 60 * 1000;
       if (shouldBackfill) {
         console.log('Running periodic backfill of race_results horse_name...');
         const { data: missingRows, error: missErr } = await admin
