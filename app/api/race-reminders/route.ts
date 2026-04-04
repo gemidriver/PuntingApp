@@ -214,35 +214,37 @@ export async function POST(request: Request) {
                 console.error('Failed to resolve meet submitters for reminders', e);
               }
 
-              const recipients = profilesToNotify.length ? profilesToNotify : (allUsers || []);
+              const recipients = profilesToNotify.length ? profilesToNotify : [];
 
-              // Queue reminder emails for recipients
-              for (const user of recipients) {
-                remindersToSend.push({
-                  raceId: race.id,
-                  raceName: race.name,
-                  raceTime,
-                  course: meet.course,
-                  email: user.email,
-                  username: user.username,
-                  userId: user.id,
-                });
-              }
+              if (!recipients.length) {
+                console.log(`No submitters found for meet ${meet.meet_id} race ${race.id}; skipping reminder emails/notifications.`);
+              } else {
+                // Queue reminder emails for recipients
+                for (const user of recipients) {
+                  remindersToSend.push({
+                    raceId: race.id,
+                    raceName: race.name,
+                    raceTime,
+                    course: meet.course,
+                    email: user.email,
+                    username: user.username,
+                    userId: user.id,
+                  });
+                }
 
-              // Mark reminder as sent
-              await supabase
-                .from('race_reminders')
-                .insert({
-                  race_id: race.id,
-                  race_name: race.name,
-                  race_time: raceTime.toISOString(),
-                  course: meet.course,
-                  meet_id: meet.meet_id,
-                })
-                .throwOnError();
+                // Mark reminder as sent
+                await supabase
+                  .from('race_reminders')
+                  .insert({
+                    race_id: race.id,
+                    race_name: race.name,
+                    race_time: raceTime.toISOString(),
+                    course: meet.course,
+                    meet_id: meet.meet_id,
+                  })
+                  .throwOnError();
 
-              // Create in-app notifications for "race starting soon" for recipients
-              if (recipients.length) {
+                // Create in-app notifications for "race starting soon" for recipients
                 const notificationPayload = recipients.map((user: any) => ({
                   user_id: user.id,
                   race_id: race.id,
@@ -410,19 +412,8 @@ export async function POST(request: Request) {
                                   console.error('Exception upserting race_results notifications:', e);
                                 }
 
-                                // Send emails to these users if configured
-                                if (canSendEmail && resend) {
-                                  try {
-                                    const emails = (profilesToNotify || []).map((u: any) => String(u.email || '')).filter(Boolean);
-                                    const unique = [...new Set(emails)];
-                                    const subject = `Results: ${meet.course} - ${race.name}`;
-                                    const html = `<p>${resultMessage}</p><p>Thanks for participating — scores have been updated.</p>`;
-                                    const sendPromises = unique.map((to) => resend.emails.send({ from: resendFromEmail, to, subject, html }));
-                                    await Promise.allSettled(sendPromises);
-                                  } catch (e) {
-                                    console.error('Failed sending race result emails', e);
-                                  }
-                                }
+                                // Cron: automatic result emails are DISABLED. Manual-placings endpoint handles result emails.
+                                // (Left intentionally blank to avoid sending result emails from cron.)
                               }
                             }
                           } catch (e) {
@@ -498,14 +489,6 @@ export async function POST(request: Request) {
       sentCount = results.filter(r => r.status === 'fulfilled').length;
     }
 
-    return Response.json({
-      success: true,
-      remindersProcessed: remindersToSend.length,
-      emailsSent: sentCount,
-      emailProviderConfigured: canSendEmail,
-      timestamp: new Date().toISOString(),
-    });
-
     // Periodic backfill: resolve missing horse_name values in race_results
     try {
       const admin = supabase; // admin client
@@ -570,6 +553,14 @@ export async function POST(request: Request) {
     } catch (e) {
       console.error('Periodic backfill error:', e);
     }
+
+    return Response.json({
+      success: true,
+      remindersProcessed: remindersToSend.length,
+      emailsSent: sentCount,
+      emailProviderConfigured: canSendEmail,
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
     console.error('Race reminder error:', error);
     return Response.json(
