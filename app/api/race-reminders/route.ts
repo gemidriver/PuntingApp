@@ -116,9 +116,14 @@ export async function POST(request: Request) {
                   read_at: null,
                 }));
 
-                await admin
+                const { data: upsertData, error: upsertError } = await admin
                   .from('notifications')
                   .upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' });
+                if (upsertError) {
+                  console.error('Failed to upsert race_starting_soon notifications:', upsertError, { sample: notificationPayload && notificationPayload[0] });
+                } else {
+                  console.log(`Upserted ${Array.isArray(upsertData) ? upsertData.length : 0} race_starting_soon notifications for race ${race.id}`);
+                }
               }
             }
           }
@@ -145,9 +150,14 @@ export async function POST(request: Request) {
                 read_at: null,
               }));
 
-              await admin
+              const { data: upsertData2, error: upsertError2 } = await admin
                 .from('notifications')
                 .upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' });
+              if (upsertError2) {
+                console.error('Failed to upsert race_started notifications:', upsertError2, { sample: notificationPayload && notificationPayload[0] });
+              } else {
+                console.log(`Upserted ${Array.isArray(upsertData2) ? upsertData2.length : 0} race_started notifications for race ${race.id}`);
+              }
             }
           }
         }
