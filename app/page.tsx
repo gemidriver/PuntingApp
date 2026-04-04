@@ -674,7 +674,27 @@ export default function Home() {
       .from('race_results')
       .upsert(rowsToInsert, { onConflict: 'meet_id,race_id,horse_id' });
 
-    return { error: upsertError?.message ?? null };
+    const errMsg = upsertError?.message ?? null;
+
+    // If upsert succeeded, notify server to create in-app notifications and send emails for manual placings
+    if (!errMsg) {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token ?? null;
+        if (accessToken) {
+          // fire-and-forget; admin users will trigger this after saving manual placings
+          void fetch('/api/manual-placings/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({ raceIds: uniqueRaceIds }),
+          }).catch(() => { /* ignore */ });
+        }
+      } catch (e) {
+        // ignore notification failures on client
+      }
+    }
+
+    return { error: errMsg };
   };
 
   const mapProfiles = (rows: Array<{ id: string; email: string; username: string; is_admin: boolean }>): Record<string, ProfileRecord> => {
