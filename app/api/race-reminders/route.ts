@@ -111,7 +111,7 @@ export async function POST(request: Request) {
                 for (const s of submissions || []) {
                   try {
                     const sels = Array.isArray(s.selections) ? s.selections : [];
-                    const submittedAt = s?.submitted_at ? String(s.submitted_at).slice(0, 10) : null;
+                    const submittedAt = (s as any)?.submitted_at ? String((s as any).submitted_at).slice(0, 10) : null;
                     // Only consider submissions that include this meet AND were submitted for the same meet date
                     if (submittedAt === String(meet.date) && sels.find((x: any) => String(x?.meetId || '') === String(meet.meet_id))) {
                       if (s.user_id) userIds.add(String(s.user_id));
@@ -194,7 +194,7 @@ export async function POST(request: Request) {
                 for (const s of subs || []) {
                   try {
                     const sels = Array.isArray(s.selections) ? s.selections : [];
-                    const submittedAt = s?.submitted_at ? String(s.submitted_at).slice(0, 10) : null;
+                    const submittedAt = (s as any)?.submitted_at ? String((s as any).submitted_at).slice(0, 10) : null;
                     if (submittedAt === String(meet.date) && sels.find((x: any) => String(x?.meetId || '') === String(meet.meet_id))) {
                       if (s.user_id) userIds.add(String(s.user_id));
                     }
@@ -428,7 +428,6 @@ export async function POST(request: Request) {
                     } catch (e) {
                       console.error('Exception upserting race_results from cron:', e);
                     }
-                  }
                   }
                 }
               } catch (e) {
