@@ -1,7 +1,7 @@
 import { Resend } from 'resend';
 import { getSupabaseClient } from '../../../lib/supabase';
 import { getSupabaseAdminClient } from '../../../lib/supabaseAdmin';
-import { fetchRacesForCourse } from '../../../lib/betfair';
+import { fetchRacesForCourse, fetchMarketRunners } from '../../../lib/betfair';
 import { fetchMarketResults } from '../../../lib/theracingapi';
 
 export const maxDuration = 60;
@@ -185,11 +185,24 @@ export async function POST(request: Request) {
                 if (Array.isArray(marketResults) && marketResults.length) {
                   const rows: any[] = [];
                   const raceRes = marketResults[0];
-                  if (raceRes && raceRes.winnerId) {
-                    rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.winnerId, horse_name: null, finishing_position: 1, result_date: new Date().toISOString() });
+
+                  // Attempt to resolve runner names for this market so we store names where possible
+                  let runnerMap: Record<string, string> = {};
+                  try {
+                    const runners = await fetchMarketRunners(race.id);
+                    runnerMap = (runners || []).reduce((acc: Record<string, string>, r: any) => {
+                      if (r && r.id) acc[String(r.id)] = r.name || acc[String(r.id)] || '';
+                      return acc;
+                    }, {});
+                  } catch (e) {
+                    console.error('Failed to fetch market runners for', race.id, e);
                   }
-                  if (raceRes && raceRes.secondId) rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.secondId, horse_name: null, finishing_position: 2, result_date: new Date().toISOString() });
-                  if (raceRes && raceRes.thirdId) rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.thirdId, horse_name: null, finishing_position: 3, result_date: new Date().toISOString() });
+
+                  if (raceRes && raceRes.winnerId) {
+                    rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.winnerId, horse_name: runnerMap[String(raceRes.winnerId)] || null, finishing_position: 1, result_date: new Date().toISOString() });
+                  }
+                  if (raceRes && raceRes.secondId) rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.secondId, horse_name: runnerMap[String(raceRes.secondId)] || null, finishing_position: 2, result_date: new Date().toISOString() });
+                  if (raceRes && raceRes.thirdId) rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.thirdId, horse_name: runnerMap[String(raceRes.thirdId)] || null, finishing_position: 3, result_date: new Date().toISOString() });
 
                   if (rows.length) {
                     try {
