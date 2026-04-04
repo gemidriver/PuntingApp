@@ -122,7 +122,8 @@ export async function POST(request: Request) {
                 if (upsertError) {
                   console.error('Failed to upsert race_starting_soon notifications:', upsertError, { sample: notificationPayload && notificationPayload[0] });
                 } else {
-                  console.log(`Upserted ${Array.isArray(upsertData) ? upsertData.length : 0} race_starting_soon notifications for race ${race.id}`);
+                  const upsertCount = Array.isArray(upsertData as any) ? (upsertData as any).length : 0;
+                  console.log(`Upserted ${upsertCount} race_starting_soon notifications for race ${race.id}`);
                 }
               }
             }
@@ -156,7 +157,8 @@ export async function POST(request: Request) {
               if (upsertError2) {
                 console.error('Failed to upsert race_started notifications:', upsertError2, { sample: notificationPayload && notificationPayload[0] });
               } else {
-                console.log(`Upserted ${Array.isArray(upsertData2) ? upsertData2.length : 0} race_started notifications for race ${race.id}`);
+                const upsertCount2 = Array.isArray(upsertData2 as any) ? (upsertData2 as any).length : 0;
+                console.log(`Upserted ${upsertCount2} race_started notifications for race ${race.id}`);
               }
             }
           }
