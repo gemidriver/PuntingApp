@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
-import { fetchMarketRunners } from '../../../lib/betfair';
+import { fetchMarketRunners } from '../../../../lib/betfair';
 
 export async function POST(request: Request) {
   try {
