@@ -90,10 +90,10 @@ export default function UserProfilePage({ params }: { params: { username: string
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center p-8">
-      <div className="flex flex-col items-center bg-white rounded-xl shadow-lg p-8 w-full max-w-lg max-h-[calc(100vh-4rem)] overflow-hidden">
-        <Avatar username={username} avatarUrl={avatarUrl} size={72} />
+      <div className="flex flex-col items-center bg-white rounded-xl shadow-lg p-6 w-full max-w-lg profile-card overflow-hidden">
+        <Avatar username={username} avatarUrl={avatarUrl} size={64} />
         <h2 className="mt-4 text-2xl font-bold text-slate-900">{username}</h2>
-        <div className="mt-4 w-full flex-1 overflow-auto">
+        <div className="mt-3 w-full flex-1 overflow-auto">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold mb-2 text-slate-900">Notifications</h3>
             <div>
@@ -143,7 +143,7 @@ export default function UserProfilePage({ params }: { params: { username: string
               <div className="text-sm text-slate-500">No recent chat messages mentioning or from this user.</div>
             ) : (
               <div className="relative">
-                <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-2 pb-6">
+                <div className="chat-scroll flex flex-col gap-3 max-h-[52vh] sm:max-h-80 overflow-y-auto pr-2 pb-6">
                   {messages.map((m) => (
                     <div key={m.id} className="p-2 bg-white rounded border">
                       <div className="text-sm font-medium text-sky-700">{m.username}:</div>
@@ -152,7 +152,7 @@ export default function UserProfilePage({ params }: { params: { username: string
                     </div>
                   ))}
                 </div>
-                <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-b from-transparent to-slate-100" />
+                <div className="chat-gradient" />
               </div>
             )}
           </div>
@@ -200,6 +200,13 @@ export default function UserProfilePage({ params }: { params: { username: string
           router.push('/');
         }}
       />
+      <style jsx>{`
+        .chat-scroll::-webkit-scrollbar { width: 8px; }
+        .chat-scroll::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.35); border-radius: 8px; }
+        .chat-scroll { scrollbar-width: thin; scrollbar-color: rgba(100,116,139,0.35) transparent; }
+        .chat-gradient { pointer-events: none; position: absolute; bottom: 0; left: 0; right: 0; height: 32px; background: linear-gradient(180deg, rgba(255,255,255,0), rgba(241,245,249,1)); }
+        .profile-card { max-height: calc(100vh - 4rem); }
+      `}</style>
     </div>
   );
 }
