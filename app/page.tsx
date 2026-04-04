@@ -3126,40 +3126,7 @@ export default function Home() {
           >
             {resultsFetching ? 'Fetching...' : 'Fetch Results'}
           </button>
-          <button
-            onClick={async () => {
-              try {
-                setResultsFetching(true);
-                const marketIds = [...new Set(submissionRows.flatMap(row => row.selections.map(s => s.raceId)))];
-                const supabase = getSupabaseClient();
-                const { data: sessionData } = await supabase.auth.getSession();
-                if (!sessionData?.session?.access_token) {
-                  addNotification('Admin session not available.', 'error');
-                  return;
-                }
-                const res = await fetch('/api/persist-results', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
-                  body: JSON.stringify({ marketIds }),
-                });
-                const payload = await res.json().catch(() => ({} as any));
-                if (!res.ok) {
-                  addNotification(payload.error || 'Failed to persist results.', 'error');
-                  return;
-                }
-                addNotification(`Persisted ${payload.inserted ?? 0} result rows.`, 'success');
-              } catch (e) {
-                console.error(e);
-                addNotification('Failed to persist results.', 'error');
-              } finally {
-                setResultsFetching(false);
-              }
-            }}
-            disabled={resultsFetching || submissionRows.length === 0}
-            className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            {resultsFetching ? 'Persisting...' : 'Persist Results (Server)'}
-          </button>
+          {/* Persist Results button removed — results are persisted automatically when races start */}
           <label className="inline-flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"

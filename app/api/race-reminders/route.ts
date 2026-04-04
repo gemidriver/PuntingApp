@@ -9,6 +9,8 @@ export const maxDuration = 60;
 // Configurable reminder windows (minutes)
 const REMINDER_MINUTES = Number(process.env.RACE_REMINDER_MINUTES || '5');
 const STARTED_WINDOW_MINUTES = Number(process.env.RACE_STARTED_WINDOW_MINUTES || '2');
+const BACKFILL_INTERVAL_MINUTES = Number(process.env.BACKFILL_INTERVAL_MINUTES || '60');
+const BACKFILL_BATCH_SIZE = Number(process.env.BACKFILL_BATCH_SIZE || '500');
 
 export async function POST(request: Request) {
   try {
@@ -287,6 +289,66 @@ export async function POST(request: Request) {
       emailProviderConfigured: canSendEmail,
       timestamp: new Date().toISOString(),
     });
+
+    // Periodic backfill: resolve missing horse_name values in race_results
+    try {
+      const admin = supabase; // admin client
+      const { data: lastBackfillRow } = await admin.from('app_settings').select('value').eq('key', 'last_backfill_at').maybeSingle();
+      const lastBackfill = lastBackfillRow && lastBackfillRow.value ? new Date(String(lastBackfillRow.value)) : null;
+      const shouldBackfill = !lastBackfill || (new Date().getTime() - lastBackfill.getTime()) >= BACKFILL_INTERVAL_MINUTES * 60 * 1000;
+      if (shouldBackfill) {
+        console.log('Running periodic backfill of race_results horse_name...');
+        const { data: missingRows, error: missErr } = await admin
+          .from('race_results')
+          .select('id,meet_id,race_id,horse_id')
+          .is('horse_name', null)
+          .limit(BACKFILL_BATCH_SIZE);
+
+        if (missErr) {
+          console.error('Backfill: failed to query missing race_results rows', missErr);
+        } else if (Array.isArray(missingRows) && missingRows.length) {
+          const byRace: Record<string, any[]> = {};
+          for (const r of missingRows) {
+            if (!r?.race_id) continue;
+            byRace[r.race_id] = byRace[r.race_id] || [];
+            byRace[r.race_id].push(r);
+          }
+
+          let updatedCount = 0;
+          for (const raceId of Object.keys(byRace)) {
+            try {
+              const runners = await fetchMarketRunners(raceId);
+              const runnerMap: Record<string, string> = {};
+              (runners || []).forEach((rr: any) => { if (rr?.id) runnerMap[String(rr.id)] = rr.name || ''; });
+
+              for (const r of byRace[raceId]) {
+                const name = runnerMap[String(r.horse_id)];
+                if (name) {
+                  const { error: upErr } = await admin.from('race_results').update({ horse_name: name }).eq('id', r.id);
+                  if (!upErr) updatedCount++;
+                  else console.error('Backfill: failed to update race_result id', r.id, upErr);
+                }
+              }
+            } catch (e) {
+              console.error('Backfill: failed for race', raceId, e);
+            }
+          }
+
+          // record last_backfill_at
+          try {
+            await admin.from('app_settings').upsert({ key: 'last_backfill_at', value: new Date().toISOString() }, { onConflict: 'key' });
+            console.log(`Backfill completed. Rows processed: ${missingRows.length}, updated: ${updatedCount}`);
+          } catch (e) {
+            console.error('Backfill: failed to persist last_backfill_at', e);
+          }
+        } else {
+          // still update last_backfill_at to avoid repeated empty checks
+          try { await admin.from('app_settings').upsert({ key: 'last_backfill_at', value: new Date().toISOString() }, { onConflict: 'key' }); } catch (e) { /* ignore */ }
+        }
+      }
+    } catch (e) {
+      console.error('Periodic backfill error:', e);
+    }
   } catch (error) {
     console.error('Race reminder error:', error);
     return Response.json(
