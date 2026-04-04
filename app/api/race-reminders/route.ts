@@ -391,7 +391,7 @@ export async function POST(request: Request) {
       const { data: lastBackfillRow } = await admin.from('app_settings').select('value').eq('key', 'last_backfill_at').maybeSingle();
       const lastBackfillValue = lastBackfillRow?.value ?? null;
       const lastBackfill = lastBackfillValue ? new Date(String(lastBackfillValue)) : null;
-      const lastBackfillTs = lastBackfill ? lastBackfill.getTime() : 0;
+      const lastBackfillTs = lastBackfill?.getTime() ?? 0;
       const shouldBackfill = lastBackfill === null || (Date.now() - lastBackfillTs) >= BACKFILL_INTERVAL_MINUTES * 60 * 1000;
       if (shouldBackfill) {
         console.log('Running periodic backfill of race_results horse_name...');
@@ -403,13 +403,15 @@ export async function POST(request: Request) {
 
         if (missErr) {
           console.error('Backfill: failed to query missing race_results rows', missErr);
-        } else if (Array.isArray(missingRows) && missingRows.length) {
-          const byRace: Record<string, any[]> = {};
-          for (const r of missingRows) {
-            if (!r?.race_id) continue;
-            byRace[r.race_id] = byRace[r.race_id] || [];
-            byRace[r.race_id].push(r);
-          }
+        } else {
+          const missing: any[] = Array.isArray(missingRows) ? (missingRows as any[]) : [];
+          if (missing.length) {
+            const byRace: Record<string, any[]> = {};
+            for (const r of missing) {
+              if (!r?.race_id) continue;
+              byRace[r.race_id] = byRace[r.race_id] || [];
+              byRace[r.race_id].push(r);
+            }
 
           let updatedCount = 0;
           for (const raceId of Object.keys(byRace)) {
@@ -432,15 +434,16 @@ export async function POST(request: Request) {
           }
 
           // record last_backfill_at
-          try {
-            await admin.from('app_settings').upsert({ key: 'last_backfill_at', value: new Date().toISOString() }, { onConflict: 'key' });
-            console.log(`Backfill completed. Rows processed: ${missingRows.length}, updated: ${updatedCount}`);
-          } catch (e) {
+            try {
+              await admin.from('app_settings').upsert({ key: 'last_backfill_at', value: new Date().toISOString() }, { onConflict: 'key' });
+              console.log(`Backfill completed. Rows processed: ${missing.length}, updated: ${updatedCount}`);
+            } catch (e) {
             console.error('Backfill: failed to persist last_backfill_at', e);
           }
-        } else {
-          // still update last_backfill_at to avoid repeated empty checks
-          try { await admin.from('app_settings').upsert({ key: 'last_backfill_at', value: new Date().toISOString() }, { onConflict: 'key' }); } catch (e) { /* ignore */ }
+          } else {
+            // still update last_backfill_at to avoid repeated empty checks
+            try { await admin.from('app_settings').upsert({ key: 'last_backfill_at', value: new Date().toISOString() }, { onConflict: 'key' }); } catch (e) { /* ignore */ }
+          }
         }
       }
     } catch (e) {
