@@ -621,7 +621,7 @@ export default function Home() {
     return nextMap;
   };
 
-  const persistRaceResultsRows = async (map: RaceResultsMap, raceIds: string[]) => {
+  const persistRaceResultsRows = async (map: RaceResultsMap, raceIds: string[], notify = false) => {
     if (!raceIds.length) return { error: null as string | null };
 
     const supabase = getSupabaseClient();
@@ -676,13 +676,13 @@ export default function Home() {
 
     const errMsg = upsertError?.message ?? null;
 
-    // If upsert succeeded, notify server to create in-app notifications and send emails for manual placings
-    if (!errMsg) {
+    // If upsert succeeded and caller requested notifications, notify server
+    if (!errMsg && notify) {
       try {
         const { data: sessionData } = await supabase.auth.getSession();
         const accessToken = sessionData?.session?.access_token ?? null;
         if (accessToken) {
-          // fire-and-forget; admin users will trigger this after saving manual placings
+          // fire-and-forget; only trigger when caller explicitly requested notify (manual placings)
           void fetch('/api/manual-placings/notify', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
@@ -1166,7 +1166,7 @@ export default function Home() {
     }
 
     const supabase = getSupabaseClient();
-    const { error: tableSaveError } = await persistRaceResultsRows(map, [manualResultRaceId]);
+    const { error: tableSaveError } = await persistRaceResultsRows(map, [manualResultRaceId], true);
     if (tableSaveError) {
       addNotification(`Unable to save manual placings to race_results. ${tableSaveError}`, 'error');
       return;
@@ -3393,6 +3393,8 @@ export default function Home() {
                           ? preferResolvedHorseName(result.thirdName, resolveRaceHorseName(sel.raceId, result.thirdId, result.thirdName), result.thirdId)
                           : null;
                         const hasResolvedPlacings = Boolean(resolvedFirstName || resolvedSecondName || resolvedThirdName);
+                        const missingPlacings = Boolean(result && !hasResolvedPlacings);
+                        const isLoss = Boolean(result && !isWinner && !isSecond && !isThird && hasResolvedPlacings);
                         const placingClass = isWinner
                           ? 'bg-green-100 text-green-900 font-semibold'
                           : isSecond
@@ -3401,7 +3403,10 @@ export default function Home() {
                               ? 'bg-amber-100 text-amber-900 font-semibold'
                               : '';
                         return (
-                          <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`} className={`rounded-lg px-3 py-3 ${placingClass} shadow-sm`}>
+                          <li
+                            key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`}
+                            className={`rounded-lg px-3 py-3 ${placingClass} shadow-sm ${missingPlacings || isLoss ? 'border border-red-300' : ''}`}
+                          >
                             <div className="flex items-start justify-between gap-4">
                               <div className="font-medium text-slate-800">{getSelectionLocation(sel)} - {sel.raceName}</div>
                               <div className="ml-2 text-sm text-slate-700">{sel.horseName}{isWildcard ? ' ⭐ Wildcard' : ''}</div>
@@ -3419,9 +3424,11 @@ export default function Home() {
                               <div className="flex items-center gap-3">
                                 {isWinner ? (
                                   <span className="text-green-700 font-semibold">✔ Winner</span>
-                                ) : (result && !isSecond && !isThird ? (
-                                  <span className="text-red-600">✖</span>
-                                ) : null)}
+                                ) : isLoss ? (
+                                  <span className="text-red-600 font-bold">✖</span>
+                                ) : missingPlacings ? (
+                                  <span className="text-red-600 font-bold">✖</span>
+                                ) : null}
                               </div>
                             </div>
                           </li>
