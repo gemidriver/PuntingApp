@@ -4225,8 +4225,10 @@ export default function Home() {
             {hasUnreadChat && (
               <span aria-hidden style={{ width: 8, height: 8, background: '#ef4444', borderRadius: '50%', display: 'inline-block', marginLeft: 6 }} />
             )}
-            {hasUnreadNotifications && (
-              <span aria-hidden style={{ width: 8, height: 8, background: '#f59e0b', borderRadius: '50%', display: 'inline-block', marginLeft: 6 }} />
+            {unreadNotificationsCount > 0 && (
+              <span aria-hidden style={{ minWidth: 18, height: 18, background: '#f59e0b', color: '#000', borderRadius: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', fontSize: 12, fontWeight: 600, marginLeft: 6 }}>
+                {unreadNotificationsCount}
+              </span>
             )}
             {user ? (
               <Link href={`/${'user'}/${user}`}>
@@ -4329,7 +4331,7 @@ export default function Home() {
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong>
                 {hasUnreadChat ? <span aria-hidden style={{ width: 8, height: 8, background: '#ef4444', borderRadius: '50%', display: 'inline-block', marginLeft: 8 }} /> : null}
-                {hasUnreadNotifications ? <span aria-hidden style={{ width: 8, height: 8, background: '#f59e0b', borderRadius: '50%', display: 'inline-block', marginLeft: 6 }} /> : null}
+                {unreadNotificationsCount > 0 ? <span aria-hidden style={{ minWidth: 18, height: 18, background: '#f59e0b', color: '#000', borderRadius: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', fontSize: 12, fontWeight: 600, marginLeft: 6 }}>{unreadNotificationsCount}</span> : null}
               </span>
               {user ? (
                 <Link href={`/${'user'}/${user}`}>
