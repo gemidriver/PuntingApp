@@ -1735,18 +1735,19 @@ export default function Home() {
         if (item?.message) addNotification(item.message, 'info', 9000);
       });
 
-      // Mark other (non-chat) notifications as read
-      const otherIds = otherNotifications.map((n) => n.id).filter((id) => Number.isFinite(id));
-      if (otherIds.length) {
-        await fetch('/api/notifications', {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ notificationIds: otherIds }),
-        });
-      }
+      // Do NOT auto-mark other (non-chat) notifications as read here.
+      // Users should explicitly visit the Notifications panel to clear them.
+      // const otherIds = otherNotifications.map((n) => n.id).filter((id) => Number.isFinite(id));
+      // if (otherIds.length) {
+      //   await fetch('/api/notifications', {
+      //     method: 'PATCH',
+      //     headers: {
+      //       'Content-Type': 'application/json',
+      //       Authorization: `Bearer ${accessToken}`,
+      //     },
+      //     body: JSON.stringify({ notificationIds: otherIds }),
+      //   });
+      // }
 
       // If there are chat notifications, set the unread flag so headers can show it
       if (chatNotifications.length) {
