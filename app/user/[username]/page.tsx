@@ -90,10 +90,10 @@ export default function UserProfilePage({ params }: { params: { username: string
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center p-8">
-      <div className="flex flex-col items-center bg-white rounded-xl shadow-lg p-8 w-full max-w-lg">
+      <div className="flex flex-col items-center bg-white rounded-xl shadow-lg p-8 w-full max-w-lg max-h-[calc(100vh-4rem)] overflow-hidden">
         <Avatar username={username} avatarUrl={avatarUrl} size={72} />
         <h2 className="mt-4 text-2xl font-bold text-slate-900">{username}</h2>
-        <div className="mt-4 w-full">
+        <div className="mt-4 w-full flex-1 overflow-auto">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold mb-2 text-slate-900">Notifications</h3>
             <div>
@@ -142,14 +142,17 @@ export default function UserProfilePage({ params }: { params: { username: string
             {messages.length === 0 ? (
               <div className="text-sm text-slate-500">No recent chat messages mentioning or from this user.</div>
             ) : (
-              <div className="flex flex-col gap-3">
-                {messages.map((m) => (
-                  <div key={m.id} className="p-2 bg-white rounded border">
-                    <div className="text-sm font-medium text-sky-700">{m.username}:</div>
-                    <div className="text-sm text-slate-800">{m.message}</div>
-                    <div className="text-xs text-slate-400 mt-1">{new Date(m.created_at).toLocaleString()}</div>
-                  </div>
-                ))}
+              <div className="relative">
+                <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-2 pb-6">
+                  {messages.map((m) => (
+                    <div key={m.id} className="p-2 bg-white rounded border">
+                      <div className="text-sm font-medium text-sky-700">{m.username}:</div>
+                      <div className="text-sm text-slate-800">{m.message}</div>
+                      <div className="text-xs text-slate-400 mt-1">{new Date(m.created_at).toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-b from-transparent to-slate-100" />
               </div>
             )}
           </div>
