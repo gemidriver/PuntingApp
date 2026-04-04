@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import Avatar from '../components/Avatar';
 import MobileBottomNav from '../components/MobileBottomNav';
+import RaceSelect from '../components/RaceSelect';
 const ChatFloatingButton = dynamic(() => import('./chat-floating-button'), { ssr: false });
 import AllUsersContext from './all-users-context';
 import PullNotificationsContext from './pull-notifications-context';
@@ -2451,14 +2452,26 @@ export default function Home() {
       });
     });
 
-    return [...raceMap.entries()]
-      .map(([raceId, info]) => ({
-        raceId,
-        meetId: info.meetId,
-        raceName: info.raceName,
-        location: info.location,
-        label: `${info.location} - ${info.raceName}`,
-      }))
+    const options = [...raceMap.entries()]
+      .map(([raceId, info]) => {
+        const result = raceResults[raceId];
+        const hasWinner = Boolean(result && result.winnerId);
+        const hasSecond = Boolean(result && result.secondId);
+        const hasThird = Boolean(result && result.thirdId);
+        const isCompleted = hasWinner && hasSecond && hasThird;
+        const isUpdated = !isCompleted && hasWinner;
+        const suffix = isCompleted ? ' — Completed' : (isUpdated ? ' — Updated' : '');
+
+        return {
+          raceId,
+          meetId: info.meetId,
+          raceName: info.raceName,
+          location: info.location,
+          label: `${info.location} - ${info.raceName}${suffix}`,
+          updated: isUpdated,
+          completed: isCompleted,
+        };
+      })
       .sort((a, b) => {
         const meetIndexDiff = getMeetSortIndex(a.meetId, a.location) - getMeetSortIndex(b.meetId, b.location);
         if (meetIndexDiff !== 0) return meetIndexDiff;
@@ -2468,7 +2481,30 @@ export default function Home() {
 
         return a.label.localeCompare(b.label);
       });
-  }, [meetsForPicks, races, submissionRows]);
+
+    // Dev-time debug: log races per meet to help investigate missing entries (only in development)
+    if (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development') {
+      try {
+        const byMeet: Record<string, string[]> = {};
+        options.forEach((o) => {
+          const key = o.meetId || 'unknown';
+          byMeet[key] = byMeet[key] || [];
+          byMeet[key].push(o.raceName);
+        });
+        console.log('manualRaceOptions counts by meet:', Object.fromEntries(Object.entries(byMeet).map(([k, v]) => [k, v.length])));
+        // If Caulfield is present, log its races
+        const caulfieldMeet = Object.keys(byMeet).find((m) => {
+          const sample = meetsForPicks.find((me) => me.meet_id === m);
+          return sample && (sample.course || '').toLowerCase().includes('caulfield');
+        });
+        if (caulfieldMeet) console.log('Caulfield races:', byMeet[caulfieldMeet]);
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    return options
+  }, [meetsForPicks, races, submissionRows, raceResults]);
 
   const manualHorseOptions = useMemo(() => {
     if (!manualResultRaceId) return [] as Array<{ horseId: string; horseName: string }>;
@@ -3142,27 +3178,37 @@ export default function Home() {
             <div className="grid gap-3 xl:grid-cols-[minmax(280px,1.3fr)_auto] xl:items-end">
               <div>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Race</label>
-                <select
-                  value={manualResultRaceId}
-                  onChange={(e) => {
-                    const raceId = e.target.value;
-                    setManualResultRaceId(raceId);
-                    const existing = raceResults[raceId];
-                    setManualResultHorseId(existing?.winnerId || '');
-                    setManualResultSecondHorseId(existing?.secondId || '');
-                    setManualResultThirdHorseId(existing?.thirdId || '');
-                    setManualResultHorseName(existing?.winnerId ? (resolveRaceHorseName(raceId, existing.winnerId, existing.winnerName) || '') : (existing?.winnerName || ''));
-                    setManualResultSecondHorseName(existing?.secondId ? (resolveRaceHorseName(raceId, existing.secondId, existing.secondName) || '') : (existing?.secondName || ''));
-                    setManualResultThirdHorseName(existing?.thirdId ? (resolveRaceHorseName(raceId, existing.thirdId, existing.thirdName) || '') : (existing?.thirdName || ''));
-                    setManualApplyNotice(null);
-                  }}
-                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Select race</option>
-                  {manualRaceOptions.map(opt => (
-                    <option key={opt.raceId} value={opt.raceId}>{opt.label}</option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <RaceSelect
+                    options={manualRaceOptions}
+                    value={manualResultRaceId}
+                    onChange={(raceId) => {
+                      setManualResultRaceId(raceId);
+                      const existing = raceResults[raceId];
+                      setManualResultHorseId(existing?.winnerId || '');
+                      setManualResultSecondHorseId(existing?.secondId || '');
+                      setManualResultThirdHorseId(existing?.thirdId || '');
+                      setManualResultHorseName(existing?.winnerId ? (resolveRaceHorseName(raceId, existing.winnerId, existing.winnerName) || '') : (existing?.winnerName || ''));
+                      setManualResultSecondHorseName(existing?.secondId ? (resolveRaceHorseName(raceId, existing.secondId, existing.secondName) || '') : (existing?.secondName || ''));
+                      setManualResultThirdHorseName(existing?.thirdId ? (resolveRaceHorseName(raceId, existing.thirdId, existing.thirdName) || '') : (existing?.thirdName || ''));
+                      setManualApplyNotice(null);
+                    }}
+                  />
+
+                  {manualResultRaceId ? (
+                    manualRaceOptions.find(o => o.raceId === manualResultRaceId)?.completed ? (
+                      <span title="Completed" className="inline-flex items-center gap-2 text-sm text-slate-700">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden></span>
+                        <span className="text-xs">Completed</span>
+                      </span>
+                    ) : manualRaceOptions.find(o => o.raceId === manualResultRaceId)?.updated ? (
+                      <span title="Updated" className="inline-flex items-center gap-2 text-sm text-slate-700">
+                        <span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden></span>
+                        <span className="text-xs">Updated</span>
+                      </span>
+                    ) : null
+                  ) : null}
+                </div>
               </div>
               <button
                 onClick={() => { void applyManualResult(); }}
@@ -3317,7 +3363,7 @@ export default function Home() {
                   {row.selections.length === 0 ? (
                     <p className="text-sm text-slate-500">No selections yet.</p>
                   ) : (
-                    <ul className="space-y-1 text-sm text-slate-700">
+                    <ul className="space-y-2 text-sm text-slate-700">
                       {[...row.selections].sort(compareSelectionsByMeetAndRace).map((sel, idx) => {
                         const isWildcard = row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId;
                         const result = raceResults[sel.raceId];
@@ -3342,17 +3388,29 @@ export default function Home() {
                               ? 'bg-amber-100 text-amber-900 font-semibold'
                               : '';
                         return (
-                          <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`} className={`rounded px-2 py-0.5 ${placingClass}`}>
-                            <div>
-                              {getSelectionLocation(sel)} - {sel.raceName}: {sel.horseName}
-                              {isWildcard ? ' \u2b50 Wildcard' : ''}
-                              {isWinner ? ' \u2705' : (result && !isSecond && !isThird ? ' \u274c' : '')}
+                          <li key={`${row.user_id}-${sel.meetId}-${sel.raceId}-${idx}`} className={`rounded-lg px-3 py-3 ${placingClass} shadow-sm`}>
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="font-medium text-slate-800">{getSelectionLocation(sel)} - {sel.raceName}</div>
+                              <div className="ml-2 text-sm text-slate-700">{sel.horseName}{isWildcard ? ' ⭐ Wildcard' : ''}</div>
                             </div>
-                            {hasResolvedPlacings ? (
-                              <div className="mt-1 text-xs font-normal text-slate-600">
-                                Results: 1st {resolvedFirstName || '-'} | 2nd {resolvedSecondName || '-'} | 3rd {resolvedThirdName || '-'}
+
+                            <div className="mt-2 flex items-center justify-between text-sm">
+                              <div className="text-slate-600">
+                                {hasResolvedPlacings ? (
+                                  <span><strong>Results:</strong> 1st {resolvedFirstName || '-'} &nbsp;|&nbsp; 2nd {resolvedSecondName || '-'} &nbsp;|&nbsp; 3rd {resolvedThirdName || '-'}</span>
+                                ) : (
+                                  <span className="text-slate-400">Results: not available yet</span>
+                                )}
                               </div>
-                            ) : null}
+
+                              <div className="flex items-center gap-3">
+                                {isWinner ? (
+                                  <span className="text-green-700 font-semibold">✔ Winner</span>
+                                ) : (result && !isSecond && !isThird ? (
+                                  <span className="text-red-600">✖</span>
+                                ) : null)}
+                              </div>
+                            </div>
                           </li>
                         );
                       })}

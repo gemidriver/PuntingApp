@@ -5,6 +5,10 @@ import { fetchRacesForCourse } from '../../../lib/betfair';
 
 export const maxDuration = 60;
 
+// Configurable reminder windows (minutes)
+const REMINDER_MINUTES = Number(process.env.RACE_REMINDER_MINUTES || '5');
+const STARTED_WINDOW_MINUTES = Number(process.env.RACE_STARTED_WINDOW_MINUTES || '2');
+
 export async function POST(request: Request) {
   try {
     // Verify this is being called from Vercel Cron
@@ -37,8 +41,8 @@ export async function POST(request: Request) {
     }
 
     const now = new Date();
-    const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
-    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
+    const fiveMinutesFromNow = new Date(now.getTime() + REMINDER_MINUTES * 60 * 1000);
+    const twoMinutesAgo = new Date(now.getTime() - STARTED_WINDOW_MINUTES * 60 * 1000);
     const remindersToSend: Array<{
       raceId: string;
       raceName: string;
@@ -150,6 +154,28 @@ export async function POST(request: Request) {
                 message: `🏁 ${meet.course} - ${race.name} has started!`,
                 read_at: null,
               }));
+
+              // Save core race details to race_history for historical record
+              try {
+                const historyPayload = [{
+                  meet_id: meet.meet_id,
+                  race_id: race.id,
+                  race_name: race.name,
+                  course: meet.course,
+                  race_time: raceTime.toISOString(),
+                  runners: Array.isArray(race.runners) ? race.runners : [],
+                }];
+                const { data: histData, error: histError } = await admin
+                  .from('race_history')
+                  .upsert(historyPayload, { onConflict: 'meet_id,race_id' });
+                if (histError) {
+                  console.error('Failed to upsert race_history for started race:', histError, { sample: historyPayload[0] });
+                } else {
+                  console.log(`Saved race_history for race ${race.id} (meet ${meet.meet_id})`);
+                }
+              } catch (e) {
+                console.error('race_history insert exception:', e);
+              }
 
               const { data: upsertData2, error: upsertError2 } = await admin
                 .from('notifications')
