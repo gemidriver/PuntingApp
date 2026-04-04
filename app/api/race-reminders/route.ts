@@ -186,10 +186,10 @@ export async function POST(request: Request) {
                   const rows: any[] = [];
                   const raceRes = marketResults[0];
                   if (raceRes && raceRes.winnerId) {
-                    rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.winnerId, horse_name: raceRes.winnerName ?? null, finishing_position: 1, result_date: new Date().toISOString() });
+                    rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.winnerId, horse_name: null, finishing_position: 1, result_date: new Date().toISOString() });
                   }
-                  if (raceRes && raceRes.secondId) rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.secondId, horse_name: raceRes.secondName ?? null, finishing_position: 2, result_date: new Date().toISOString() });
-                  if (raceRes && raceRes.thirdId) rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.thirdId, horse_name: raceRes.thirdName ?? null, finishing_position: 3, result_date: new Date().toISOString() });
+                  if (raceRes && raceRes.secondId) rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.secondId, horse_name: null, finishing_position: 2, result_date: new Date().toISOString() });
+                  if (raceRes && raceRes.thirdId) rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.thirdId, horse_name: null, finishing_position: 3, result_date: new Date().toISOString() });
 
                   if (rows.length) {
                     try {
