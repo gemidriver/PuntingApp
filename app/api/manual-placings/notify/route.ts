@@ -65,19 +65,24 @@ export async function POST(request: Request) {
       const winner = rows.find((r: any) => r.finishing_position === 1);
       const second = rows.find((r: any) => r.finishing_position === 2);
       const third = rows.find((r: any) => r.finishing_position === 3);
-      // If any horse_name is missing, attempt to fetch runners for this market and update the DB
+      // If any horse_name is missing or we want to include runner numbers,
+      // attempt to fetch runners for this market and update the DB where possible.
       const missingNames = rows.filter((r: any) => !r.horse_name).map((r: any) => String(r.horse_id));
-      if (missingNames.length) {
+      let runnerLookup: Record<string, { name: string; number?: number }> = {};
+      if (missingNames.length || rows.some((r) => !/^\d+\.\s+/.test(String(r.horse_name || '')))) {
         try {
           const runners = await fetchMarketRunners(raceId).catch(() => []);
-          const runnerMap: Record<string, string> = {};
-          (runners || []).forEach((rr: any) => { if (rr?.id) runnerMap[String(rr.id)] = rr.name || ''; });
+          (runners || []).forEach((rr: any) => {
+            if (!rr?.id) return;
+            runnerLookup[String(rr.id)] = { name: rr.name || '', number: typeof rr.number === 'number' ? rr.number : undefined };
+          });
           for (const r of rows) {
-            const name = runnerMap[String(r.horse_id)];
-            if (name) {
+            const lookup = runnerLookup[String(r.horse_id)];
+            const nameFromLookup = lookup?.name;
+            if (nameFromLookup && !r.horse_name) {
               try {
-                await supabase.from('race_results').update({ horse_name: name }).eq('race_id', r.race_id).eq('horse_id', r.horse_id);
-                r.horse_name = name;
+                await supabase.from('race_results').update({ horse_name: nameFromLookup }).eq('race_id', r.race_id).eq('horse_id', r.horse_id);
+                r.horse_name = nameFromLookup;
               } catch (e) {
                 // ignore update failures
               }
@@ -88,7 +93,20 @@ export async function POST(request: Request) {
         }
       }
 
-      const resultMessage = `Results: Winner: ${winner?.horse_name || winner?.horse_id || 'N/A'}${second?.horse_name ? `, 2nd: ${second.horse_name}` : ''}${third?.horse_name ? `, 3rd: ${third.horse_name}` : ''}`;
+      const formatRunner = (r: any) => {
+        const id = String(r?.horse_id || '');
+        const name = r?.horse_name || '';
+        const lookup = runnerLookup[id];
+        const number = lookup?.number ?? null;
+        // If name already includes a numeric prefix, return as-is
+        if (/^\d+\.\s+/.test(String(name || ''))) return name;
+        if (number) return `${number}. ${name || lookup?.name || id}`;
+        // Try to extract number from name (e.g., "5. Something")
+        const extracted = String(name || id).trim();
+        return extracted || id;
+      };
+
+      const resultMessage = `Results: Winner: ${formatRunner(winner) || 'N/A'}${second ? `, 2nd: ${formatRunner(second)}` : ''}${third ? `, 3rd: ${formatRunner(third)}` : ''}`;
 
       // determine meet id
       const meetId = rows[0]?.meet_id;
@@ -147,7 +165,8 @@ export async function POST(request: Request) {
         try {
           const emails = (profilesToNotify || []).map((u: any) => String(u.email || '')).filter(Boolean);
           const unique = [...new Set(emails)];
-          const subject = `Updated Results: ${meetMeta?.course ?? ''}${meetMeta?.date ? ` ${meetMeta.date}` : ''} - ${friendlyRaceName}`.trim();
+          // Subject: include meet/course and date, but do NOT include the raw race id
+          const subject = `Updated Results: ${meetMeta?.course ?? ''}${meetMeta?.date ? ` ${meetMeta.date}` : ''}`.trim();
           const html = `<p>${resultMessage}</p><p>Manual results have been saved and scores updated.</p>`;
           const sendPromises = unique.map((to) => resend.emails.send({ from: resendFromEmail, to, subject, html }));
           const results = await Promise.allSettled(sendPromises);

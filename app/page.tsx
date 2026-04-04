@@ -4816,7 +4816,7 @@ export default function Home() {
 
           {activeScreen === 'leaderboard' ? leaderboardContent : null}
 
-          {activeScreen === 'admin' ? emailResultsConfirmationModal : null}
+          {activeScreen === 'admin' ? null : null}
 
           {activeScreen === 'main' ? submitConfirmationModal : null}
 

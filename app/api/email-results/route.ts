@@ -296,16 +296,35 @@ export async function POST(request: Request) {
       .map((entry) => `<li>${escapeHtml(entry.username)} - ${entry.score} pts</li>`)
       .join('');
 
+    // Attempt to enrich runner labels with their runner numbers using the cached
+    // race_runners app setting. The cache (if present) is expected to be an object
+    // keyed by raceId containing arrays of runners with id, name, and number.
+    const { data: runnersSetting } = await supabase.from('app_settings').select('value').eq('key', 'race_runners').maybeSingle();
+    const runnersCache: Record<string, Array<{ id?: string; name?: string; number?: number }>> = runnersSetting?.value && typeof runnersSetting.value === 'object' ? runnersSetting.value : {};
+
     const raceResultsHtml = Object.entries(raceResultsMap)
       .map(([raceId, result]) => {
-        const first = result.winnerName || result.winnerId || '-';
-        const second = result.secondName || result.secondId || '-';
-        const third = result.thirdName || result.thirdId || '-';
         const meetId = raceToMeet[raceId];
         const meet = meets.find((m) => m.meet_id === meetId);
         const meetLabelForRace = meet ? `${meet.course} (${meet.date})` : '';
-        // Prefer showing meet details; fall back to race id if none found
-        const prefix = meetLabelForRace ? `${escapeHtml(meetLabelForRace)} — ` : `${escapeHtml(raceId)}: `;
+        const prefix = meetLabelForRace ? `${escapeHtml(meetLabelForRace)} — ` : '';
+
+        const formatWithNumber = (horseId: string | null | undefined, horseName: string | null | undefined) => {
+          const name = horseName || '';
+          // If name already has numeric prefix, use it
+          if (/^\d+\.\s+/.test(String(name))) return name;
+          // Look up in runners cache
+          const runnersForRace = Array.isArray(runnersCache[raceId]) ? runnersCache[raceId] : [];
+          const found = runnersForRace.find((r) => String(r.id) === String(horseId) || normalizeHorseNameForComparison(r.name) === normalizeHorseNameForComparison(name));
+          const number = found?.number ?? extractHorseNumber(name);
+          const displayName = name || (found?.name ?? horseId ?? '');
+          return number ? `${number}. ${displayName}` : displayName || '-';
+        };
+
+        const first = formatWithNumber(result.winnerId, result.winnerName);
+        const second = formatWithNumber(result.secondId, result.secondName);
+        const third = formatWithNumber(result.thirdId, result.thirdName);
+
         return `<li>${prefix}1st ${escapeHtml(first)} | 2nd ${escapeHtml(second)} | 3rd ${escapeHtml(third)}</li>`;
       })
       .join('');
@@ -342,7 +361,8 @@ export async function POST(request: Request) {
       resend.emails.send({
         from: resendFromEmail,
         to: email,
-        subject: `${testOnly ? '[TEST] ' : ''}Race Day Results Update - ${meets.length ? meets[0].date : new Date().toISOString().slice(0, 10)}`,
+        // Subject: include primary meet/course + date, do NOT include raw race ids
+        subject: `${testOnly ? '[TEST] ' : ''}Updated Results: ${meets.length ? `${meets[0].course} ${meets[0].date}` : new Date().toISOString().slice(0, 10)}`,
         html,
       })
     );
