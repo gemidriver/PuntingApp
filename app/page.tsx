@@ -396,6 +396,7 @@ export default function Home() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [abandonedMeetAlerts, setAbandonedMeetAlerts] = useState<Record<string, boolean>>({});
   const [hasUnreadChat, setHasUnreadChat] = useState(false);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
 
   const clearNotifications = () => setNotifications([]);
   // Always show notification banner, even if chat is open or user is focused elsewhere
@@ -1768,6 +1769,9 @@ export default function Home() {
         if (item?.message) addNotification(item.message, 'info', 9000);
       });
 
+      // set unread count so headers can show number badge
+      setUnreadNotificationsCount(unread.length);
+
       // Do NOT auto-mark other (non-chat) notifications as read here.
       // Users should explicitly visit the Notifications panel to clear them.
       // const otherIds = otherNotifications.map((n) => n.id).filter((id) => Number.isFinite(id));
@@ -2087,6 +2091,8 @@ export default function Home() {
       })();
     }
     window.addEventListener('app:clearChatNotifications', handleClearChat as EventListener);
+    const handleClearAllNotifications = () => setUnreadNotificationsCount(0);
+    window.addEventListener('app:clearNotifications', handleClearAllNotifications);
     void pullInAppNotifications();
     const timer = setInterval(() => {
       void pullInAppNotifications();
@@ -2095,6 +2101,7 @@ export default function Home() {
     return () => {
       clearInterval(timer);
       window.removeEventListener('app:clearChatNotifications', handleClearChat as EventListener);
+      window.removeEventListener('app:clearNotifications', handleClearAllNotifications);
     };
   }, [user]);
 
@@ -4218,6 +4225,9 @@ export default function Home() {
             {hasUnreadChat && (
               <span aria-hidden style={{ width: 8, height: 8, background: '#ef4444', borderRadius: '50%', display: 'inline-block', marginLeft: 6 }} />
             )}
+            {hasUnreadNotifications && (
+              <span aria-hidden style={{ width: 8, height: 8, background: '#f59e0b', borderRadius: '50%', display: 'inline-block', marginLeft: 6 }} />
+            )}
             {user ? (
               <Link href={`/${'user'}/${user}`}>
                 <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={28} />
@@ -4317,7 +4327,10 @@ export default function Home() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong>{hasUnreadChat ? <span aria-hidden style={{ width: 8, height: 8, background: '#ef4444', borderRadius: '50%', display: 'inline-block', marginLeft: 8 }} /> : null}</span>
+              <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong>
+                {hasUnreadChat ? <span aria-hidden style={{ width: 8, height: 8, background: '#ef4444', borderRadius: '50%', display: 'inline-block', marginLeft: 8 }} /> : null}
+                {hasUnreadNotifications ? <span aria-hidden style={{ width: 8, height: 8, background: '#f59e0b', borderRadius: '50%', display: 'inline-block', marginLeft: 6 }} /> : null}
+              </span>
               {user ? (
                 <Link href={`/${'user'}/${user}`}>
                   <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={36} />

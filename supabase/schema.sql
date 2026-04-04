@@ -78,7 +78,7 @@ create table if not exists public.notifications (
   race_id text not null,
   race_name text not null,
   course text not null,
-  notification_type text not null check (notification_type in ('race_starting_soon', 'race_started', 'race_scratched', 'chat')),
+  notification_type text not null check (notification_type in ('race_starting_soon', 'race_started', 'race_scratched', 'race_results', 'chat')),
   message text not null,
   created_at timestamptz not null default now(),
   read_at timestamptz,
