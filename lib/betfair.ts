@@ -38,6 +38,7 @@ export interface MarketRunner {
   id: string;
   name: string;
   number: number | null;
+  status?: string | null;
 }
 
 export interface BetfairHealthCheckResult {
@@ -891,6 +892,7 @@ export async function fetchRacesForCourse(
         age: firstMeta('AGE', 'HORSE_AGE'),
         form: firstMeta('FORM', 'RECENT_FORM', 'OFFICIAL_FORM', 'LAST_5_RUNS'),
         colours: firstMeta('CLOTH_COLOUR', 'COLOURS', 'COLORS', 'SILK_COLOUR', 'COLOUR'),
+        status: String(bookRunner?.status ?? '').toUpperCase() || null,
       };
     });
 
@@ -1061,7 +1063,7 @@ export async function fetchMarketResults(marketIds: string[]): Promise<RaceResul
   });
 }
 
-export async function fetchMarketRunners(marketId: string): Promise<MarketRunner[]> {
+export async function fetchMarketRunners(marketId: string, includeStatus = false): Promise<MarketRunner[]> {
   const id = String(marketId || '').trim();
   if (!id) return [];
 
@@ -1075,16 +1077,33 @@ export async function fetchMarketRunners(marketId: string): Promise<MarketRunner
 
   const market = catalogues[0];
   if (market?.runners?.length) {
-    return market.runners
+    const base = market.runners
       .map((runner, idx) => {
         const name = resolveRunnerDisplayName(runner, idx);
         return {
           id: String(runner.selectionId ?? ''),
           name,
           number: typeof runner.sortPriority === 'number' ? runner.sortPriority : null,
-        };
+        } as MarketRunner;
       })
       .filter((runner) => Boolean(runner.id));
+
+    if (!includeStatus) return base;
+
+    const books = await listMarketBook({ marketIds: [id] });
+    const book = books.find((entry) => String(entry.marketId ?? '') === id);
+    const statusBySelection = new Map<number, string>();
+    for (const br of book?.runners ?? []) {
+      const sel = Number(br.selectionId);
+      if (!Number.isNaN(sel)) {
+        statusBySelection.set(sel, String(br.status ?? '').toUpperCase());
+      }
+    }
+
+    return base.map((r) => {
+      const sel = Number(r.id);
+      return { ...r, status: statusBySelection.get(sel) ?? null };
+    });
   }
 
   const books = await listMarketBook({ marketIds: [id] });
@@ -1094,5 +1113,6 @@ export async function fetchMarketRunners(marketId: string): Promise<MarketRunner
     id: String(runner.selectionId ?? ''),
     name: `Runner ${idx + 1}`,
     number: idx + 1,
+    status: String(runner.status ?? '').toUpperCase() || null,
   }));
 }

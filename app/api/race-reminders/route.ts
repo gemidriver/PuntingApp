@@ -74,6 +74,100 @@ export async function POST(request: Request) {
 
         for (const race of races.slice(-4)) { // Last 4 races
           const raceTime = new Date(race.time);
+
+          // Fetch current market runners with status to detect scratches/changes
+          let currentRunnersWithStatus: Array<{ id: string; name: string; number: number | null; status?: string | null }> = [];
+          try {
+            const fetched = await fetchMarketRunners(race.id as string, true);
+            currentRunnersWithStatus = Array.isArray(fetched) ? fetched.map((r: any) => ({ id: String(r.id), name: r.name || '', number: r.number ?? null, status: String(r.status ?? '').toUpperCase() || null })) : [];
+          } catch (e) {
+            console.error('Failed to fetch market runners (with status) for scratch detection', race.id, e);
+          }
+
+          // Compare to stored race_history to find newly-scratched runners
+          try {
+            const admin = getSupabaseAdminClient();
+            const { data: existingHistory } = await admin.from('race_history').select('runners').eq('meet_id', meet.meet_id).eq('race_id', race.id).maybeSingle();
+            const prevRunners: Array<any> = Array.isArray(existingHistory?.runners) ? existingHistory.runners : [];
+            const prevStatusById = new Map<string, string | null>();
+            for (const pr of prevRunners) {
+              if (pr && pr.id) prevStatusById.set(String(pr.id), String(pr.status ?? '').toUpperCase() || null);
+            }
+
+            const newlyScratched = (currentRunnersWithStatus || []).filter((cr) => String(cr.status || '').toUpperCase() === 'REMOVED' && prevStatusById.get(String(cr.id)) !== 'REMOVED');
+            if (newlyScratched.length) {
+              console.log(`Detected ${newlyScratched.length} newly scratched runners for race ${race.id}:`, newlyScratched.map((r) => r.name));
+
+              // Build notifications for all users (same approach as reminders)
+              // Notify only users who have submissions for this meet
+              try {
+                const admin2 = getSupabaseAdminClient();
+                const { data: submissions } = await admin2
+                  .from('user_submissions')
+                  .select('user_id,selections')
+                  .eq('submitted', true);
+
+                const userIds = new Set<string>();
+                for (const s of submissions || []) {
+                  try {
+                    const sels = Array.isArray(s.selections) ? s.selections : [];
+                    if (sels.find((x: any) => String(x?.meetId || '') === String(meet.meet_id))) {
+                      if (s.user_id) userIds.add(String(s.user_id));
+                    }
+                  } catch (e) {
+                    // ignore malformed rows
+                  }
+                }
+
+                if (userIds.size) {
+                  const { data: profilesForMeet, error: profErr } = await admin2
+                    .from('profiles')
+                    .select('id,email,username')
+                    .in('id', [...userIds]);
+
+                  if (profErr) {
+                    console.error('Failed to load profiles for meet notifications', profErr);
+                  } else if (Array.isArray(profilesForMeet) && profilesForMeet.length) {
+                    const message = `Scratched: ${newlyScratched.map((r) => r.name).join(', ')}`;
+                    const payload = (profilesForMeet || []).map((user: any) => ({
+                      user_id: user.id,
+                      race_id: race.id,
+                      race_name: race.name,
+                      course: meet.course,
+                      notification_type: 'race_scratched',
+                      message,
+                      read_at: null,
+                    }));
+
+                    try {
+                      const { data: notifData, error: notifErr } = await admin2.from('notifications').upsert(payload, { onConflict: 'user_id,race_id,notification_type' });
+                      if (notifErr) console.error('Failed to upsert race_scratched notifications:', notifErr);
+                    } catch (e) {
+                      console.error('Exception upserting race_scratched notifications:', e);
+                    }
+
+                    // Send emails to these users only
+                    if (canSendEmail && resend) {
+                      try {
+                        const emails = (profilesForMeet || []).map((u: any) => String(u.email || '')).filter(Boolean);
+                        const unique = [...new Set(emails)];
+                        const subject = `Scratch update: ${meet.course} - ${race.name}`;
+                        const html = `<p>${message}</p>`;
+                        const sendPromises = unique.map((to) => resend.emails.send({ from: resendFromEmail, to, subject, html }));
+                        await Promise.allSettled(sendPromises);
+                      } catch (e) {
+                        console.error('Failed sending scratch emails', e);
+                      }
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error('Error preparing meet-specific scratch notifications', e);
+              }
+            }
+          } catch (e) {
+            console.error('Scratch detection error for race', race.id, e);
+          }
           
           // Check if race is in the 5-10 minute window (race starting soon)
           if (raceTime > now && raceTime <= fiveMinutesFromNow) {
@@ -161,13 +255,14 @@ export async function POST(request: Request) {
 
               // Save core race details to race_history for historical record
               try {
+                // Prefer saving the richer runner list (with status) when available
                 const historyPayload = [{
                   meet_id: meet.meet_id,
                   race_id: race.id,
                   race_name: race.name,
                   course: meet.course,
                   race_time: raceTime.toISOString(),
-                  runners: Array.isArray(race.runners) ? race.runners : [],
+                  runners: Array.isArray(currentRunnersWithStatus) && currentRunnersWithStatus.length ? currentRunnersWithStatus : (Array.isArray(race.runners) ? race.runners : []),
                 }];
                 const { data: histData, error: histError } = await admin
                   .from('race_history')

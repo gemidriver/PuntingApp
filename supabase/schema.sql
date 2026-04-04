@@ -78,7 +78,7 @@ create table if not exists public.notifications (
   race_id text not null,
   race_name text not null,
   course text not null,
-  notification_type text not null check (notification_type in ('race_starting_soon', 'race_started', 'chat')),
+  notification_type text not null check (notification_type in ('race_starting_soon', 'race_started', 'race_scratched', 'chat')),
   message text not null,
   created_at timestamptz not null default now(),
   read_at timestamptz,
@@ -227,25 +227,29 @@ alter table public.user_selection_scores enable row level security;
 alter table public.round_history enable row level security;
 
 -- Profiles
-create policy if not exists "profiles_select_authenticated"
+drop policy if exists "profiles_select_authenticated" on public.profiles;
+drop policy if exists "profiles_select_anon_for_login" on public.profiles;
+drop policy if exists "profiles_insert_own" on public.profiles;
+drop policy if exists "profiles_update_own_or_admin" on public.profiles;
+create policy "profiles_select_authenticated"
 on public.profiles
 for select
 to authenticated
 using (true);
 
-create policy if not exists "profiles_select_anon_for_login"
+create policy "profiles_select_anon_for_login"
 on public.profiles
 for select
 to anon
 using (true);
 
-create policy if not exists "profiles_insert_own"
+create policy "profiles_insert_own"
 on public.profiles
 for insert
 to authenticated
 with check (auth.uid() = id);
 
-create policy if not exists "profiles_update_own_or_admin"
+create policy "profiles_update_own_or_admin"
 on public.profiles
 for update
 to authenticated
@@ -253,13 +257,15 @@ using (auth.uid() = id or public.is_admin_user(auth.uid()))
 with check (auth.uid() = id or public.is_admin_user(auth.uid()));
 
 -- App settings
-create policy if not exists "settings_select_authenticated"
+drop policy if exists "settings_select_authenticated" on public.app_settings;
+drop policy if exists "settings_upsert_admin" on public.app_settings;
+create policy "settings_select_authenticated"
 on public.app_settings
 for select
 to authenticated
 using (true);
 
-create policy if not exists "settings_upsert_admin"
+create policy "settings_upsert_admin"
 on public.app_settings
 for all
 to authenticated
@@ -269,6 +275,8 @@ with check (public.is_admin_user(auth.uid()));
 -- Submissions
 drop policy if exists "submissions_select_own_or_admin" on public.user_submissions;
 drop policy if exists "submissions_select_authenticated" on public.user_submissions;
+drop policy if exists "submissions_insert_own" on public.user_submissions;
+drop policy if exists "submissions_update_own_or_admin" on public.user_submissions;
 
 create policy "submissions_select_authenticated"
 on public.user_submissions
@@ -276,13 +284,13 @@ for select
 to authenticated
 using (true);
 
-create policy if not exists "submissions_insert_own"
+create policy "submissions_insert_own"
 on public.user_submissions
 for insert
 to authenticated
 with check (auth.uid() = user_id);
 
-create policy if not exists "submissions_update_own_or_admin"
+create policy "submissions_update_own_or_admin"
 on public.user_submissions
 for update
 to authenticated
@@ -290,13 +298,15 @@ using (auth.uid() = user_id or public.is_admin_user(auth.uid()))
 with check (auth.uid() = user_id or public.is_admin_user(auth.uid()));
 
 -- Race results
-create policy if not exists "race_results_select_authenticated"
+drop policy if exists "race_results_select_authenticated" on public.race_results;
+drop policy if exists "race_results_write_admin" on public.race_results;
+create policy "race_results_select_authenticated"
 on public.race_results
 for select
 to authenticated
 using (true);
 
-create policy if not exists "race_results_write_admin"
+create policy "race_results_write_admin"
 on public.race_results
 for all
 to authenticated
@@ -304,13 +314,15 @@ using (public.is_admin_user(auth.uid()))
 with check (public.is_admin_user(auth.uid()));
 
 -- Scored selections
-create policy if not exists "scores_select_own_or_admin"
+drop policy if exists "scores_select_own_or_admin" on public.user_selection_scores;
+drop policy if exists "scores_write_admin" on public.user_selection_scores;
+create policy "scores_select_own_or_admin"
 on public.user_selection_scores
 for select
 to authenticated
 using (auth.uid() = user_id or public.is_admin_user(auth.uid()));
 
-create policy if not exists "scores_write_admin"
+create policy "scores_write_admin"
 on public.user_selection_scores
 for all
 to authenticated
@@ -318,13 +330,15 @@ using (public.is_admin_user(auth.uid()))
 with check (public.is_admin_user(auth.uid()));
 
 -- Round history
-create policy if not exists "round_history_select_authenticated"
+drop policy if exists "round_history_select_authenticated" on public.round_history;
+drop policy if exists "round_history_write_admin" on public.round_history;
+create policy "round_history_select_authenticated"
 on public.round_history
 for select
 to authenticated
 using (true);
 
-create policy if not exists "round_history_write_admin"
+create policy "round_history_write_admin"
 on public.round_history
 for all
 to authenticated
