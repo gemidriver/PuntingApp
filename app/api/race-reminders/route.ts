@@ -2,6 +2,7 @@ import { Resend } from 'resend';
 import { getSupabaseClient } from '../../../lib/supabase';
 import { getSupabaseAdminClient } from '../../../lib/supabaseAdmin';
 import { fetchRacesForCourse } from '../../../lib/betfair';
+import { fetchMarketResults } from '../../../lib/theracingapi';
 
 export const maxDuration = 60;
 
@@ -25,7 +26,8 @@ export async function POST(request: Request) {
     const canSendEmail = Boolean(resendApiKey && resendFromEmail);
     const resend = canSendEmail ? new Resend(resendApiKey) : null;
 
-    const supabase = getSupabaseClient();
+    // Use admin client on server so this cron can read/write protected settings/tables
+    const supabase = getSupabaseAdminClient();
 
     // Get global meets from app_settings
     const { data: globalMeetsData } = await supabase
@@ -175,6 +177,40 @@ export async function POST(request: Request) {
                 }
               } catch (e) {
                 console.error('race_history insert exception:', e);
+              }
+              
+              // Attempt to persist market results for this race immediately (server-side)
+              try {
+                const marketResults = await fetchMarketResults([race.id]);
+                if (Array.isArray(marketResults) && marketResults.length) {
+                  const rows: any[] = [];
+                  const raceRes = marketResults[0];
+                  if (raceRes && raceRes.winnerId) {
+                    rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.winnerId, horse_name: raceRes.winnerName ?? null, finishing_position: 1, result_date: new Date().toISOString() });
+                  }
+                  if (raceRes && raceRes.secondId) rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.secondId, horse_name: raceRes.secondName ?? null, finishing_position: 2, result_date: new Date().toISOString() });
+                  if (raceRes && raceRes.thirdId) rows.push({ meet_id: meet.meet_id, race_id: race.id, horse_id: raceRes.thirdId, horse_name: raceRes.thirdName ?? null, finishing_position: 3, result_date: new Date().toISOString() });
+
+                  if (rows.length) {
+                    try {
+                      const { error: upsertErr } = await admin.from('race_results').upsert(rows, { onConflict: 'meet_id,race_id,horse_id' });
+                      if (upsertErr) console.error('Failed to upsert race_results from cron:', upsertErr);
+                      else console.log(`Persisted ${rows.length} race_results for race ${race.id}`);
+                    } catch (e) {
+                      console.error('Exception upserting race_results from cron:', e);
+                    }
+
+                    // Recalculate scores for the meet
+                    try {
+                      await admin.rpc('recalculate_scores_for_meet', { target_meet_id: meet.meet_id });
+                      console.log(`Recalculated scores for meet ${meet.meet_id} (cron)`);
+                    } catch (err) {
+                      console.error('Failed to recalculate scores from cron for meet', meet.meet_id, err);
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error('Failed to fetch/persist market results from cron for race', race.id, e);
               }
 
               const { data: upsertData2, error: upsertError2 } = await admin

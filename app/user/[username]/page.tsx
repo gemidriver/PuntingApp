@@ -99,7 +99,7 @@ export default function UserProfilePage({ params }: { params: { username: string
             <div>
               <button
                 onClick={async () => {
-                  // Clear chat notifications explicitly for this user
+                  // Clear all notifications for this user
                   try {
                     const supabase = getSupabaseClient();
                     const { data: sessionData } = await supabase.auth.getSession();
@@ -107,17 +107,17 @@ export default function UserProfilePage({ params }: { params: { username: string
                     await fetch('/api/notifications', {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
-                      body: JSON.stringify({ clearType: 'chat' }),
+                      body: JSON.stringify({}),
                     });
-                    setNotifications((prev) => prev.filter((n) => n?.notification_type !== 'chat'));
-                    try { window.dispatchEvent(new Event('app:clearChatNotifications')); } catch (e) { /* ignore */ }
+                    setNotifications([]);
+                    try { window.dispatchEvent(new Event('app:clearNotifications')); } catch (e) { /* ignore */ }
                   } catch (e) {
                     // ignore
                   }
                 }}
                 className="rounded-full bg-amber-200 px-3 py-1 text-xs font-medium text-amber-900 hover:bg-amber-300"
               >
-                Mark chat notifications as read
+                Mark all notifications as read
               </button>
             </div>
           </div>

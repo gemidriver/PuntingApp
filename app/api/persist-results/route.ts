@@ -89,23 +89,48 @@ export async function POST(request: Request) {
         const { data: profiles } = await admin.from('profiles').select('id');
         const recipients = Array.isArray(profiles) ? profiles.map((p: any) => String(p.id)) : [];
         const payload: any[] = [];
+
+        // Try to resolve meet metadata from app_settings.global_meets so notifications show friendly text
+        const { data: settings } = await admin.from('app_settings').select('value').eq('key', 'global_meets').maybeSingle();
+        const globalMeets = Array.isArray(settings?.value) ? settings.value : [];
+
         for (const meetId of affectedMeetIds) {
+          const meetMeta = globalMeets.find((m: any) => String(m.meet_id) === String(meetId));
+          const meetLabel = meetMeta ? `${meetMeta.course}${meetMeta.date ? ` (${meetMeta.date})` : ''}` : String(meetId);
+
           for (const userId of recipients) {
             payload.push({
               user_id: userId,
-              race_id: meetId,
-              race_name: 'Results updated',
-              course: meetId,
+              race_id: '',
+              race_name: `Results updated`,
+              course: meetLabel,
               notification_type: 'results_updated',
-              message: `Results updated for meet ${meetId}`,
+              message: `Results updated for ${meetLabel}`,
               read_at: null,
             });
           }
         }
+
         if (payload.length) await admin.from('notifications').upsert(payload, { onConflict: 'user_id,race_id,notification_type' });
       }
     } catch (err) {
       console.error('Failed to create result notifications:', err);
+    }
+
+    // Recalculate and persist per-user scores for affected meets
+    try {
+      const admin = (await import('../../../lib/supabaseAdmin')).getSupabaseAdminClient();
+      const affectedMeetIds = Array.from(new Set(rows.map(r => r.meet_id).filter(Boolean)));
+      for (const meetId of affectedMeetIds) {
+        try {
+          await admin.rpc('recalculate_scores_for_meet', { target_meet_id: meetId });
+          console.log(`Recalculated scores for meet ${meetId}`);
+        } catch (err) {
+          console.error('Failed to recalculate scores for meet', meetId, err);
+        }
+      }
+    } catch (err) {
+      console.error('Score recalculation step failed:', err);
     }
 
     return Response.json({ success: true, inserted: rows.length });
