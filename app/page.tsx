@@ -2396,20 +2396,7 @@ export default function Home() {
           >
             Retry Loading Races
           </button>
-          <button
-            onClick={() => {
-              void loadRaceDebug(meet);
-            }}
-            className="inline-flex items-center justify-center rounded-full bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-amber-600"
-          >
-            Show API Response (Debug)
-          </button>
         </div>
-        {raceDebug[meet.meet_id] ? (
-          <pre className="mt-4 max-h-64 overflow-auto rounded border border-slate-200 bg-slate-50 p-3 text-xs">
-            {JSON.stringify(raceDebug[meet.meet_id], null, 2)}
-          </pre>
-        ) : null}
       </div>
     );
   };
@@ -4625,36 +4612,7 @@ export default function Home() {
                     {canSubmit() ? 'Review and Submit' : 'Complete all race picks to submit'}
                   </button>
                 )}
-                {process.env.NODE_ENV === 'development' ? (
-                  <div className="mt-3 p-3 text-xs bg-yellow-50 rounded border border-yellow-100">
-                    <div><strong>Debug:</strong></div>
-                    <div>hasSubmitted: {String(hasSubmitted)}</div>
-                    <div>globalMeets: {globalMeets.length}</div>
-                    <div>selections: {selections.length}</div>
-                    <div>
-                      totalRaces: {meetsForPicks.reduce((sum, meet) => sum + (races[meet.meet_id] || []).slice(-4).length, 0)}
-                    </div>
-                    <div>
-                      lockout: {(() => {
-                        let earliestRaceTime = null as Date | null;
-                        for (const meet of meetsForPicks) {
-                          const meetRaces = (races[meet.meet_id] || []).slice(-4);
-                          if (meetRaces.length) {
-                            const firstRace = meetRaces.reduce((min: Date | null, race: any) => {
-                              const raceTime = new Date(race.time);
-                              return (!min || raceTime < min) ? raceTime : min;
-                            }, null);
-                            if (firstRace && (!earliestRaceTime || firstRace < earliestRaceTime)) earliestRaceTime = firstRace;
-                          }
-                        }
-                        if (!earliestRaceTime) return 'none';
-                        const now = new Date();
-                        const lockoutTime = new Date(earliestRaceTime.getTime() - 60 * 60 * 1000);
-                        return `${now.toISOString()} >= ${lockoutTime.toISOString()} -> ${now >= lockoutTime}`;
-                      })()}
-                    </div>
-                  </div>
-                ) : null}
+                {/* Development debug panel removed */}
               </div>
 
               {hasSubmitted && submittedSelections ? (
