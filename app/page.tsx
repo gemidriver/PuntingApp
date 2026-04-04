@@ -2022,30 +2022,47 @@ export default function Home() {
     console.log('[DEBUG] Unavailable global meets:', unavailableGlobalMeets.map(m => m.meet_id));
 
     const timer = setTimeout(() => {
-      const unseenUnavailable = unavailableGlobalMeets.filter((meet) => !abandonedMeetAlerts[meet.meet_id]);
-      if (!unseenUnavailable.length) {
-        return;
-      }
+      (async () => {
+        const unseenUnavailable = unavailableGlobalMeets.filter((meet) => !abandonedMeetAlerts[meet.meet_id]);
+        if (!unseenUnavailable.length) {
+          return;
+        }
 
-      // Debug logging: show which meets will trigger warnings
-      // eslint-disable-next-line no-console
-      console.log('[DEBUG] Triggering warnings for:', unseenUnavailable.map(m => m.meet_id));
+        // Debug logging: show which meets will trigger warnings
+        // eslint-disable-next-line no-console
+        console.log('[DEBUG] Triggering warnings for:', unseenUnavailable.map(m => m.meet_id));
 
-      unseenUnavailable.forEach((meet) => {
-        addNotification(
-          `${meet.course} appears unavailable/abandoned. Remove it, select another meet, and publish again.`,
-          'warning',
-          0
-        );
-      });
+        // Before showing warnings, attempt to load races for these meets to confirm they're truly unavailable.
+        const toWarn: typeof unseenUnavailable = [] as any;
+        await Promise.all(unseenUnavailable.map(async (meet) => {
+          try {
+            // try loading races for the meet; this will populate `races` state if available
+            await loadRacesForMeet(meet);
+          } catch (e) {
+            // ignore load errors
+          }
+          const hasRaces = (races[meet.meet_id] || []).length > 0;
+          if (!hasRaces) toWarn.push(meet);
+        }));
 
-      setAbandonedMeetAlerts((prev) => {
-        const next = { ...prev };
-        unseenUnavailable.forEach((meet) => {
-          next[meet.meet_id] = true;
-        });
-        return next;
-      });
+        if (toWarn.length) {
+          toWarn.forEach((meet) => {
+            addNotification(
+              `${meet.course} appears unavailable/abandoned. Remove it, select another meet, and publish again.`,
+              'warning',
+              0
+            );
+          });
+
+          setAbandonedMeetAlerts((prev) => {
+            const next = { ...prev };
+            toWarn.forEach((meet) => {
+              next[meet.meet_id] = true;
+            });
+            return next;
+          });
+        }
+      })();
     }, 5000); // 5 second debounce
 
     return () => clearTimeout(timer);
