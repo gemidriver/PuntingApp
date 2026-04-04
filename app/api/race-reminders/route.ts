@@ -9,7 +9,7 @@ export const maxDuration = 60;
 // Configurable reminder windows (minutes)
 const REMINDER_MINUTES = Number(process.env.RACE_REMINDER_MINUTES || '5');
 const STARTED_WINDOW_MINUTES = Number(process.env.RACE_STARTED_WINDOW_MINUTES || '2');
-const BACKFILL_INTERVAL_MINUTES = Number(process.env.BACKFILL_INTERVAL_MINUTES || '60');
+const BACKFILL_INTERVAL_MINUTES = Number(process.env.BACKFILL_INTERVAL_MINUTES || '5');
 const BACKFILL_BATCH_SIZE = Number(process.env.BACKFILL_BATCH_SIZE || '500');
 
 export async function POST(request: Request) {
@@ -111,7 +111,9 @@ export async function POST(request: Request) {
                 for (const s of submissions || []) {
                   try {
                     const sels = Array.isArray(s.selections) ? s.selections : [];
-                    if (sels.find((x: any) => String(x?.meetId || '') === String(meet.meet_id))) {
+                    const submittedAt = s?.submitted_at ? String(s.submitted_at).slice(0, 10) : null;
+                    // Only consider submissions that include this meet AND were submitted for the same meet date
+                    if (submittedAt === String(meet.date) && sels.find((x: any) => String(x?.meetId || '') === String(meet.meet_id))) {
                       if (s.user_id) userIds.add(String(s.user_id));
                     }
                   } catch (e) {
@@ -192,7 +194,8 @@ export async function POST(request: Request) {
                 for (const s of subs || []) {
                   try {
                     const sels = Array.isArray(s.selections) ? s.selections : [];
-                    if (sels.find((x: any) => String(x?.meetId || '') === String(meet.meet_id))) {
+                    const submittedAt = s?.submitted_at ? String(s.submitted_at).slice(0, 10) : null;
+                    if (submittedAt === String(meet.date) && sels.find((x: any) => String(x?.meetId || '') === String(meet.meet_id))) {
                       if (s.user_id) userIds.add(String(s.user_id));
                     }
                   } catch (e) {
