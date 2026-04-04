@@ -389,7 +389,8 @@ export async function POST(request: Request) {
     try {
       const admin = supabase; // admin client
       const { data: lastBackfillRow } = await admin.from('app_settings').select('value').eq('key', 'last_backfill_at').maybeSingle();
-      const lastBackfill = lastBackfillRow && lastBackfillRow.value ? new Date(String(lastBackfillRow.value)) : null;
+      const lastBackfillValue = lastBackfillRow?.value ?? null;
+      const lastBackfill = lastBackfillValue ? new Date(String(lastBackfillValue)) : null;
       const shouldBackfill = !lastBackfill || (new Date().getTime() - lastBackfill.getTime()) >= BACKFILL_INTERVAL_MINUTES * 60 * 1000;
       if (shouldBackfill) {
         console.log('Running periodic backfill of race_results horse_name...');
