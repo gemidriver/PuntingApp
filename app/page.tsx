@@ -316,7 +316,7 @@ export default function Home() {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [changingRaceId, setChangingRaceId] = useState<string | null>(null);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
-  const [showEmailResultsConfirm, setShowEmailResultsConfirm] = useState(false);
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeScreen, setActiveScreen] = useState<'home' | 'main' | 'admin' | 'submissions' | 'leaderboard'>('home');
 
@@ -1574,6 +1574,12 @@ export default function Home() {
       } catch (err) {
         console.error('Failed to broadcast meet closed notification', err);
       }
+      // Automatically email results to contestants when a meet is closed.
+      try {
+        await emailResultsToContestants();
+      } catch (err) {
+        console.error('Automatic email on meet close failed', err);
+      }
     }
     setError(null);
     await loadSubmissionRows();
@@ -1859,11 +1865,6 @@ export default function Home() {
     } finally {
       setSendingTestInAppNotification(false);
     }
-  };
-
-  const openEmailResultsConfirmation = () => {
-    if (emailingResults) return;
-    setShowEmailResultsConfirm(true);
   };
 
   const openSubmitConfirmation = () => {
@@ -3144,35 +3145,7 @@ export default function Home() {
     </div>
   ) : null;
 
-  const emailResultsConfirmationModal = showEmailResultsConfirm ? (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="mx-4 w-full max-w-md rounded-lg bg-white p-6">
-        <h3 className="mb-2 text-lg font-semibold">Email Results to Contestants?</h3>
-        <p className="mb-4 text-sm text-slate-600">
-          This will email the current leaderboard and race placings to all submitted contestants.
-        </p>
-        <div className="flex gap-3">
-          <button
-            onClick={() => {
-              setShowEmailResultsConfirm(false);
-              void emailResultsToContestants();
-            }}
-            disabled={emailingResults}
-            className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            {emailingResults ? 'Sending...' : 'Yes, Send Emails'}
-          </button>
-          <button
-            onClick={() => setShowEmailResultsConfirm(false)}
-            disabled={emailingResults}
-            className="flex-1 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 disabled:cursor-not-allowed"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  ) : null;
+  
 
   const submissionsContent = (
     <section className="mb-10">
@@ -4424,15 +4397,7 @@ export default function Home() {
                   <p className="mt-1 text-sm text-slate-500">Select two meets, then publish them for the next race day.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                <button
-                  onClick={() => {
-                    openEmailResultsConfirmation();
-                  }}
-                  disabled={emailingResults}
-                  className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {emailingResults ? 'Sending Results...' : 'Email Results to Contestants'}
-                </button>
+                
                 <button
                   onClick={() => {
                     void resetRaceDayState([]);
