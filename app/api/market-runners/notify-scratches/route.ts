@@ -52,21 +52,49 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Admin access required.' }, { status: 403 });
     }
 
-    // Fetch runners with status
-    const runners = await fetchMarketRunners(marketId, true);
-    const scratched = (runners || []).filter((r) => String(r.status ?? '').toUpperCase() === 'REMOVED');
+    // Allow simulation via JSON body: { simulate: [{ id, name, status }], targetUserIds: [<uuid>] }
+    let scratched: any[] = [];
+    try {
+      const body = await request.json();
+      if (body && Array.isArray(body.simulate)) {
+        scratched = body.simulate.filter((r: any) => String(r.status ?? '').toUpperCase() === 'REMOVED');
+      }
+    } catch (e) {
+      // ignore parse errors - fall back to live fetch
+    }
+
+    if (!scratched.length) {
+      // fallback to live data when no simulation provided
+      const runners = await fetchMarketRunners(marketId, true);
+      scratched = (runners || []).filter((r) => String(r.status ?? '').toUpperCase() === 'REMOVED');
+    }
 
     if (!scratched.length) {
       return NextResponse.json({ success: true, message: 'No scratches found', scratched: [] });
     }
 
-    // Load users to notify (all profiles with email)
-    const { data: profiles, error: profilesError } = await supabase
-      .from('profiles')
-      .select('id,email,username');
-
-    if (profilesError) {
-      return NextResponse.json({ error: `Unable to load users. ${profilesError.message}` }, { status: 500 });
+    // Load users to notify. If request body included targetUserIds, notify only those.
+    let profiles: any[] | null = null;
+    try {
+      const body = await request.json().catch(() => null);
+      if (body && Array.isArray(body.targetUserIds) && body.targetUserIds.length) {
+        const { data: p, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id,email,username')
+          .in('id', body.targetUserIds as string[]);
+        if (profilesError) {
+          return NextResponse.json({ error: `Unable to load target users. ${profilesError.message}` }, { status: 500 });
+        }
+        profiles = p as any[];
+      } else {
+        const { data: all, error: profilesError } = await supabase.from('profiles').select('id,email,username');
+        if (profilesError) {
+          return NextResponse.json({ error: `Unable to load users. ${profilesError.message}` }, { status: 500 });
+        }
+        profiles = all as any[];
+      }
+    } catch (e) {
+      return NextResponse.json({ error: 'Unable to load users.' }, { status: 500 });
     }
 
     const resendApiKey = String(process.env.RESEND_API_KEY || '').trim();
@@ -87,7 +115,7 @@ export async function POST(request: NextRequest) {
         race_id: marketId,
         race_name: `Market ${marketId}`,
         course: '',
-        notification_type: 'race_started',
+        notification_type: 'race_scratched',
         message,
       });
     }

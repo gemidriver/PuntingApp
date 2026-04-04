@@ -314,6 +314,7 @@ export default function Home() {
 
   const [submittedSelections, setSubmittedSelections] = useState<UserSelections | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [changingRaceId, setChangingRaceId] = useState<string | null>(null);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [showEmailResultsConfirm, setShowEmailResultsConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -755,6 +756,37 @@ export default function Home() {
     setManualResultHorseName('');
     setManualResultSecondHorseName('');
     setManualResultThirdHorseName('');
+  };
+
+  const startChangeForRace = (raceKey: string, raceId?: string) => {
+    if (!submittedSelections) return;
+    // populate selections from submitted and clear the specific race selection
+    const targetRaceId = raceId ?? (raceKey.includes('|') ? raceKey.split('|')[1] : raceKey);
+    const next = (submittedSelections.selections || []).filter(s => s.raceId !== targetRaceId);
+    setSelections(next);
+    setChangingRaceId(targetRaceId);
+    setHasSubmitted(false);
+    setRaceExpanded(prev => ({ ...prev, [raceKey]: true }));
+  };
+
+  const cancelChange = () => {
+    if (submittedSelections) {
+      setSelections(submittedSelections.selections || []);
+      setWildcard(submittedSelections.wildcard || null);
+      setHasSubmitted(true);
+    }
+    // revert any expanded race card that was opened for the change
+    setRaceExpanded(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(k => {
+        if (k === changingRaceId || k.endsWith(`|${changingRaceId}`)) {
+          delete next[k];
+        }
+      });
+      return next;
+    });
+    setSelectedRunnerDetails(null);
+    setChangingRaceId(null);
   };
 
   const clearMeetState = () => {
@@ -4314,6 +4346,26 @@ export default function Home() {
             </div>
           ) : null}
 
+          {changingRaceId ? (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 flex items-center justify-between">
+              <div>
+                <strong className="font-medium">Change in progress</strong>
+                <div className="text-xs text-amber-700">
+                  Editing: {submittedSelections?.selections?.find(s => s.raceId === changingRaceId)?.raceName ?? 'race'}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => cancelChange()}
+                  className="rounded-md px-3 py-1 text-sm font-medium text-amber-800 hover:underline"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {isAdmin && activeScreen === 'admin' ? betfairStatusPanel : null}
 
           {activeScreen === 'home' ? homeContent : null}
@@ -4626,13 +4678,52 @@ export default function Home() {
                                   <p className="text-xs text-slate-500">{formatRaceTime(race.time)}</p>
                                 </div>
                                 {selected ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setRaceExpanded(prev => ({ ...prev, [raceKey]: true }))}
-                                    className="text-xs font-medium text-blue-600 hover:underline"
-                                  >
-                                    Change
-                                  </button>
+                                  (() => {
+                                    const raceTime = race.time ? new Date(race.time) : null;
+                                    const now = new Date();
+                                    const minutesUntil = raceTime ? (raceTime.getTime() - now.getTime()) / 60000 : Infinity;
+                                    const allowChange = minutesUntil > 10; // only allow changes more than 10 minutes before start
+
+                                    if (hasSubmitted && submittedSelections) {
+                                      if (allowChange) {
+                                        return (
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              type="button"
+                                              onClick={() => startChangeForRace(raceKey, race.id)}
+                                              className="text-xs font-medium text-blue-600 hover:underline"
+                                            >
+                                              Change
+                                            </button>
+                                            {changingRaceId === race.id ? (
+                                              <button
+                                                type="button"
+                                                onClick={cancelChange}
+                                                className="text-xs font-medium text-slate-600 hover:underline"
+                                              >
+                                                Cancel
+                                              </button>
+                                            ) : null}
+                                          </div>
+                                        );
+                                      }
+
+                                      return (
+                                        <span className="text-xs text-slate-500">Locked</span>
+                                      );
+                                    }
+
+                                    // default behaviour when not submitted: expand to change selection
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={() => setRaceExpanded(prev => ({ ...prev, [raceKey]: true }))}
+                                        className="text-xs font-medium text-blue-600 hover:underline"
+                                      >
+                                        Change
+                                      </button>
+                                    );
+                                  })()
                                 ) : null}
                               </div>
 
