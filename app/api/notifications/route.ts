@@ -69,13 +69,7 @@ export async function GET(request: Request) {
     }
 
     console.log(`GET /api/notifications - found ${Array.isArray(notifications) ? notifications.length : 0} notifications for user ${user.id}`);
-    if (Array.isArray(notifications) && notifications.length) {
-      try {
-        console.log('Sample notification:', notifications[0]);
-      } catch (e) {
-        // ignore
-      }
-    }
+    // Do not log notification contents in production — avoid leaking PII in logs.
 
     return Response.json({
       notifications: notifications || [],

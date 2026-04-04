@@ -179,18 +179,51 @@ export async function POST(request: Request) {
               .maybeSingle();
 
             if (!existingReminder) {
-              if (allUsers) {
-                for (const user of allUsers) {
-                  remindersToSend.push({
-                    raceId: race.id,
-                    raceName: race.name,
-                    raceTime,
-                    course: meet.course,
-                    email: user.email,
-                    username: user.username,
-                    userId: user.id,
-                  });
+              // Determine recipients: only users who have submitted for this meet.
+              const adminClient = getSupabaseAdminClient();
+              let profilesToNotify: Array<any> = [];
+              try {
+                const { data: subs } = await adminClient
+                  .from('user_submissions')
+                  .select('user_id,selections')
+                  .eq('submitted', true);
+
+                const userIds = new Set<string>();
+                for (const s of subs || []) {
+                  try {
+                    const sels = Array.isArray(s.selections) ? s.selections : [];
+                    if (sels.find((x: any) => String(x?.meetId || '') === String(meet.meet_id))) {
+                      if (s.user_id) userIds.add(String(s.user_id));
+                    }
+                  } catch (e) {
+                    // ignore malformed rows
+                  }
                 }
+
+                if (userIds.size) {
+                  const { data: profilesRes, error: profErr } = await adminClient
+                    .from('profiles')
+                    .select('id,email,username')
+                    .in('id', [...userIds]);
+                  if (!profErr && Array.isArray(profilesRes)) profilesToNotify = profilesRes;
+                }
+              } catch (e) {
+                console.error('Failed to resolve meet submitters for reminders', e);
+              }
+
+              const recipients = profilesToNotify.length ? profilesToNotify : (allUsers || []);
+
+              // Queue reminder emails for recipients
+              for (const user of recipients) {
+                remindersToSend.push({
+                  raceId: race.id,
+                  raceName: race.name,
+                  raceTime,
+                  course: meet.course,
+                  email: user.email,
+                  username: user.username,
+                  userId: user.id,
+                });
               }
 
               // Mark reminder as sent
@@ -205,10 +238,9 @@ export async function POST(request: Request) {
                 })
                 .throwOnError();
 
-              // Create in-app notifications for "race starting soon"
-              if (allUsers) {
-                const admin = getSupabaseAdminClient();
-                const notificationPayload = allUsers.map(user => ({
+              // Create in-app notifications for "race starting soon" for recipients
+              if (recipients.length) {
+                const notificationPayload = recipients.map((user: any) => ({
                   user_id: user.id,
                   race_id: race.id,
                   race_name: race.name,
@@ -218,14 +250,18 @@ export async function POST(request: Request) {
                   read_at: null,
                 }));
 
-                const { data: upsertData, error: upsertError } = await admin
-                  .from('notifications')
-                  .upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' });
-                if (upsertError) {
-                  console.error('Failed to upsert race_starting_soon notifications:', upsertError, { sample: notificationPayload && notificationPayload[0] });
-                } else {
-                  const upsertCount = Array.isArray(upsertData as any) ? (upsertData as any).length : 0;
-                  console.log(`Upserted ${upsertCount} race_starting_soon notifications for race ${race.id}`);
+                try {
+                  const { data: upsertData, error: upsertError } = await adminClient
+                    .from('notifications')
+                    .upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' });
+                  if (upsertError) {
+                    console.error('Failed to upsert race_starting_soon notifications:', upsertError);
+                  } else {
+                    const upsertCount = Array.isArray(upsertData as any) ? (upsertData as any).length : 0;
+                    console.log(`Upserted ${upsertCount} race_starting_soon notifications for race ${race.id}`);
+                  }
+                } catch (e) {
+                  console.error('Exception upserting race_starting_soon notifications:', e);
                 }
               }
             }
