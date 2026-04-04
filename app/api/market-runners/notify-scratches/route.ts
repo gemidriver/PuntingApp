@@ -173,7 +173,9 @@ export async function POST(request: NextRequest) {
         return acc;
       }, {} as Record<string, { to: string; html: string; subject: string }>);
 
-      const sendPromises = Object.values(uniqueByTo).map(e => resend.emails.send({ from: resendFromEmail, to: e.to, subject: e.subject, html: e.html }));
+      const sendPromises = (Object.values(uniqueByTo) as Array<{ to: string; html: string; subject: string }>).map(item =>
+        resend.emails.send({ from: resendFromEmail, to: item.to, subject: item.subject, html: item.html })
+      );
       const results = await Promise.allSettled(sendPromises);
       sentCount = results.filter(r => r.status === 'fulfilled').length;
     }
