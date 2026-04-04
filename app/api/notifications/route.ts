@@ -49,8 +49,8 @@ export async function GET(request: Request) {
       );
     }
 
-    // Log the user id being queried
-    console.log('Fetching notifications for user_id:', user.id);
+    // Log the user id being queried for debugging
+    console.log('GET /api/notifications - token present, user id:', user.id);
     // Get unread notifications for user
     const { data: notifications, error } = await supabase
       .from('notifications')
@@ -61,11 +61,20 @@ export async function GET(request: Request) {
       .limit(50);
 
     if (error) {
-      console.error('Error fetching notifications:', error);
+      console.error('Error fetching notifications for user', user.id, error);
       return Response.json(
         { error: 'Failed to fetch notifications' },
         { status: 500 }
       );
+    }
+
+    console.log(`GET /api/notifications - found ${Array.isArray(notifications) ? notifications.length : 0} notifications for user ${user.id}`);
+    if (Array.isArray(notifications) && notifications.length) {
+      try {
+        console.log('Sample notification:', notifications[0]);
+      } catch (e) {
+        // ignore
+      }
     }
 
     return Response.json({
@@ -127,18 +136,30 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const { notificationIds } = await request.json() as { notificationIds?: number[] };
+    const body = await request.json() as { notificationIds?: number[]; clearType?: string };
 
-    if (notificationIds?.length) {
+    if (Array.isArray(body.notificationIds) && body.notificationIds.length) {
       // Mark specific notifications as read
       const { error: updateError } = await supabase
         .from('notifications')
         .update({ read_at: new Date().toISOString() })
         .eq('user_id', user.id)
-        .in('id', notificationIds);
+        .in('id', body.notificationIds);
 
       if (updateError) {
         console.error('Error marking notifications as read:', updateError);
+      }
+    } else if (body.clearType) {
+      // Mark all notifications of a specific type as read (e.g., 'chat')
+      const { error: updateError } = await supabase
+        .from('notifications')
+        .update({ read_at: new Date().toISOString() })
+        .eq('user_id', user.id)
+        .eq('notification_type', body.clearType)
+        .is('read_at', null);
+
+      if (updateError) {
+        console.error('Error clearing notifications by type:', updateError);
       }
     } else {
       // Mark all notifications as read

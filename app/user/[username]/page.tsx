@@ -94,8 +94,49 @@ export default function UserProfilePage({ params }: { params: { username: string
         <Avatar username={username} avatarUrl={avatarUrl} size={72} />
         <h2 className="mt-4 text-2xl font-bold text-slate-900">{username}</h2>
         <div className="mt-4 w-full">
-          <h3 className="text-lg font-semibold mb-2 text-slate-900">Notifications</h3>
-          <div className="bg-slate-100 rounded p-3 text-slate-700 mb-6">(Notifications will appear here)</div>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold mb-2 text-slate-900">Notifications</h3>
+            <div>
+              <button
+                onClick={async () => {
+                  // Clear chat notifications explicitly for this user
+                  try {
+                    const supabase = getSupabaseClient();
+                    const { data: sessionData } = await supabase.auth.getSession();
+                    if (!sessionData?.session?.access_token) return;
+                    await fetch('/api/notifications', {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
+                      body: JSON.stringify({ clearType: 'chat' }),
+                    });
+                    setNotifications((prev) => prev.filter((n) => n?.notification_type !== 'chat'));
+                    try { window.dispatchEvent(new Event('app:clearChatNotifications')); } catch (e) { /* ignore */ }
+                  } catch (e) {
+                    // ignore
+                  }
+                }}
+                className="rounded-full bg-amber-200 px-3 py-1 text-xs font-medium text-amber-900 hover:bg-amber-300"
+              >
+                Mark chat notifications as read
+              </button>
+            </div>
+          </div>
+          <div className="bg-slate-100 rounded p-3 text-slate-700 mb-6">
+            {notifications.length === 0 ? (
+              <div className="text-sm text-slate-500">No notifications yet.</div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {notifications.map((n) => (
+                  <div key={n.id} className="rounded bg-white p-3 border">
+                    <div>
+                      <div className="text-sm font-medium text-slate-800">{n.message}</div>
+                      <div className="text-xs text-slate-400">{new Date(n.created_at).toLocaleString()}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <h3 className="text-lg font-semibold mb-2 text-slate-900">Chat</h3>
           <div className="bg-slate-100 rounded p-3 text-slate-700">
             {messages.length === 0 ? (

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdminClient } from '../../../lib/supabaseAdmin';
 import { Resend } from 'resend';
 import { fetchRacesForCourse } from '../../../lib/theracingapi';
 
@@ -235,6 +236,25 @@ export async function POST(request: Request) {
 
     const sentCount = sendResults.filter((result) => result.status === 'fulfilled').length;
     const failedCount = sendResults.length - sentCount;
+
+      // Create in-app notifications for all users about the new day
+      try {
+        const admin = getSupabaseAdminClient();
+        const notificationPayload = recipients.map((r) => ({
+          user_id: r.id,
+          race_id: 'meet',
+          race_name: meetListHtml ? meets.map(m => m.course).join(' | ') : 'Meet published',
+          course: meetListHtml ? meets.map(m => m.course).join(' | ') : 'Meet',
+          notification_type: 'meet_published',
+          message: `New race day published: ${meets.map(m => m.course).join(' | ')}`,
+          read_at: null,
+        }));
+        if (notificationPayload.length) {
+          await admin.from('notifications').upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' });
+        }
+      } catch (err) {
+        console.error('Failed to create in-app notifications for new day:', err);
+      }
 
     return Response.json({
       success: true,

@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { getSupabaseClient } from '../../../lib/supabase';
+import { getSupabaseAdminClient } from '../../../lib/supabaseAdmin';
 import { fetchRacesForCourse } from '../../../lib/betfair';
 
 export const maxDuration = 60;
@@ -104,6 +105,7 @@ export async function POST(request: Request) {
 
               // Create in-app notifications for "race starting soon"
               if (allUsers) {
+                const admin = getSupabaseAdminClient();
                 const notificationPayload = allUsers.map(user => ({
                   user_id: user.id,
                   race_id: race.id,
@@ -111,12 +113,12 @@ export async function POST(request: Request) {
                   course: meet.course,
                   notification_type: 'race_starting_soon',
                   message: `${meet.course} - ${race.name} starts in 5 minutes!`,
+                  read_at: null,
                 }));
 
-                await supabase
+                await admin
                   .from('notifications')
-                  .upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' })
-                  .throwOnError();
+                  .upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' });
               }
             }
           }
@@ -132,7 +134,7 @@ export async function POST(request: Request) {
               .maybeSingle();
 
             if (!existingStarted && allUsers) {
-              // Create in-app notifications for "race started"
+              const admin = getSupabaseAdminClient();
               const notificationPayload = allUsers.map(user => ({
                 user_id: user.id,
                 race_id: race.id,
@@ -140,12 +142,12 @@ export async function POST(request: Request) {
                 course: meet.course,
                 notification_type: 'race_started',
                 message: `🏁 ${meet.course} - ${race.name} has started!`,
+                read_at: null,
               }));
 
-              await supabase
+              await admin
                 .from('notifications')
-                .upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' })
-                .throwOnError();
+                .upsert(notificationPayload, { onConflict: 'user_id,race_id,notification_type' });
             }
           }
         }

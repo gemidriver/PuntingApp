@@ -19,6 +19,46 @@ function ChatFloatingButton({ inline = false }: { inline?: boolean }) {
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);
+
+  return (
+    <>
+      <button
+        aria-label="Open chat"
+        onClick={() => setOpen(true)}
+        style={inline ? {
+          background: "#2563eb",
+          color: "#fff",
+          border: "none",
+          borderRadius: 8,
+          width: 36,
+          height: 36,
+          boxShadow: "0 1px 6px rgba(0,0,0,0.08)",
+          fontSize: 16,
+          cursor: "pointer",
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        } : {
+          position: "fixed",
+          right: 16,
+          bottom: isMobile ? 96 : 64,
+          zIndex: 1001,
+          background: "#2563eb",
+          color: "#fff",
+          border: "none",
+          borderRadius: "50%",
+          width: 56,
+          height: 56,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+          fontSize: 28,
+          cursor: "pointer",
+        }}
+      >
+        {inline ? '💬' : '💬'}
+      </button>
+      {open && <ChatModal inline={inline} onClose={() => setOpen(false)} usernames={usernames} />}
+    </>
+  );
   return (
     <>
       <button
@@ -93,6 +133,17 @@ function ChatModal({ onClose, usernames = [], inline = false }: { onClose: () =>
     check();
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // Clear chat notification flag when the modal mounts
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('app:clearChatNotifications'));
+      }
+    } catch (e) {
+      // ignore
+    }
   }, []);
 
   // If the modal was opened from an inline header button, prefer centered modal

@@ -393,6 +393,7 @@ export default function Home() {
   const [betfairHealthCheckedAt, setBetfairHealthCheckedAt] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [abandonedMeetAlerts, setAbandonedMeetAlerts] = useState<Record<string, boolean>>({});
+  const [hasUnreadChat, setHasUnreadChat] = useState(false);
 
   const clearNotifications = () => setNotifications([]);
   // Always show notification banner, even if chat is open or user is focused elsewhere
@@ -1504,6 +1505,22 @@ export default function Home() {
         ? 'New meets have been published. Ready to pick horses for the next race day!'
         : 'Meet closed. All selections and results have been cleared. Select two new meets and publish them when ready.'
     );
+    // If we've closed the meets, notify all users via server broadcast
+    if (!nextGlobalMeets.length) {
+      try {
+        const supabase = getSupabaseClient();
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.access_token) {
+          await fetch('/api/notifications/broadcast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
+            body: JSON.stringify({ notification_type: 'meet_closed', message: 'Meet closed. All selections and results have been cleared.' }),
+          });
+        }
+      } catch (err) {
+        console.error('Failed to broadcast meet closed notification', err);
+      }
+    }
     setError(null);
     await loadSubmissionRows();
     return true;
@@ -1701,35 +1718,40 @@ export default function Home() {
         return;
       }
 
-      const payload = await response.json().catch(() => ({} as { notifications?: Array<{ id: number; message: string }> })) as {
-        notifications?: Array<{ id: number; message: string }>;
+      const payload = await response.json().catch(() => ({} as { notifications?: Array<any> })) as {
+        notifications?: Array<any>;
       };
-      const unread: Array<{ id: number; message: string }> = Array.isArray(payload.notifications)
-        ? payload.notifications
-        : [];
-      if (!unread.length) {
-        return;
-      }
+      const unread: Array<any> = Array.isArray(payload.notifications) ? payload.notifications : [];
+      if (!unread.length) return;
 
-      unread.forEach((item: { id: number; message: string }) => {
-        if (item?.message) {
-          addNotification(item.message, 'info', 9000);
-        }
+      // Separate chat notifications from other types. We will show non-chat
+      // notifications via toasts and mark them read immediately. Chat
+      // notifications will set a flag so the UI can render an unread indicator
+      // and will NOT be auto-marked as read until the user opens chat.
+      const chatNotifications = unread.filter((n) => n?.notification_type === 'chat');
+      const otherNotifications = unread.filter((n) => n?.notification_type !== 'chat');
+
+      otherNotifications.forEach((item) => {
+        if (item?.message) addNotification(item.message, 'info', 9000);
       });
 
-      const unreadIds = unread.map((item: { id: number; message: string }) => item.id).filter((id) => Number.isFinite(id));
-      if (!unreadIds.length) {
-        return;
+      // Mark other (non-chat) notifications as read
+      const otherIds = otherNotifications.map((n) => n.id).filter((id) => Number.isFinite(id));
+      if (otherIds.length) {
+        await fetch('/api/notifications', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ notificationIds: otherIds }),
+        });
       }
 
-      await fetch('/api/notifications', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ notificationIds: unreadIds }),
-      });
+      // If there are chat notifications, set the unread flag so headers can show it
+      if (chatNotifications.length) {
+        setHasUnreadChat(true);
+      }
     } catch (error) {
       console.error('pullInAppNotifications failed', error);
     }
@@ -2008,6 +2030,29 @@ export default function Home() {
       return;
     }
 
+    // Listen for UI events to clear chat notifications (dispatched by chat modal)
+    function handleClearChat() {
+      (async () => {
+        try {
+          const supabase = getSupabaseClient();
+          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+          if (sessionError || !sessionData.session?.access_token) return;
+
+          await fetch('/api/notifications', {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${sessionData.session.access_token}`,
+            },
+            body: JSON.stringify({ clearType: 'chat' }),
+          });
+        } catch (err) {
+          console.error('clear chat notifications failed', err);
+        }
+        setHasUnreadChat(false);
+      })();
+    }
+    window.addEventListener('app:clearChatNotifications', handleClearChat as EventListener);
     void pullInAppNotifications();
     const timer = setInterval(() => {
       void pullInAppNotifications();
@@ -2015,6 +2060,7 @@ export default function Home() {
 
     return () => {
       clearInterval(timer);
+      window.removeEventListener('app:clearChatNotifications', handleClearChat as EventListener);
     };
   }, [user]);
 
@@ -4111,6 +4157,9 @@ export default function Home() {
           />
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500 max-w-[110px] truncate">{user}</span>
+            {hasUnreadChat && (
+              <span aria-hidden style={{ width: 8, height: 8, background: '#ef4444', borderRadius: '50%', display: 'inline-block', marginLeft: 6 }} />
+            )}
             {user ? (
               <Link href={`/${'user'}/${user}`}>
                 <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={28} />
@@ -4210,7 +4259,7 @@ export default function Home() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong></span>
+              <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong>{hasUnreadChat ? <span aria-hidden style={{ width: 8, height: 8, background: '#ef4444', borderRadius: '50%', display: 'inline-block', marginLeft: 8 }} /> : null}</span>
               {user ? (
                 <Link href={`/${'user'}/${user}`}>
                   <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={36} />
@@ -4738,6 +4787,9 @@ export default function Home() {
         />
         <div className="flex items-center gap-2">
           <span className="max-w-[110px] truncate text-xs text-slate-500">{user}</span>
+          {hasUnreadChat && (
+            <span aria-hidden style={{ width: 8, height: 8, background: '#ef4444', borderRadius: '50%', display: 'inline-block', marginLeft: 6 }} />
+          )}
           {user ? (
             <Link href={`/${'user'}/${user}`}>
               <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={28} />

@@ -7,6 +7,10 @@ export function getSupabaseAdminClient(): SupabaseClient {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
+    console.error('Supabase admin client missing env vars:', {
+      hasUrl: Boolean(supabaseUrl),
+      hasServiceKey: Boolean(serviceRoleKey),
+    });
     throw new Error('Missing Supabase admin environment variables. Set SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_URL.');
   }
 
