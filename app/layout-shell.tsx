@@ -14,7 +14,6 @@ import { getSupabaseClient } from '../lib/supabase';
 
 export default function LayoutShell({ children }: { children: React.ReactNode }) {
   const { user } = useUser();
-  const ChatFloatingButton = dynamic(() => import('./chat-floating-button'), { ssr: false });
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -65,12 +64,11 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
   return (
     <AllUsersProvider>
       <ClientVersionCheck />
-      <div style={{ width: '100%', minHeight: '100vh', padding: '24px 8px', boxSizing: 'border-box' }}>
+      <div style={{ width: '100%', minHeight: '100vh', padding: '24px 8px', boxSizing: 'border-box', overflow: isMobile ? 'hidden' : 'auto' }}>
         {children}
       </div>
-      {/* render floating chat button globally for signed-in users (desktop only) */}
-      {user && !isMobile ? <ChatFloatingButton /> : null}
-      <MobileBottomNav activeScreen={activeScreen} setActiveScreen={handleSetActive} showLogout={Boolean(user)} onLogout={handleLogout} />
+      {/* Chat handled in top toolbar; do not render floating chat button here */}
+      <MobileBottomNav activeScreen={activeScreen} setActiveScreen={handleSetActive} showLogout={false} onLogout={handleLogout} />
     </AllUsersProvider>
   );
 }

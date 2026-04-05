@@ -4333,7 +4333,7 @@ export default function Home() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong>
+              <span className="text-sm text-slate-700"><strong>{user}</strong>
                 {hasUnreadChat ? <span aria-hidden style={{ width: 8, height: 8, background: '#ef4444', borderRadius: '50%', display: 'inline-block', marginLeft: 8 }} /> : null}
                 {unreadNotificationsCount > 0 ? <span aria-hidden style={{ minWidth: 18, height: 18, background: '#f59e0b', color: '#000', borderRadius: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', fontSize: 12, fontWeight: 600, marginLeft: 6 }}>{unreadNotificationsCount}</span> : null}
               </span>
@@ -4970,13 +4970,13 @@ export default function Home() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-700">Signed in as <strong>{user}</strong></span>
+            <span className="text-sm text-slate-700"><strong>{user}</strong></span>
             {user ? (
               <Link href={`/${'user'}/${user}`}>
                 <Avatar username={user} avatarUrl={avatarUrl ?? undefined} size={36} />
               </Link>
             ) : null}
-            {user ? <ChatFloatingButton inline /> : null}
+            
           </div>
         </header>
         <div className="mb-5 lg:hidden">

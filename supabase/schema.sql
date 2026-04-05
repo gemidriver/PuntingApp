@@ -210,6 +210,8 @@ begin
       selection ->> 'horseName' as horse_name
     from jsonb_array_elements(us.selections) selection
   ) sel on true
+  -- only include users who have been marked eligible for this meet
+  join public.user_eligibilities ue on ue.user_id = us.user_id and ue.meet_id = sel.meet_id and ue.eligible = true
   left join public.race_results rr
     on rr.meet_id = sel.meet_id
    and rr.race_id = sel.race_id
@@ -344,3 +346,81 @@ for all
 to authenticated
 using (public.is_admin_user(auth.uid()))
 with check (public.is_admin_user(auth.uid()));
+
+-- Payments table: track user payments for entry fees
+create table if not exists public.payments (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  meet_id text,
+  amount numeric(10,2) not null,
+  currency text not null default 'USD',
+  status text not null check (status in ('pending','confirmed','rejected')) default 'pending',
+  created_at timestamptz not null default now(),
+  confirmed_at timestamptz,
+  confirmed_by uuid references auth.users(id)
+);
+
+alter table public.payments enable row level security;
+
+drop policy if exists "payments_select_authenticated" on public.payments;
+drop policy if exists "payments_insert_own" on public.payments;
+drop policy if exists "payments_update_admin" on public.payments;
+create policy "payments_select_authenticated"
+on public.payments
+for select
+to authenticated
+using (user_id = auth.uid() or public.is_admin_user(auth.uid()));
+
+create policy "payments_insert_own"
+on public.payments
+for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+create policy "payments_update_admin"
+on public.payments
+for all
+to authenticated
+using (public.is_admin_user(auth.uid()))
+with check (public.is_admin_user(auth.uid()));
+
+-- User eligibilities: which users are eligible to play for a meet
+create table if not exists public.user_eligibilities (
+  id bigserial primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  meet_id text not null,
+  eligible boolean not null default false,
+  confirmed_at timestamptz,
+  confirmed_by uuid references auth.users(id),
+  unique (user_id, meet_id)
+);
+
+alter table public.user_eligibilities enable row level security;
+
+drop policy if exists "elig_select_authenticated" on public.user_eligibilities;
+drop policy if exists "elig_update_admin" on public.user_eligibilities;
+create policy "elig_select_authenticated"
+on public.user_eligibilities
+for select
+to authenticated
+using (user_id = auth.uid() or public.is_admin_user(auth.uid()));
+
+create policy "elig_update_admin"
+on public.user_eligibilities
+for all
+to authenticated
+using (public.is_admin_user(auth.uid()))
+with check (public.is_admin_user(auth.uid()));
+
+-- Jackpot helper returning counts and sums for a meet
+create or replace function public.jackpot_for_meet(target_meet text)
+returns table(entry_count int, total_pot numeric, confirmed_pot numeric)
+language sql
+stable
+as $$
+  select
+    count(*) filter (where p.meet_id = target_meet and p.status in ('pending','confirmed')) as entry_count,
+    coalesce(sum(p.amount) filter (where p.meet_id = target_meet and p.status in ('pending','confirmed')),0) as total_pot,
+    coalesce(sum(p.amount) filter (where p.meet_id = target_meet and p.status = 'confirmed'),0) as confirmed_pot
+  from public.payments p;
+$$;
