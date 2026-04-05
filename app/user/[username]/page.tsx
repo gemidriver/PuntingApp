@@ -17,7 +17,6 @@ export default function UserProfilePage({ params }: { params: { username: string
   const { username: currentUsername } = useUser();
   const [notifications, setNotifications] = useState<Array<any>>([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
-  const [jackpot, setJackpot] = useState<{ entry_count?: number; total_pot?: string; confirmed_pot?: string } | null>(null);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -69,19 +68,6 @@ export default function UserProfilePage({ params }: { params: { username: string
     })();
   }, [currentUsername, username]);
 
-  // fetch a simple jackpot summary for the "current" meet (adjust meetId as needed)
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/api/payments?meetId=current');
-        if (!res.ok) return;
-        const payload = await res.json().catch(() => ({} as any));
-        if (payload?.jackpot) setJackpot(payload.jackpot);
-      } catch (e) {
-        // ignore
-      }
-    })();
-  }, []);
 
   async function markNotificationsRead(ids?: number[]) {
     try {
@@ -104,19 +90,31 @@ export default function UserProfilePage({ params }: { params: { username: string
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-8">
-      <div className="flex flex-col items-center bg-white rounded-xl shadow-lg p-6 w-full max-w-lg profile-card overflow-hidden">
-        <Avatar username={username} avatarUrl={avatarUrl} size={64} />
-        <h2 className="mt-4 text-2xl font-bold text-slate-900">{username}</h2>
-        <div className="mt-3 w-full flex-1 overflow-auto">
-          {jackpot ? (
-            <div className="mb-4 w-full bg-emerald-50 border border-emerald-100 rounded p-3 text-emerald-900">
-              <div className="text-sm font-medium">Current Jackpot</div>
-              <div className="text-lg font-semibold">Entry count: {jackpot.entry_count ?? 0}</div>
-              <div className="text-sm">Total pot: {jackpot.total_pot ?? '0.00'}</div>
-              <div className="text-sm">Confirmed pot: {jackpot.confirmed_pot ?? '0.00'}</div>
-            </div>
-          ) : null}
+    <div className="h-screen bg-slate-50 flex flex-col items-center p-4 overflow-hidden">
+      <div className="flex flex-col items-center bg-white rounded-xl shadow-lg p-4 w-full max-w-lg profile-card overflow-visible">
+        <div className="w-full flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-slate-900">{username}</h2>
+          <button
+            onClick={async () => {
+              const supabase = getSupabaseClient();
+              try { await supabase.auth.signOut(); } catch (e) { /* ignore */ }
+              router.push('/');
+            }}
+            aria-label="Log out"
+            className="px-3 py-1 bg-red-600 text-white rounded text-sm"
+          >
+            Log out
+          </button>
+        </div>
+
+        <div className="mt-2 flex flex-col items-center w-full">
+          <Avatar username={username} avatarUrl={avatarUrl} size={96} />
+          <div className="mt-1">
+            <Link href={`/${'user'}/${username}/avatar-select`} className="text-blue-600 hover:underline">Change avatar</Link>
+          </div>
+        </div>
+        <div className="mt-2 w-full flex-1 overflow-visible">
+          {/* Jackpot moved to Submissions page */}
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold mb-2 text-slate-900">Notifications</h3>
             <div>
@@ -181,9 +179,7 @@ export default function UserProfilePage({ params }: { params: { username: string
           </div>
         </div>
 
-        <div className="mt-6 flex gap-4">
-          <Link href={`/${'user'}/${username}/avatar-select`} className="text-blue-600 hover:underline">Change avatar</Link>
-        </div>
+        
 
         <div className="mt-6 flex flex-col items-center w-full">
           <Link href="/" className="text-sm text-slate-500 hidden lg:inline">Back to app</Link>

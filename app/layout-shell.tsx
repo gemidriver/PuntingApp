@@ -64,7 +64,7 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
   return (
     <AllUsersProvider>
       <ClientVersionCheck />
-      <div style={{ width: '100%', minHeight: '100vh', padding: '24px 8px', boxSizing: 'border-box', overflow: isMobile ? 'hidden' : 'auto' }}>
+      <div style={{ width: '100%', minHeight: '100vh', padding: '8px 8px 16px 8px', boxSizing: 'border-box', overflow: isMobile ? 'hidden' : 'auto' }}>
         {children}
       </div>
       {/* Chat handled in top toolbar; do not render floating chat button here */}

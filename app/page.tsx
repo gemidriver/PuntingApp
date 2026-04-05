@@ -394,6 +394,20 @@ export default function Home() {
   const [betfairHealthError, setBetfairHealthError] = useState<string | null>(null);
   const [betfairHealthCheckedAt, setBetfairHealthCheckedAt] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/payments?meetId=current');
+        if (!res.ok) return;
+        const payload = await res.json().catch(() => ({} as any));
+        if (payload?.jackpot) setJackpot(payload.jackpot);
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, []);
+  const [jackpot, setJackpot] = useState<{ entry_count?: number; total_pot?: string; confirmed_pot?: string } | null>(null);
   const [abandonedMeetAlerts, setAbandonedMeetAlerts] = useState<Record<string, boolean>>({});
   const [hasUnreadChat, setHasUnreadChat] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
@@ -3149,6 +3163,14 @@ export default function Home() {
 
   const submissionsContent = (
     <section className="mb-10">
+      {jackpot ? (
+        <div className="mb-4 w-full max-w-4xl mx-auto bg-emerald-50 border border-emerald-100 rounded p-3 text-emerald-900">
+          <div className="text-sm font-medium">Current Jackpot</div>
+          <div className="text-lg font-semibold">Entry count: {jackpot.entry_count ?? 0}</div>
+          <div className="text-sm">Total pot: {jackpot.total_pot ?? '0.00'}</div>
+          <div className="text-sm">Confirmed pot: {jackpot.confirmed_pot ?? '0.00'}</div>
+        </div>
+      ) : null}
       {isAdmin ? (
         <div className="mb-4 flex flex-col gap-2 lg:items-end">
           <button
