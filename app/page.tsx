@@ -5,7 +5,7 @@ type MeetTypeFilter = 'All' | 'Thoroughbred' | 'Harness';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Avatar from '../components/Avatar';
 import MobileBottomNav from '../components/MobileBottomNav';
 import RaceSelect from '../components/RaceSelect';
@@ -1753,7 +1753,7 @@ export default function Home() {
     }
   };
 
-  const seenNotificationIds = React.useRef<Set<number>>(new Set());
+  const seenNotificationIds = useRef<Set<number>>(new Set());
 
   const pullInAppNotifications = async () => {
     try {
