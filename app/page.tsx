@@ -12,7 +12,7 @@ import RaceSelect from '../components/RaceSelect';
 const ChatFloatingButton = dynamic(() => import('./chat-floating-button'), { ssr: false });
 import AllUsersContext from './all-users-context';
 import PullNotificationsContext from './pull-notifications-context';
-import AdminSubmissionsPage from './admin/submissions/page';
+import AdminSubmissionsPanel from './components/AdminSubmissionsPanel';
 import type { User } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../lib/supabase';
 import { APP_VERSION_LABEL } from './version';
@@ -4587,7 +4587,7 @@ export default function Home() {
             <h2 className="text-xl font-semibold mb-1">Admin — Submissions & Approvals</h2>
             <p className="text-sm text-slate-500 mb-3">Using meet: {globalMeets?.[0]?.meet_id ?? 'none'}</p>
             <div className="bg-white rounded-lg p-4 shadow-sm">
-              <AdminSubmissionsPage defaultMeetId={globalMeets?.[0]?.meet_id ?? 'current'} />
+              <AdminSubmissionsPanel defaultMeetId={globalMeets?.[0]?.meet_id ?? 'current'} />
             </div>
           </section>
 

@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { getSupabaseClient } from '../../../lib/supabase';
+import { getSupabaseClient } from '../../lib/supabase';
 
-export default function AdminSubmissionsPage({ defaultMeetId = 'current' }: { defaultMeetId?: string }) {
+export default function AdminSubmissionsPanel({ defaultMeetId = 'current' }: { defaultMeetId?: string }) {
   const [rows, setRows] = useState<Array<any>>([]);
   const [loading, setLoading] = useState(false);
   const [meetId, setMeetId] = useState(defaultMeetId);
@@ -25,7 +25,6 @@ export default function AdminSubmissionsPage({ defaultMeetId = 'current' }: { de
       }
     })();
   }, [meetId]);
-
 
   async function fetchList() {
     setLoading(true);
