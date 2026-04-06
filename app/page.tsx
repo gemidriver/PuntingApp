@@ -2251,7 +2251,7 @@ export default function Home() {
       void fetchAndSaveResults().then(() => {
         setResultsLastRefreshedAt(new Date().toISOString());
       });
-    }, 90000);
+    }, 120000);
 
     return () => {
       clearInterval(timer);
@@ -3196,7 +3196,7 @@ export default function Home() {
               onChange={(e) => setResultsAutoRefresh(e.target.checked)}
               className="h-4 w-4 rounded border-slate-300"
             />
-            Auto-refresh every 90 seconds
+            Auto-refresh every 2 minutes
           </label>
           {resultsLastRefreshedAt ? (
             <p className="text-xs text-slate-500">
