@@ -1628,6 +1628,7 @@ export default function Home() {
 
       // Notify all admins by email
       try {
+        const wasAlreadySubmitted = submittedSelections?.submitted === true;
         await fetch('/api/notify-admin-tip', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1635,6 +1636,9 @@ export default function Home() {
             username: user,
             selections,
             wildcard,
+            previousSelections: wasAlreadySubmitted ? (submittedSelections?.selections ?? []) : [],
+            previousWildcard: wasAlreadySubmitted ? (submittedSelections?.wildcard ?? null) : null,
+            isUpdate: wasAlreadySubmitted,
           }),
         });
       } catch (e) {

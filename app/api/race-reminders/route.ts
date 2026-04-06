@@ -466,7 +466,8 @@ export async function POST(request: Request) {
                 <p style="margin: 0;"><strong>Time:</strong> ${reminder.raceTime.toLocaleTimeString('en-AU', {
                   hour: '2-digit',
                   minute: '2-digit',
-                  hour12: false
+                  hour12: true,
+                  timeZone: 'Australia/Sydney'
                 })}</p>
               </div>
               <p style="color: #666;">Get ready - this race starts in approximately 5 minutes!</p>
