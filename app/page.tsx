@@ -1527,6 +1527,15 @@ export default function Home() {
     }
 
     // Use server-side admin route to reset submissions and settings (bypass RLS/lockout)
+    // Email results BEFORE resetting submissions so the route can still find contestants.
+    if (!nextGlobalMeets.length) {
+      try {
+        await emailResultsToContestants();
+      } catch (err) {
+        console.error('Automatic email on meet close failed', err);
+      }
+    }
+
     try {
       const resp = await fetch('/api/admin/reset', {
         method: 'POST',
@@ -1577,12 +1586,7 @@ export default function Home() {
       } catch (err) {
         console.error('Failed to broadcast meet closed notification', err);
       }
-      // Automatically email results to contestants when a meet is closed.
-      try {
-        await emailResultsToContestants();
-      } catch (err) {
-        console.error('Automatic email on meet close failed', err);
-      }
+      // Email was already sent above before submissions were cleared
     }
     setError(null);
     await loadSubmissionRows();
