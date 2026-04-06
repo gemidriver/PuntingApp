@@ -162,18 +162,19 @@ export async function POST(request: Request) {
       }
 
       if (canSendEmail && resend) {
-        try {
-          const emails = (profilesToNotify || []).map((u: any) => String(u.email || '')).filter(Boolean);
-          const unique = [...new Set(emails)];
-          // Subject: include meet/course and date, but do NOT include the raw race id
-          const subject = `Updated Results: ${meetMeta?.course ?? ''}${meetMeta?.date ? ` ${meetMeta.date}` : ''}`.trim();
-          const html = `<p>${resultMessage}</p><p>Manual results have been saved and scores updated.</p>`;
-          const sendPromises = unique.map((to) => resend.emails.send({ from: resendFromEmail, to, subject, html }));
-          const results = await Promise.allSettled(sendPromises);
-          totalEmails += results.filter((r) => r.status === 'fulfilled').length;
-        } catch (e) {
-          console.error('Failed sending manual result emails', e);
-        }
+        // Emails for manual placings are currently on hold
+        // TODO: re-enable when ready
+        // try {
+        //   const emails = (profilesToNotify || []).map((u: any) => String(u.email || '')).filter(Boolean);
+        //   const unique = [...new Set(emails)];
+        //   const subject = `Updated Results: ${meetMeta?.course ?? ''}${meetMeta?.date ? ` ${meetMeta.date}` : ''}`.trim();
+        //   const html = `<p>${resultMessage}</p><p>Manual results have been saved and scores updated.</p>`;
+        //   const sendPromises = unique.map((to) => resend.emails.send({ from: resendFromEmail, to, subject, html }));
+        //   const results = await Promise.allSettled(sendPromises);
+        //   totalEmails += results.filter((r) => r.status === 'fulfilled').length;
+        // } catch (e) {
+        //   console.error('Failed sending manual result emails', e);
+        // }
       }
     }
 
