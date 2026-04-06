@@ -159,6 +159,21 @@ export async function POST(request: Request) {
                         console.error('Failed sending scratch emails', e);
                       }
                     }
+
+                    // Update race_history with current runner statuses so the next cron
+                    // run doesn't re-detect the same scratches as new.
+                    try {
+                      await admin2.from('race_history').upsert([{
+                        meet_id: meet.meet_id,
+                        race_id: race.id,
+                        race_name: race.name,
+                        course: meet.course,
+                        race_time: new Date(race.time).toISOString(),
+                        runners: currentRunnersWithStatus,
+                      }], { onConflict: 'meet_id,race_id' });
+                    } catch (e) {
+                      console.error('Failed to update race_history after scratch detection', e);
+                    }
                   }
                 }
               } catch (e) {
