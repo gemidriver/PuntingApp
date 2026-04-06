@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdminClient } from '../../../lib/supabaseAdmin';
 
 export async function GET(request: Request) {
   try {
@@ -14,10 +15,13 @@ export async function GET(request: Request) {
     const meetId = url.searchParams.get('meetId');
 
     if (meetId) {
-      // return jackpot totals for the meet using RPC
-      const { data, error } = await supabase.rpc('jackpot_for_meet', { target_meet: meetId });
+      // Use admin client so RLS doesn't block reading user_eligibilities
+      const adminClient = getSupabaseAdminClient();
+      const { data, error } = await adminClient.rpc('jackpot_for_meet', { target_meet: meetId });
       if (error) return Response.json({ error: 'Failed to fetch jackpot' }, { status: 500 });
-      return Response.json({ jackpot: data });
+      // RPC returns a table (array) — extract the first row
+      const row = Array.isArray(data) ? data[0] : data;
+      return Response.json({ jackpot: row });
     }
 
     // otherwise, try to return current user's payments if auth header present

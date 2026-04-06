@@ -412,15 +412,17 @@ to authenticated
 using (public.is_admin_user(auth.uid()))
 with check (public.is_admin_user(auth.uid()));
 
--- Jackpot helper returning counts and sums for a meet
+-- Jackpot helper: counts approved eligible users × $15 entry fee
 create or replace function public.jackpot_for_meet(target_meet text)
 returns table(entry_count int, total_pot numeric, confirmed_pot numeric)
 language sql
 stable
 as $$
   select
-    count(*) filter (where p.meet_id = target_meet and p.status in ('pending','confirmed')) as entry_count,
-    coalesce(sum(p.amount) filter (where p.meet_id = target_meet and p.status in ('pending','confirmed')),0) as total_pot,
-    coalesce(sum(p.amount) filter (where p.meet_id = target_meet and p.status = 'confirmed'),0) as confirmed_pot
-  from public.payments p;
+    count(*)::int as entry_count,
+    (count(*) * 15)::numeric as total_pot,
+    (count(*) * 15)::numeric as confirmed_pot
+  from public.user_eligibilities ue
+  where ue.meet_id = target_meet
+    and ue.eligible = true;
 $$;

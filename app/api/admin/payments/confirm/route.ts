@@ -42,7 +42,7 @@ export async function PATCH(request: Request) {
     // if confirmed, upsert user eligibility for the meet
     if (newStatus === 'confirmed') {
       try {
-        const { error: upsertErr } = await sup.from('user_eligibilities').upsert({ user_id: payment.user_id, meet_id: payment.meet_id, eligible: true, confirmed_at: new Date().toISOString(), confirmed_by: user.id }, { onConflict: '(user_id, meet_id)' });
+        const { error: upsertErr } = await sup.from('user_eligibilities').upsert({ user_id: payment.user_id, meet_id: payment.meet_id, eligible: true, confirmed_at: new Date().toISOString(), confirmed_by: user.id }, { onConflict: 'user_id,meet_id' });
         if (upsertErr) console.error('Failed to upsert eligibility', upsertErr);
       } catch (e) {
         console.error('Eligibility upsert error', e);

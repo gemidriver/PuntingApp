@@ -12,6 +12,7 @@ import RaceSelect from '../components/RaceSelect';
 const ChatFloatingButton = dynamic(() => import('./chat-floating-button'), { ssr: false });
 import AllUsersContext from './all-users-context';
 import PullNotificationsContext from './pull-notifications-context';
+import AdminSubmissionsPage from './admin/submissions/page';
 import type { User } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../lib/supabase';
 import { APP_VERSION_LABEL } from './version';
@@ -31,6 +32,8 @@ interface Wildcard {
   raceId: string;
 }
 
+import type { ProfileRecord, Selection } from './types';
+
 interface UserSelections {
   username: string;
   selections: Selection[];
@@ -38,8 +41,6 @@ interface UserSelections {
   submitted: boolean;
   submittedAt?: string;
 }
-
-import type { ProfileRecord, Selection } from './types';
 
 interface SubmissionRow {
   user_id: string;
@@ -50,38 +51,7 @@ interface SubmissionRow {
   submitted_at: string | null;
 }
 
-interface BetfairHealthStatus {
-  ok: boolean;
-  date: string;
-  env?: {
-    appKeyConfigured: boolean;
-    sessionTokenConfigured: boolean;
-  };
-  auth?: {
-    autoLoginConfigured: boolean;
-    autoLoginUsedDuringCheck: boolean;
-    lastAutoLoginAt: string | null;
-  };
-  checks?: {
-    eventTypeCount: number;
-    competitionCount: number;
-    marketCount: number;
-    marketWithCompetitionCount: number;
-    marketWithEventCount: number;
-  };
-  samples?: {
-    firstCompetition: { id: string; name: string } | null;
-    firstMarket: {
-      marketId: string;
-      marketName: string;
-      competitionId: string | null;
-      competitionName: string | null;
-      eventId: string | null;
-      eventName: string | null;
-    } | null;
-  };
-  error?: string;
-}
+type BetfairHealthStatus = any;
 
 interface Notification {
   id: string;
@@ -311,6 +281,24 @@ export default function Home() {
   const [adminSelectedMeets, setAdminSelectedMeets] = useState<Meet[]>([]);
   // Meet type filter for admin meets
   const [meetTypeFilter, setMeetTypeFilter] = useState<MeetTypeFilter>('All');
+  const [adminTab, setAdminTab] = useState<'meets' | 'payments' | 'submissions'>(() => {
+    try {
+      if (typeof window === 'undefined') return 'submissions';
+      const stored = localStorage.getItem('adminTab');
+      if (stored === 'meets' || stored === 'payments' || stored === 'submissions') return stored as any;
+    } catch (e) {
+      // ignore
+    }
+    return 'submissions';
+  });
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') localStorage.setItem('adminTab', adminTab);
+    } catch (e) {
+      // ignore
+    }
+  }, [adminTab]);
 
   const [submittedSelections, setSubmittedSelections] = useState<UserSelections | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
@@ -398,7 +386,8 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/payments?meetId=current');
+        const meetId = globalMeets.length > 0 ? globalMeets[0].meet_id : 'current';
+        const res = await fetch(`/api/payments?meetId=${encodeURIComponent(meetId)}`);
         if (!res.ok) return;
         const payload = await res.json().catch(() => ({} as any));
         if (payload?.jackpot) setJackpot(payload.jackpot);
@@ -406,7 +395,7 @@ export default function Home() {
         // ignore
       }
     })();
-  }, []);
+  }, [globalMeets]);
   const [jackpot, setJackpot] = useState<{ entry_count?: number; total_pot?: string; confirmed_pot?: string } | null>(null);
   const [abandonedMeetAlerts, setAbandonedMeetAlerts] = useState<Record<string, boolean>>({});
   const [hasUnreadChat, setHasUnreadChat] = useState(false);
@@ -2990,7 +2979,19 @@ export default function Home() {
     });
 
     return Object.entries(raceResults).map(([raceId, result]) => {
-      const meta = raceMeta.get(raceId);
+      let meta = raceMeta.get(raceId);
+      // If we don't have metadata from submissions, try to resolve from known races list
+      if (!meta) {
+        const meetId = getMeetIdForRaceId(raceId);
+        if (meetId) {
+          const raceObj = (races[meetId] || []).find(r => r.id === raceId);
+          const meetObj = [...meetsForPicks, ...globalMeets, ...selectedMeets, ...adminSelectedMeets].find(m => m.meet_id === meetId);
+          meta = {
+            raceName: raceObj?.name || raceId,
+            location: meetObj?.course || meetId,
+          };
+        }
+      }
       const winnerFallback = result.winnerId ? runnerNameByRaceId.get(raceId)?.get(result.winnerId) ?? null : null;
       const secondFallback = result.secondId ? runnerNameByRaceId.get(raceId)?.get(result.secondId) ?? null : null;
       const thirdFallback = result.thirdId ? runnerNameByRaceId.get(raceId)?.get(result.thirdId) ?? null : null;
@@ -3166,9 +3167,8 @@ export default function Home() {
       {jackpot ? (
         <div className="mb-4 w-full max-w-4xl mx-auto bg-emerald-50 border border-emerald-100 rounded p-3 text-emerald-900">
           <div className="text-sm font-medium">Current Jackpot</div>
-          <div className="text-lg font-semibold">Entry count: {jackpot.entry_count ?? 0}</div>
-          <div className="text-sm">Total pot: {jackpot.total_pot ?? '0.00'}</div>
-          <div className="text-sm">Confirmed pot: {jackpot.confirmed_pot ?? '0.00'}</div>
+          <div className="text-2xl font-bold">${((jackpot.entry_count ?? 0) * 15).toFixed(2)}</div>
+          <div className="text-sm text-emerald-700">{jackpot.entry_count ?? 0} approved {(jackpot.entry_count ?? 0) === 1 ? 'entry' : 'entries'} × $15.00</div>
         </div>
       ) : null}
       {isAdmin ? (
@@ -4559,7 +4559,6 @@ export default function Home() {
                   );
                 })}
             </div>
-// Add meet type filter state
 
             {globalMeets.length ? (
               <div className="mt-6 rounded-lg bg-slate-50 p-4">
@@ -4581,6 +4580,15 @@ export default function Home() {
                 </ul>
               </div>
             ) : null}
+          </section>
+
+          {/* New combined admin panels: Payments + Submissions */}
+          <section className={`mb-10 ${activeScreen === 'admin' ? '' : 'hidden'}`}>
+            <h2 className="text-xl font-semibold mb-1">Admin — Submissions & Approvals</h2>
+            <p className="text-sm text-slate-500 mb-3">Using meet: {globalMeets?.[0]?.meet_id ?? 'none'}</p>
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <AdminSubmissionsPage defaultMeetId={globalMeets?.[0]?.meet_id ?? 'current'} />
+            </div>
           </section>
 
           <section className={`mb-10 ${activeScreen === 'admin' ? '' : 'hidden'}`}>
