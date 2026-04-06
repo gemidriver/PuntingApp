@@ -1753,6 +1753,8 @@ export default function Home() {
     }
   };
 
+  const seenNotificationIds = React.useRef<Set<number>>(new Set());
+
   const pullInAppNotifications = async () => {
     try {
       const supabase = getSupabaseClient();
@@ -1799,8 +1801,15 @@ export default function Home() {
       const otherNotifications = unread.filter((n) => n?.notification_type !== 'chat');
 
       otherNotifications.forEach((item) => {
-        if (item?.message) addNotification(item.message, 'info', 9000);
+        const id = item?.id;
+        if (item?.message && (id === undefined || !seenNotificationIds.current.has(id))) {
+          addNotification(item.message, 'info', 9000);
+          if (id !== undefined) seenNotificationIds.current.add(id);
+        }
       });
+
+      // Mark all fetched notification IDs as seen so they don't re-toast
+      unread.forEach((n) => { if (n?.id !== undefined) seenNotificationIds.current.add(n.id); });
 
       // set unread count so headers can show number badge
       setUnreadNotificationsCount(unread.length);
