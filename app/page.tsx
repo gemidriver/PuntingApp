@@ -402,12 +402,50 @@ export default function Home() {
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
 
   const clearNotifications = () => setNotifications([]);
+
+  // Play a short tone using Web Audio API — no external file needed
+  const playNotificationSound = (type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      // Frequency and shape per type
+      if (type === 'success') {
+        osc.frequency.setValueAtTime(520, ctx.currentTime);
+        osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+      } else if (type === 'error') {
+        osc.frequency.setValueAtTime(320, ctx.currentTime);
+        osc.frequency.setValueAtTime(220, ctx.currentTime + 0.12);
+      } else if (type === 'warning') {
+        osc.frequency.setValueAtTime(440, ctx.currentTime);
+        osc.frequency.setValueAtTime(380, ctx.currentTime + 0.1);
+      } else {
+        // info — gentle double-ping
+        osc.frequency.setValueAtTime(600, ctx.currentTime);
+        osc.frequency.setValueAtTime(700, ctx.currentTime + 0.08);
+      }
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.35);
+      osc.onended = () => ctx.close();
+    } catch (e) {
+      // ignore — sound is best-effort
+    }
+  };
+
   // Always show notification banner, even if chat is open or user is focused elsewhere
   const addNotification = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration: number = 0) => {
     // Detect chat notification by message content
     const isChat = !!(message && message.toLowerCase().includes('mentioned in chat'));
     const id = String(Date.now() + Math.random());
     const notification: Notification = { id, message, type, duration, isChat };
+    playNotificationSound(type);
     // Always bring notification container to front by updating state
     setNotifications(prev => {
       // Remove any duplicate chat notifications
@@ -1419,13 +1457,83 @@ export default function Home() {
     } else if (nextGlobalMeets.length) {
       meetsForSnapshot = nextGlobalMeets;
     }
+
+    // Build snapshot from DB data (authoritative) rather than React memos which may be stale/empty.
+    let dbScoreboard: Array<{ username: string; score: number }> = scoreboard;
+    let dbResults: PreviousRoundSnapshot['results'] = lastRoundRaceResults;
+    if (!nextGlobalMeets.length && meetsForSnapshot.length) {
+      try {
+        const meetIds = meetsForSnapshot.map((m) => m.meet_id);
+
+        // Fetch aggregated scores from user_selection_scores
+        const { data: scoreRows } = await supabase
+          .from('user_selection_scores')
+          .select('username,total_points')
+          .in('meet_id', meetIds);
+        if (Array.isArray(scoreRows) && scoreRows.length > 0) {
+          const totals = new Map<string, number>();
+          scoreRows.forEach((r: any) => {
+            totals.set(r.username, (totals.get(r.username) ?? 0) + (r.total_points ?? 0));
+          });
+          dbScoreboard = [...totals.entries()].map(([username, score]) => ({ username, score }));
+        }
+
+        // Fetch race results and resolve meet/race names
+        const { data: resultRows } = await supabase
+          .from('race_results')
+          .select('meet_id,race_id,horse_id,horse_name,finishing_position')
+          .in('meet_id', meetIds)
+          .in('finishing_position', [1, 2, 3]);
+
+        if (Array.isArray(resultRows) && resultRows.length > 0) {
+          const byRace = new Map<string, any[]>();
+          resultRows.forEach((r: any) => {
+            const key = `${r.meet_id}|${r.race_id}`;
+            if (!byRace.has(key)) byRace.set(key, []);
+            byRace.get(key)!.push(r);
+          });
+
+          // Try to get friendly race names from race_history
+          const { data: historyRows } = await supabase
+            .from('race_history')
+            .select('meet_id,race_id,race_name,course')
+            .in('meet_id', meetIds);
+          const historyByKey = new Map<string, { race_name: string; course: string }>();
+          (historyRows || []).forEach((h: any) => {
+            historyByKey.set(`${h.meet_id}|${h.race_id}`, { race_name: h.race_name, course: h.course });
+          });
+
+          dbResults = [...byRace.entries()].map(([key, rows]) => {
+            const [meetId, raceId] = key.split('|');
+            const hist = historyByKey.get(key);
+            const meetMeta = meetsForSnapshot.find((m) => m.meet_id === meetId);
+            const location = hist?.course || meetMeta?.course || meetId;
+            const raceName = hist?.race_name || raceId;
+            const w = rows.find((r) => r.finishing_position === 1);
+            const s = rows.find((r) => r.finishing_position === 2);
+            const t = rows.find((r) => r.finishing_position === 3);
+            return {
+              raceId,
+              raceName,
+              location,
+              winnerName: w?.horse_name || w?.horse_id || null,
+              secondName: s?.horse_name || s?.horse_id || null,
+              thirdName: t?.horse_name || t?.horse_id || null,
+            };
+          });
+        }
+      } catch (e) {
+        console.error('Failed to build snapshot from DB, falling back to memo values', e);
+      }
+    }
+
     const snapshotToPersist: PreviousRoundSnapshot | null =
-      scoreboard.length || lastRoundRaceResults.length
+      dbScoreboard.length || dbResults.length
         ? {
             capturedAt: new Date().toISOString(),
             meets: meetsForSnapshot,
-            scoreboard,
-            results: lastRoundRaceResults,
+            scoreboard: dbScoreboard,
+            results: dbResults,
           }
         : null;
 
