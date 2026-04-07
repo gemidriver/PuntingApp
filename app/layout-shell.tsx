@@ -17,6 +17,13 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
+    // Register service worker for PWA/TWA support
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => { /* non-critical */ });
+    }
+  }, []);
+
+  useEffect(() => {
     function check() {
       setIsMobile(typeof window !== 'undefined' && window.innerWidth <= 640);
     }

@@ -11,11 +11,17 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "The Top Punter",
-  description: "Powered by ChapStackDev.",
+  description: "Horse racing tips and jackpot competition.",
+  applicationName: "The Top Punter",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "The Top Punter",
+  },
   icons: {
-    icon: "/TheTopPunter.png?v=20260323",
-    shortcut: "/TheTopPunter.png?v=20260323",
-    apple: "/TheTopPunter.png?v=20260323",
+    icon: "/TheTopPunter.png",
+    shortcut: "/TheTopPunter.png",
+    apple: "/TheTopPunter.png",
   },
 };
 
