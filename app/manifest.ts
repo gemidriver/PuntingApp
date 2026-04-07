@@ -16,8 +16,8 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: '/TheTopPunter.png', sizes: '1024x1024', type: 'image/png', purpose: 'maskable' },
     ],
     screenshots: [
-      { src: '/mobile-home.png', sizes: '520x1114', type: 'image/png', form_factor: 'narrow' },
-      { src: '/mobile-results.png', sizes: '523x1111', type: 'image/png', form_factor: 'narrow' },
-    ],
+      { src: '/mobile-home.png', sizes: '520x1114', type: 'image/png' },
+      { src: '/mobile-results.png', sizes: '523x1111', type: 'image/png' },
+    ] as MetadataRoute.Manifest['screenshots'],
   } as MetadataRoute.Manifest;
 }
