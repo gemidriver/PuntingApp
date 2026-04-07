@@ -17,6 +17,7 @@ import type { User } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../lib/supabase';
 import { APP_VERSION_LABEL } from './version';
 import type { Race } from '../lib/betfair';
+import { usePushSubscription } from './usePushSubscription';
 
 interface Meet {
   meet_id: string;
@@ -268,6 +269,8 @@ export default function Home() {
 
   const [user, setUser] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  usePushSubscription(accessToken);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -1320,6 +1323,7 @@ export default function Home() {
   const clearUserState = () => {
     setUser(null);
     setUserId(null);
+    setAccessToken(null);
     setIsAdmin(false);
     setAllUsers({});
     clearSelectionState();
@@ -2065,6 +2069,7 @@ export default function Home() {
       if (!active) return;
 
       if (data.session?.user) {
+        setAccessToken(data.session.access_token);
         await hydrateForUser(data.session.user);
       } else {
         clearUserState();
@@ -2076,8 +2081,10 @@ export default function Home() {
     const { data: authSubscription } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
       if (session?.user) {
+        setAccessToken(session.access_token);
         void hydrateForUser(session.user);
       } else {
+        setAccessToken(null);
         clearUserState();
       }
     });
