@@ -4490,14 +4490,15 @@ export default function Home() {
             </div>
           </header>
           {/* Mobile page title */}
-          <div className="mb-5 lg:hidden">
-            <h1 className="text-2xl font-bold">
-              {activeScreen === 'home' && 'Home'}
-              {activeScreen === 'main' && 'My Picks'}
-              {activeScreen === 'admin' && 'Admin'}
-              {activeScreen === 'submissions' && 'User Submissions'}
-            </h1>
-          </div>
+          {activeScreen !== 'home' && (
+            <div className="mb-5 lg:hidden">
+              <h1 className="text-2xl font-bold">
+                {activeScreen === 'main' && 'My Picks'}
+                {activeScreen === 'admin' && 'Admin'}
+                {activeScreen === 'submissions' && 'User Submissions'}
+              </h1>
+            </div>
+          )}
 
           {error ? (
             <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>
@@ -5131,11 +5132,13 @@ export default function Home() {
             
           </div>
         </header>
-        <div className="mb-5 lg:hidden">
-          <h1 className="text-2xl font-bold">
-            {activeScreen === 'home' ? 'Home' : activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
-          </h1>
-        </div>
+        {activeScreen !== 'home' && (
+          <div className="mb-5 lg:hidden">
+            <h1 className="text-2xl font-bold">
+              {activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
+            </h1>
+          </div>
+        )}
 
         {error ? (
           <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">{error}</div>
