@@ -38,6 +38,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unable to reset user submissions' }, { status: 500 });
     }
 
+    // Clear all user eligibilities so jackpot resets to $0 for the new round
+    const { error: eligibilitiesError } = await supabase
+      .from('user_eligibilities')
+      .delete()
+      .not('user_id', 'is', null);
+
+    if (eligibilitiesError) {
+      console.error(eligibilitiesError);
+      return NextResponse.json({ error: 'Unable to reset user eligibilities' }, { status: 500 });
+    }
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error(err);

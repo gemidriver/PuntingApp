@@ -14,9 +14,11 @@ export const metadata: Metadata = {
   description: "Horse racing tips and jackpot competition.",
   applicationName: "The Top Punter",
   appleWebApp: {
-    capable: true,
     statusBarStyle: "black-translucent",
     title: "The Top Punter",
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
   },
   icons: {
     icon: "/TheTopPunter.png",

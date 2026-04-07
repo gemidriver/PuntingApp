@@ -3164,7 +3164,6 @@ export default function Home() {
       <div className="rounded-xl bg-gradient-to-r from-sky-600 to-blue-700 p-6 text-white shadow-sm">
         <h2 className="text-2xl font-bold">Welcome {user}</h2>
         <p className="mt-2 text-sm text-blue-100">
-          Welcome to The Top Punter! <br></br>
           Go to 'My Picks' and select your wildcard for double points.
  
         </p>
@@ -4466,14 +4465,12 @@ export default function Home() {
                 />
               </div>
               <h1 className="text-3xl font-bold">
-                {activeScreen === 'home' && 'Home'}
                 {activeScreen === 'main' && 'My Picks'}
                 {activeScreen === 'admin' && 'Admin'}
                 {activeScreen === 'submissions' && 'User Submissions'}
                 {activeScreen === 'leaderboard' && 'Leaderboard'}
               </h1>
               <p className="mt-2 text-slate-600">
-                {activeScreen === 'home' && 'Welcome to The Top Punter.'}
                 {activeScreen === 'main' && 'Pick horses and submit selections.'}
                 {activeScreen === 'admin' && 'Manage global meets and user permissions.'}
                 {activeScreen === 'submissions' && 'Review all user submissions.'}
@@ -5114,7 +5111,7 @@ export default function Home() {
               />
             </div>
             <h1 className="text-3xl font-bold">
-              {activeScreen === 'home' ? 'Home' : activeScreen === 'main' ? 'My Picks' : 'User Submissions'}
+              {activeScreen === 'main' ? 'My Picks' : activeScreen !== 'home' ? 'User Submissions' : ''}
             </h1>
             <p className="mt-2 text-slate-600">
               {activeScreen === 'home'
