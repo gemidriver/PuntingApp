@@ -1152,7 +1152,8 @@ export default function Home() {
 
   const isBetfairMarketId = (v: string) => /^\d+\.\d+$/.test(v);
 
-  /** Resolve any Betfair market IDs in snapshot results with proper race names from race_history. */
+  /** Resolve any Betfair market IDs in snapshot results with proper race names.
+   *  Sources tried in order: race_history → user_submissions selections. */
   const enrichSnapshotRaceNames = async (
     snapshot: PreviousRoundSnapshot,
     supabase: ReturnType<typeof getSupabaseClient>
@@ -1162,22 +1163,38 @@ export default function Home() {
       .map((r) => r.raceId);
     if (!unresolvedRaceIds.length) return snapshot;
 
+    // Source 1: race_history (written by cron when races start)
     const { data: histRows } = await supabase
       .from('race_history')
       .select('race_id,race_name')
       .in('race_id', unresolvedRaceIds);
-    const histMap = new Map<string, string>();
+    const nameMap = new Map<string, string>();
     (histRows || []).forEach((h: any) => {
-      if (h.race_id && h.race_name) histMap.set(h.race_id, h.race_name);
+      if (h.race_id && h.race_name) nameMap.set(h.race_id, h.race_name);
     });
 
-    if (!histMap.size) return snapshot;
+    // Source 2: user_submissions selections (always carry raceName from when the user picked)
+    const stillUnresolved = unresolvedRaceIds.filter((id) => !nameMap.has(id));
+    if (stillUnresolved.length) {
+      const { data: subRows } = await supabase
+        .from('user_submissions')
+        .select('selections');
+      (subRows || []).forEach((row: any) => {
+        (Array.isArray(row.selections) ? row.selections : []).forEach((sel: any) => {
+          if (sel.raceId && sel.raceName && !nameMap.has(sel.raceId)) {
+            nameMap.set(sel.raceId, sel.raceName);
+          }
+        });
+      });
+    }
+
+    if (!nameMap.size) return snapshot;
 
     return {
       ...snapshot,
       results: snapshot.results.map((r) =>
-        isBetfairMarketId(r.raceName) && histMap.has(r.raceId)
-          ? { ...r, raceName: histMap.get(r.raceId)! }
+        isBetfairMarketId(r.raceName) && nameMap.has(r.raceId)
+          ? { ...r, raceName: nameMap.get(r.raceId)! }
           : r
       ),
     };
