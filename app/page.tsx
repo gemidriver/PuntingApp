@@ -112,6 +112,49 @@ const getTodayDate = () => {
   const day = String(now.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+// Classify why a published meet is no longer appearing in the live Betfair feed.
+// Checks the database for recorded race wins (4 wins = meet completed).
+// Falls back to date/time heuristics if the API call fails.
+async function classifyUnavailableMeet(
+  meet: { meet_id: string; course: string; date: string },
+  token: string
+): Promise<string> {
+  const RACES_PER_MEET = 4;
+  try {
+    const res = await fetch(`/api/admin/meet-status?meetId=${encodeURIComponent(meet.meet_id)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json() as { winCount: number; isClosed: boolean };
+      if (data.isClosed) {
+        return `${meet.course} has already been closed in this system. You can publish the next meet.`;
+      }
+      if (data.winCount >= RACES_PER_MEET) {
+        return `${meet.course} has finished — all ${RACES_PER_MEET} race results are recorded. You can close this round and publish the next meet.`;
+      }
+      if (data.winCount > 0) {
+        return `${meet.course} is not showing live races. ${data.winCount} of ${RACES_PER_MEET} results recorded so far.`;
+      }
+    }
+  } catch {
+    // fall through to heuristic
+  }
+
+  // Heuristic fallback based on date/time
+  const today = getTodayDate();
+  if (meet.date < today) {
+    return `${meet.course} has finished (it ran on ${meet.date}). You can close this round and publish the next meet.`;
+  }
+  if (meet.date === today) {
+    const aestHour = (new Date().getUTCHours() + 10) % 24;
+    if (aestHour >= 17) {
+      return `${meet.course} has finished for today. You can close this round and publish the next meet.`;
+    }
+  }
+  return `${meet.course} appears unavailable or abandoned. Remove it, select another meet, and publish again.`;
+}
+
 const normalizeUsername = (value: string) => value.trim().toLowerCase();
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const usernameFromEmail = (email: string) => email.split('@')[0] || email;
@@ -360,6 +403,7 @@ export default function Home() {
   }, []);
   const [submissionRows, setSubmissionRows] = useState<SubmissionRow[]>([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
+  const [submissionsFilter, setSubmissionsFilter] = useState<'submitted' | 'not-submitted' | 'not-entered'>('submitted');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [raceResults, setRaceResults] = useState<RaceResultsMap>({});
@@ -427,8 +471,8 @@ export default function Home() {
     playNotificationSound(type);
     // Always bring notification container to front by updating state
     setNotifications(prev => {
-      // Remove any duplicate chat notifications
-      if (isChat && prev.some(n => n.isChat && n.message === message)) {
+      // Deduplicate: don't add a notification with the same message already visible
+      if (prev.some(n => n.message === message)) {
         return prev;
       }
       return [...prev, notification];
@@ -2183,13 +2227,15 @@ export default function Home() {
         }));
 
         if (toWarn.length) {
-          toWarn.forEach((meet) => {
-            addNotification(
-              `${meet.course} appears unavailable/abandoned. Remove it, select another meet, and publish again.`,
-              'warning',
-              0
-            );
-          });
+          // Get auth token once for all DB lookups
+          const sup = getSupabaseClient();
+          const { data: sessionData } = await sup.auth.getSession();
+          const token = sessionData?.session?.access_token ?? '';
+
+          await Promise.all(toWarn.map(async (meet) => {
+            const message = await classifyUnavailableMeet(meet, token);
+            addNotification(message, 'warning', 0);
+          }));
 
           setAbandonedMeetAlerts((prev) => {
             const next = { ...prev };
@@ -2210,6 +2256,19 @@ export default function Home() {
       setActiveScreen('main');
     }
   }, [isAdmin, activeScreen]);
+
+  // Pre-load races for all candidate meets when admin tab is open,
+  // so we can filter out meets with fewer than 4 races.
+  useEffect(() => {
+    if (!isAdmin || activeScreen !== 'admin' || !meets.length) return;
+    const unloaded = meets.filter((m) => races[m.meet_id] === undefined && !raceLoading[m.meet_id]);
+    if (!unloaded.length) return;
+    void (async () => {
+      for (const meet of unloaded) {
+        await loadRacesForMeet(meet);
+      }
+    })();
+  }, [isAdmin, activeScreen, meets]);
 
   useEffect(() => {
     if (!user || !isAdmin || activeScreen !== 'main' || !globalMeets.length) {
@@ -2517,14 +2576,18 @@ export default function Home() {
     };
 
     meets.forEach((meet) => {
-      groups[normalizeMeetRaceType(meet.raceType)].push(meet);
+      const meetRaces = races[meet.meet_id];
+      // Include if: races not yet loaded (still fetching) OR 4+ races available
+      if (meetRaces === undefined || meetRaces.length >= 4) {
+        groups[normalizeMeetRaceType(meet.raceType)].push(meet);
+      }
     });
 
     groups.Thoroughbred.sort((a, b) => a.course.localeCompare(b.course));
     groups.Harness.sort((a, b) => a.course.localeCompare(b.course));
 
     return groups;
-  }, [meets]);
+  }, [meets, races]);
 
   const loadRaceDebug = async (meet: Meet) => {
     try {
@@ -3490,11 +3553,66 @@ export default function Home() {
       ) : null}
       {submissionsLoading ? (
         <div className="rounded-lg bg-white p-4 shadow-sm text-sm text-slate-500">Loading submissions...</div>
-      ) : submissionRows.length === 0 ? (
-        <div className="rounded-lg bg-white p-4 shadow-sm text-sm text-slate-500">No submissions found yet.</div>
-      ) : (
-        <div className="space-y-3">
-          {submissionRows.map(row => {
+      ) : (() => {
+        const submittedRows = submissionRows.filter(r => r.submitted);
+        const notSubmittedRows = submissionRows.filter(r => !r.submitted);
+        const submissionUserIds = new Set(submissionRows.map(r => r.user_id));
+        const notEnteredUsers = Object.values(allUsers).filter(u => !submissionUserIds.has(u.id));
+
+        const filterCounts = {
+          'submitted': submittedRows.length,
+          'not-submitted': notSubmittedRows.length,
+          'not-entered': notEnteredUsers.length,
+        };
+
+        const filteredRows = submissionsFilter === 'submitted' ? submittedRows
+          : submissionsFilter === 'not-submitted' ? notSubmittedRows
+          : [];
+
+        return (
+          <>
+            {/* Filter tabs */}
+            <div className="flex gap-1 mb-4 border-b border-slate-200">
+              {([
+                { key: 'submitted', label: 'Submitted tips' },
+                { key: 'not-submitted', label: 'Not submitted' },
+                { key: 'not-entered', label: 'Not entered' },
+              ] as { key: typeof submissionsFilter; label: string }[]).map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setSubmissionsFilter(key)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                    submissionsFilter === key
+                      ? 'border-sky-600 text-sky-700'
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {label}
+                  <span className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${submissionsFilter === key ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-500'}`}>
+                    {filterCounts[key]}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {submissionsFilter === 'not-entered' ? (
+              notEnteredUsers.length === 0 ? (
+                <div className="rounded-lg bg-white p-4 shadow-sm text-sm text-slate-500">Everyone has entered.</div>
+              ) : (
+                <div className="space-y-2">
+                  {notEnteredUsers.sort((a, b) => (a.username ?? '').localeCompare(b.username ?? '')).map(u => (
+                    <div key={u.id} className="rounded-lg bg-white shadow-sm px-4 py-3 flex items-center justify-between">
+                      <p className="font-semibold text-slate-700">{u.username}</p>
+                      <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-500">Not entered</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : filteredRows.length === 0 ? (
+              <div className="rounded-lg bg-white p-4 shadow-sm text-sm text-slate-500">No members in this category.</div>
+            ) : (
+              <div className="space-y-3">
+                {filteredRows.map(row => {
             const rowScore = rankedScoreboard.find(e => e.username === row.username)?.score ?? null;
             const rowRank = rankByUsername.get(row.username) ?? 0;
             const submittedAtLabel = row.submitted_at ? new Date(row.submitted_at).toLocaleString() : 'Not submitted yet';
@@ -3584,8 +3702,11 @@ export default function Home() {
               </details>
             );
           })}
-        </div>
-      )}
+              </div>
+            )}
+          </>
+        );
+      })()}
     </section>
   );
 

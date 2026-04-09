@@ -11,13 +11,31 @@ interface Meet {
   raceType?: string;
 }
 
+type FilterTab = 'submitted' | 'approved' | 'not-entered';
+
 export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globalMeets = [] }: { defaultMeetId?: string; globalMeets?: Meet[] }) {
   const [rows, setRows] = useState<Array<any>>([]);
   const [loading, setLoading] = useState(false);
   const [meetId, setMeetId] = useState(defaultMeetId);
   const [toast, setToast] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterTab>('submitted');
 
   const activeMeetLabel = globalMeets.map((m) => `${m.course} (${m.date})`).join(' · ') || meetId;
+
+  const filteredRows = rows.filter((r) => {
+    const submitted = r.submission?.submitted === true;
+    const approved = r.eligibility?.eligible === true;
+    if (filter === 'submitted') return submitted && !approved;
+    if (filter === 'approved') return approved;
+    if (filter === 'not-entered') return !submitted;
+    return true;
+  });
+
+  const counts = {
+    submitted: rows.filter((r) => r.submission?.submitted === true && !r.eligibility?.eligible).length,
+    approved: rows.filter((r) => r.eligibility?.eligible === true).length,
+    'not-entered': rows.filter((r) => !r.submission?.submitted).length,
+  };
 
   // Resolve 'current' to the actual published meet id from app settings when available
   useEffect(() => {
@@ -78,7 +96,7 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globa
         body: JSON.stringify({ userId, meetId: resolvedMeetId }),
       });
       if (res.ok) {
-        setRows((prev) => prev.map((r) => r.submission.user_id === userId
+        setRows((prev) => prev.map((r) => r.profile.id === userId
           ? { ...r, payments: { ...r.payments, total: 15, confirmed: 15 }, eligibility: { ...(r.eligibility || {}), eligible: true } }
           : r));
         setToast('Payment recorded & confirmed ✓');
@@ -117,7 +135,7 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globa
         body: JSON.stringify({ userId, meetId: resolvedMeetId, eligible: true }),
       });
       if (res.ok) {
-        setRows((prev) => prev.map((r) => (r.submission.user_id === userId ? { ...r, eligibility: { ...(r.eligibility || {}), eligible: true } } : r)));
+        setRows((prev) => prev.map((r) => (r.profile.id === userId ? { ...r, eligibility: { ...(r.eligibility || {}), eligible: true } } : r)));
         setToast('User approved ✓');
         setTimeout(() => setToast(null), 3000);
       }
@@ -143,15 +161,39 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globa
 
       {loading ? <div>Loading...</div> : null}
 
-      {rows.length === 0 ? <div>No submissions found.</div> : (
+      {/* Filter tabs */}
+      <div className="flex gap-1 mb-4 border-b border-slate-200">
+        {([
+          { key: 'submitted', label: 'Submitted tips' },
+          { key: 'approved', label: 'Approved' },
+          { key: 'not-entered', label: 'Not entered' },
+        ] as { key: FilterTab; label: string }[]).map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setFilter(key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              filter === key
+                ? 'border-sky-600 text-sky-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {label}
+            <span className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${filter === key ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-500'}`}>
+              {counts[key]}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {filteredRows.length === 0 ? <div className="text-slate-500 text-sm">No users in this category.</div> : (
         <div className="space-y-3">
-          {rows.map((r) => (
-            <div key={r.submission.user_id} className="p-3 border rounded bg-white flex items-center justify-between">
+          {filteredRows.map((r) => (
+            <div key={r.profile.id} className="p-3 border rounded bg-white flex items-center justify-between">
               <div>
-                <div className="font-medium">{r.profile?.username ?? r.submission.user_id}</div>
+                <div className="font-medium">{r.profile?.username ?? r.profile?.id}</div>
                 <div className="text-sm text-slate-500">{r.profile?.email ?? ''}</div>
                 <div className="text-sm text-slate-600">
-                  Submitted: {r.submission.submitted_at ? new Date(r.submission.submitted_at).toLocaleString() : '—'}
+                  Submitted: {r.submission?.submitted_at ? new Date(r.submission.submitted_at).toLocaleString() : '—'}
                 </div>
                 <div className="text-sm">
                   {r.payments.confirmed > 0
@@ -168,13 +210,13 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globa
               </div>
               <div className="flex flex-col gap-2 items-end">
                 {r.payments.total === 0 && (
-                  <button onClick={() => recordPayment(r.submission.user_id)} className="px-3 py-1 bg-blue-600 text-white rounded text-sm">
+                  <button onClick={() => recordPayment(r.profile.id)} className="px-3 py-1 bg-blue-600 text-white rounded text-sm">
                     Record Payment
                   </button>
                 )}
                 {r.eligibility?.eligible
                   ? <button disabled className="px-3 py-1 bg-slate-300 text-slate-500 rounded cursor-not-allowed">Approved</button>
-                  : <button onClick={() => approve(r.submission.user_id)} className="px-3 py-1 bg-emerald-600 text-white rounded">Approve</button>}
+                  : <button onClick={() => approve(r.profile.id)} className="px-3 py-1 bg-emerald-600 text-white rounded">Approve</button>}
               </div>
             </div>
           ))}
