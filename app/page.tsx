@@ -2559,7 +2559,10 @@ export default function Home() {
             setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
             setRaceRunnersCache(prev => {
               const next = { ...prev, [manualResultRaceId]: options };
-              void persistRaceRunnersCache(next);
+              // Only persist if we have at least one real name — don't cache placeholder-only sets
+              if (options.some((o) => !isRunnerPlaceholderName(o.horseName))) {
+                void persistRaceRunnersCache(next);
+              }
               return next;
             });
             return;
@@ -2581,7 +2584,10 @@ export default function Home() {
             setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
             setRaceRunnersCache(prev => {
               const next = { ...prev, [manualResultRaceId]: options };
-              void persistRaceRunnersCache(next);
+              // Only persist if we have at least one real name — don't cache placeholder-only sets
+              if (options.some((o) => !isRunnerPlaceholderName(o.horseName))) {
+                void persistRaceRunnersCache(next);
+              }
               return next;
             });
           }
