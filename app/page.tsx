@@ -988,6 +988,22 @@ export default function Home() {
       console.error(upsertError);
       addNotification('Unable to save selections to Supabase.', 'error');
     }
+
+    // Persist race name mappings to race_history so they survive even after submissions are cleared.
+    // Only insert rows that don't already exist (ignoreDuplicates) to avoid overwriting richer cron data.
+    const raceHistoryRows = currentSelections
+      .filter((sel) => sel.raceId && sel.raceName && sel.meetId)
+      .map((sel) => ({
+        meet_id: sel.meetId!,
+        race_id: sel.raceId,
+        race_name: sel.raceName,
+        course: sel.meetCourse || sel.meetId!,
+      }));
+    if (raceHistoryRows.length) {
+      await supabase
+        .from('race_history')
+        .upsert(raceHistoryRows, { onConflict: 'meet_id,race_id', ignoreDuplicates: true });
+    }
   };
 
   const loadGlobalMeetsFromDb = async () => {
