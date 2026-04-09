@@ -30,7 +30,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'marketIds required' }, { status: 400 });
     }
     const results = await fetchMarketResults(marketIds);
-    return NextResponse.json({ results });
+
+    // For markets that have settled winners, fetch runner names in parallel so
+    // the client can display real horse names instead of raw Betfair selection IDs.
+    const settledMarketIds = results.filter(r => r.winnerId).map(r => r.marketId);
+    const runnerNames: Record<string, Record<string, string>> = {};
+    if (settledMarketIds.length) {
+      await Promise.allSettled(
+        settledMarketIds.map(async (mId) => {
+          try {
+            const runners = await fetchMarketRunners(mId);
+            const nameMap: Record<string, string> = {};
+            for (const runner of runners) {
+              if (runner.id && runner.name) {
+                nameMap[runner.id] = runner.name;
+              }
+            }
+            if (Object.keys(nameMap).length) {
+              runnerNames[mId] = nameMap;
+            }
+          } catch {
+            // best-effort — skip on error
+          }
+        })
+      );
+    }
+
+    return NextResponse.json({ results, runnerNames });
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message || 'Failed to fetch Betfair results at /api/results' },

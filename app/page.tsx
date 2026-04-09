@@ -308,38 +308,55 @@ function SwipeablNotification({
   style?: React.CSSProperties;
   children: React.ReactNode;
 }) {
-  const SWIPE_THRESHOLD = 80; // px
+  const SWIPE_THRESHOLD = 80;
+  const elRef = useRef<HTMLDivElement>(null);
   const startX = useRef<number | null>(null);
-  const [offsetX, setOffsetX] = useState(0);
-  const [dismissing, setDismissing] = useState(false);
+  const currentX = useRef(0);
+  const dismissed = useRef(false);
+
+  const applyTransform = (x: number, transition = false) => {
+    const el = elRef.current;
+    if (!el) return;
+    const opacity = Math.max(0, 1 - Math.abs(x) / (SWIPE_THRESHOLD * 1.5));
+    el.style.transition = transition ? 'transform 0.2s ease, opacity 0.2s ease' : 'none';
+    el.style.transform = `translateX(${x}px)`;
+    el.style.opacity = String(opacity);
+  };
 
   const dismiss = useCallback(() => {
-    setDismissing(true);
+    if (dismissed.current) return;
+    dismissed.current = true;
+    const el = elRef.current;
+    if (el) {
+      el.style.transition = 'transform 0.2s ease, opacity 0.2s ease';
+      el.style.transform = `translateX(${currentX.current >= 0 ? 320 : -320}px)`;
+      el.style.opacity = '0';
+    }
     setTimeout(onDismiss, 200);
   }, [onDismiss]);
 
   return (
     <div
+      ref={elRef}
       role="alert"
       className={className}
-      style={{
-        ...style,
-        transform: `translateX(${offsetX}px)`,
-        opacity: dismissing ? 0 : Math.max(0, 1 - Math.abs(offsetX) / (SWIPE_THRESHOLD * 1.5)),
-        transition: offsetX === 0 || dismissing ? 'transform 0.2s ease, opacity 0.2s ease' : undefined,
-        touchAction: 'pan-y',
-        userSelect: 'none',
+      style={{ ...style, touchAction: 'pan-y', userSelect: 'none', willChange: 'transform' }}
+      onTouchStart={(e) => {
+        startX.current = e.touches[0].clientX;
+        applyTransform(0, false);
       }}
-      onTouchStart={(e) => { startX.current = e.touches[0].clientX; }}
       onTouchMove={(e) => {
         if (startX.current === null) return;
-        setOffsetX(e.touches[0].clientX - startX.current);
+        const x = e.touches[0].clientX - startX.current;
+        currentX.current = x;
+        applyTransform(x, false);
       }}
       onTouchEnd={() => {
-        if (Math.abs(offsetX) >= SWIPE_THRESHOLD) {
+        if (Math.abs(currentX.current) >= SWIPE_THRESHOLD) {
           dismiss();
         } else {
-          setOffsetX(0);
+          currentX.current = 0;
+          applyTransform(0, true);
         }
         startX.current = null;
       }}
@@ -461,7 +478,7 @@ export default function Home() {
   const [raceResults, setRaceResults] = useState<RaceResultsMap>({});
   const [raceRunnersCache, setRaceRunnersCache] = useState<RaceRunnersMap>({});
   const [resultsFetching, setResultsFetching] = useState(false);
-  const [resultsAutoRefresh, setResultsAutoRefresh] = useState(false);
+  const [resultsAutoRefresh, setResultsAutoRefresh] = useState(true);
   const [resultsLastRefreshedAt, setResultsLastRefreshedAt] = useState<string | null>(null);
   const [manualResultRaceId, setManualResultRaceId] = useState('');
   const [manualResultHorseId, setManualResultHorseId] = useState('');
@@ -1097,7 +1114,11 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ marketIds }),
       });
-      const data = await res.json() as { results?: { marketId: string; winnerId: string | null; secondId?: string | null; thirdId?: string | null; settled: boolean; inferredPlaces?: boolean }[]; error?: string };
+      const data = await res.json() as {
+        results?: { marketId: string; winnerId: string | null; secondId?: string | null; thirdId?: string | null; settled: boolean; inferredPlaces?: boolean }[];
+        runnerNames?: Record<string, Record<string, string>>;
+        error?: string;
+      };
 
       if (!res.ok) {
         addNotification(data.error || 'Failed to fetch results from /api/results.', 'error');
@@ -1110,6 +1131,17 @@ export default function Home() {
       }
 
       setError(null);
+
+      // Runner names returned by the API for settled markets (selectionId → horseName).
+      // These take priority over the local raceRunnersCache because they come directly
+      // from Betfair for this specific result fetch.
+      const apiRunnerNames = data.runnerNames ?? {};
+      const resolveWithApiNames = (marketId: string, horseId: string | null | undefined, fallback: string | null | undefined): string | null => {
+        if (!horseId) return fallback ?? null;
+        const fromApi = apiRunnerNames[marketId]?.[horseId];
+        if (fromApi && !isRunnerPlaceholderName(fromApi)) return fromApi;
+        return resolveRaceHorseName(marketId, horseId, fallback);
+      };
 
       const map: RaceResultsMap = { ...raceResults };
 
@@ -1125,11 +1157,11 @@ export default function Home() {
         map[r.marketId] = {
           ...existing,
           winnerId: r.winnerId,
-          winnerName: resolveRaceHorseName(r.marketId, r.winnerId, existing.winnerName),
+          winnerName: resolveWithApiNames(r.marketId, r.winnerId, existing.winnerName),
           secondId: nextSecondId,
-          secondName: nextSecondId ? resolveRaceHorseName(r.marketId, nextSecondId, existing.secondName) : existing.secondName ?? null,
+          secondName: nextSecondId ? resolveWithApiNames(r.marketId, nextSecondId, existing.secondName) : existing.secondName ?? null,
           thirdId: nextThirdId,
-          thirdName: nextThirdId ? resolveRaceHorseName(r.marketId, nextThirdId, existing.thirdName) : existing.thirdName ?? null,
+          thirdName: nextThirdId ? resolveWithApiNames(r.marketId, nextThirdId, existing.thirdName) : existing.thirdName ?? null,
           inferredPlaces: r.inferredPlaces ?? false,
         };
       });
@@ -1146,6 +1178,20 @@ export default function Home() {
         { onConflict: 'key' }
       );
       setRaceResults(map);
+
+      // Merge newly fetched runner names into the local cache so future
+      // calls (e.g. auto-refresh) can resolve names without re-fetching.
+      if (Object.keys(apiRunnerNames).length) {
+        const updatedCache = { ...raceRunnersCache };
+        for (const [marketId, nameMap] of Object.entries(apiRunnerNames)) {
+          const runners = Object.entries(nameMap).map(([horseId, horseName]) => ({ horseId, horseName }));
+          if (runners.length) {
+            updatedCache[marketId] = runners;
+          }
+        }
+        setRaceRunnersCache(updatedCache);
+        await persistRaceRunnersCache(updatedCache);
+      }
 
       const settledCount = data.results.filter(r => r.settled).length;
       const winnersCount = data.results.filter(r => r.winnerId).length;
@@ -2479,7 +2525,7 @@ export default function Home() {
   }, [manualResultRaceId, manualRunnersByRaceId, globalMeets, meetsForPicks]);
 
   useEffect(() => {
-    if (!isAdmin || activeScreen !== 'submissions' || !resultsAutoRefresh || submissionRows.length === 0) {
+    if (!isAdmin || activeScreen !== 'submissions' || !resultsAutoRefresh) {
       return;
     }
 
@@ -2496,7 +2542,7 @@ export default function Home() {
     return () => {
       clearInterval(timer);
     };
-  }, [isAdmin, activeScreen, resultsAutoRefresh, submissionRows.length, resultsFetching]);
+  }, [isAdmin, activeScreen, resultsAutoRefresh, resultsFetching]);
 
   const loadRacesForMeet = async (meet: Meet) => {
     setRaceLoading(prev => ({ ...prev, [meet.meet_id]: true }));

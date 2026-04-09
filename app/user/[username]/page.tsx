@@ -16,36 +16,53 @@ function SwipeableNotificationRow({
   children: React.ReactNode;
 }) {
   const THRESHOLD = 80;
+  const elRef = useRef<HTMLDivElement>(null);
   const startX = useRef<number | null>(null);
-  const [offsetX, setOffsetX] = useState(0);
-  const [dismissing, setDismissing] = useState(false);
+  const currentX = useRef(0);
+  const dismissed = useRef(false);
+
+  const applyTransform = (x: number, transition = false) => {
+    const el = elRef.current;
+    if (!el) return;
+    const opacity = Math.max(0, 1 - Math.abs(x) / (THRESHOLD * 1.5));
+    el.style.transition = transition ? 'transform 0.18s ease, opacity 0.18s ease' : 'none';
+    el.style.transform = `translateX(${x}px)`;
+    el.style.opacity = String(opacity);
+  };
 
   const dismiss = useCallback(() => {
-    setDismissing(true);
+    if (dismissed.current) return;
+    dismissed.current = true;
+    const el = elRef.current;
+    if (el) {
+      el.style.transition = 'transform 0.18s ease, opacity 0.18s ease';
+      el.style.transform = `translateX(${currentX.current >= 0 ? 320 : -320}px)`;
+      el.style.opacity = '0';
+    }
     setTimeout(onDismiss, 180);
   }, [onDismiss]);
 
   return (
     <div
+      ref={elRef}
       className="rounded bg-white border flex items-start gap-2"
-      style={{
-        transform: `translateX(${offsetX}px)`,
-        opacity: dismissing ? 0 : Math.max(0, 1 - Math.abs(offsetX) / (THRESHOLD * 1.5)),
-        transition: offsetX === 0 || dismissing ? 'transform 0.18s ease, opacity 0.18s ease' : undefined,
-        touchAction: 'pan-y',
-        userSelect: 'none',
-        overflow: 'hidden',
+      style={{ touchAction: 'pan-y', userSelect: 'none', willChange: 'transform', overflow: 'hidden' }}
+      onTouchStart={(e) => {
+        startX.current = e.touches[0].clientX;
+        applyTransform(0, false);
       }}
-      onTouchStart={(e) => { startX.current = e.touches[0].clientX; }}
       onTouchMove={(e) => {
         if (startX.current === null) return;
-        setOffsetX(e.touches[0].clientX - startX.current);
+        const x = e.touches[0].clientX - startX.current;
+        currentX.current = x;
+        applyTransform(x, false);
       }}
       onTouchEnd={() => {
-        if (Math.abs(offsetX) >= THRESHOLD) {
+        if (Math.abs(currentX.current) >= THRESHOLD) {
           dismiss();
         } else {
-          setOffsetX(0);
+          currentX.current = 0;
+          applyTransform(0, true);
         }
         startX.current = null;
       }}
