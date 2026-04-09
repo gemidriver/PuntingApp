@@ -255,12 +255,31 @@ export async function POST(request: Request) {
       .eq('key', 'global_meets')
       .maybeSingle();
 
-    const meets: Meet[] = Array.isArray(settings?.value) ? settings.value : [];
+    let meets: Meet[] = Array.isArray(settings?.value) ? settings.value : [];
 
-    const { data: raceResultRows, error: raceResultsError } = await supabase
+    // If the meet was just closed, global_meets will be empty — fall back to the snapshot.
+    if (!meets.length) {
+      const { data: snapshotSetting } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'previous_round_snapshot')
+        .maybeSingle();
+      if (snapshotSetting?.value && typeof snapshotSetting.value === 'object') {
+        const snap = snapshotSetting.value as any;
+        meets = Array.isArray(snap.meets) ? snap.meets : [];
+      }
+    }
+
+    const meetIds = meets.map((m) => m.meet_id).filter(Boolean);
+
+    const baseQuery = supabase
       .from('race_results')
       .select('meet_id,race_id,horse_id,horse_name,finishing_position')
       .in('finishing_position', [1, 2, 3]);
+
+    const { data: raceResultRows, error: raceResultsError } = meetIds.length
+      ? await baseQuery.in('meet_id', meetIds)
+      : await baseQuery;
 
     if (raceResultsError) {
       return Response.json({ error: `Unable to load race results. ${raceResultsError.message}` }, { status: 500 });
@@ -275,9 +294,14 @@ export async function POST(request: Request) {
       }
     });
 
+    const meetIdSet = new Set(meetIds);
+
     const scoreboard = submissionRows
       .map((row) => {
-        const total = row.selections.reduce((sum, selection) => {
+        const relevantSelections = meetIds.length
+          ? row.selections.filter((sel) => meetIdSet.has(sel.meetId || ''))
+          : row.selections;
+        const total = relevantSelections.reduce((sum, selection) => {
           return sum + getPointsForSelection(selection, row.wildcard, raceResultsMap[selection.raceId]);
         }, 0);
         return { username: row.username, score: total };
