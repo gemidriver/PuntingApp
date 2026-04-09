@@ -520,10 +520,10 @@ export default function Home() {
 
   const clearNotifications = () => setNotifications([]);
 
-  // Play notification sound using /notification.mp3
-  const playNotificationSound = (_type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
+  // Play a notification sound. Pass an explicit soundFile to override the default.
+  const playNotificationSound = (_type: 'success' | 'error' | 'info' | 'warning' = 'info', soundFile?: string) => {
     try {
-      const audio = new Audio('/notification.mp3');
+      const audio = new Audio(soundFile ?? '/notification.mp3');
       audio.volume = 0.5;
       void audio.play();
     } catch (e) {
@@ -532,12 +532,12 @@ export default function Home() {
   };
 
   // Always show notification banner, even if chat is open or user is focused elsewhere
-  const addNotification = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration: number = 0) => {
+  const addNotification = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration: number = 0, soundFile?: string) => {
     // Detect chat notification by message content
     const isChat = !!(message && message.toLowerCase().includes('mentioned in chat'));
     const id = String(Date.now() + Math.random());
     const notification: Notification = { id, message, type, duration, isChat };
-    playNotificationSound(type);
+    playNotificationSound(type, soundFile);
     // Always bring notification container to front by updating state
     setNotifications(prev => {
       // Deduplicate: don't add a notification with the same message already visible
@@ -2062,7 +2062,12 @@ export default function Home() {
       otherNotifications.forEach((item) => {
         const id = item?.id;
         if (item?.message && (id === undefined || !seenNotificationIds.current.has(id))) {
-          addNotification(item.message, 'info', 9000);
+          const notifType = item?.notification_type as string | undefined;
+          const soundFile =
+            notifType === 'race_starting_soon' ? '/TP_RaceAbouttoStart.mp3' :
+            notifType === 'race_started' ? '/TP_RaceStarted.mp3' :
+            undefined;
+          addNotification(item.message, 'info', 9000, soundFile);
           if (id !== undefined) seenNotificationIds.current.add(id);
         }
       });
