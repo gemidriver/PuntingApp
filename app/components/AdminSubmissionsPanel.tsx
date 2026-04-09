@@ -159,7 +159,12 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globa
         <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white px-4 py-2 rounded shadow-lg transition-opacity">{toast}</div>
       )}
 
-      {loading ? <div>Loading...</div> : null}
+      {loading ? (
+        <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
+          <video src="/TP_HorseRunning_Final.mp4" autoPlay muted loop playsInline style={{ width: 28, height: 28, objectFit: 'contain' }} />
+          Loading...
+        </div>
+      ) : null}
 
       {/* Filter tabs */}
       <div className="flex gap-1 mb-4 border-b border-slate-200">

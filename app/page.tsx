@@ -60,6 +60,7 @@ interface Notification {
   type: 'success' | 'error' | 'info' | 'warning';
   duration?: number; // in ms; 0 means manual dismissal
   isChat?: boolean;
+  notificationType?: string;
 }
 
 const GLOBAL_MEETS_SETTING_KEY = 'global_meets';
@@ -297,6 +298,45 @@ const getAuthRedirectUrl = () => {
   return undefined;
 };
 
+function HorseSpinner({ size = 24 }: { size?: number }) {
+  return (
+    <video
+      src="/TP_HorseRunning_Final.mp4"
+      autoPlay
+      muted
+      loop
+      playsInline
+      style={{ width: size, height: size, objectFit: 'contain', display: 'inline-block', verticalAlign: 'middle' }}
+    />
+  );
+}
+
+function HorseRunningClip({ size = 80 }: { size?: number }) {
+  const loopsRef = useRef(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [visible, setVisible] = useState(true);
+
+  if (!visible) return null;
+  return (
+    <video
+      ref={videoRef}
+      src="/TP_HorseRunning_Final.mp4"
+      autoPlay
+      muted
+      playsInline
+      style={{ width: size, height: size, objectFit: 'contain', display: 'block' }}
+      onEnded={() => {
+        loopsRef.current += 1;
+        if (loopsRef.current >= 2) {
+          setVisible(false);
+        } else {
+          videoRef.current?.play();
+        }
+      }}
+    />
+  );
+}
+
 function SwipeablNotification({
   onDismiss,
   className,
@@ -532,11 +572,11 @@ export default function Home() {
   };
 
   // Always show notification banner, even if chat is open or user is focused elsewhere
-  const addNotification = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration: number = 0, soundFile?: string) => {
+  const addNotification = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration: number = 0, soundFile?: string, notificationType?: string) => {
     // Detect chat notification by message content
     const isChat = !!(message && message.toLowerCase().includes('mentioned in chat'));
     const id = String(Date.now() + Math.random());
-    const notification: Notification = { id, message, type, duration, isChat };
+    const notification: Notification = { id, message, type, duration, isChat, notificationType };
     playNotificationSound(type, soundFile);
     // Always bring notification container to front by updating state
     setNotifications(prev => {
@@ -2067,7 +2107,7 @@ export default function Home() {
             notifType === 'race_starting_soon' ? '/TP_RaceAbouttoStart.mp3' :
             notifType === 'race_started' ? '/TP_RaceStarted.mp3' :
             undefined;
-          addNotification(item.message, 'info', 9000, soundFile);
+          addNotification(item.message, 'info', 9000, soundFile, notifType);
           if (id !== undefined) seenNotificationIds.current.add(id);
         }
       });
@@ -2450,6 +2490,36 @@ export default function Home() {
     const loadManualRunners = async () => {
       setManualRunnersLoading(true);
       try {
+        // Helper: fetch runner names from Betfair market catalogue for a given marketId.
+        // Returns a map of selectionId -> display name for runners with real (non-placeholder) names.
+        const fetchBetfairNameMap = async (marketId: string): Promise<Map<string, string>> => {
+          const nameMap = new Map<string, string>();
+          try {
+            const res = await fetch(`/api/market-runners?marketId=${encodeURIComponent(marketId)}`);
+            if (!res.ok) return nameMap;
+            const data = await res.json() as { runners?: Array<{ id: string; name: string; number: number | null }> };
+            (data.runners ?? []).forEach((r) => {
+              const name = formatHorseDisplayName(r.name, r.number);
+              if (r.id && name && !isRunnerPlaceholderName(name)) {
+                nameMap.set(r.id, name);
+              }
+            });
+          } catch {
+            // best-effort
+          }
+          return nameMap;
+        };
+
+        // Enrich a runner list: replace placeholder names with real names from Betfair.
+        const enrichWithBetfairNames = (
+          options: Array<{ horseId: string; horseName: string }>,
+          nameMap: Map<string, string>
+        ) => options.map((opt) =>
+          isRunnerPlaceholderName(opt.horseName) && nameMap.has(opt.horseId)
+            ? { horseId: opt.horseId, horseName: nameMap.get(opt.horseId)! }
+            : opt
+        );
+
         const meetCandidates = meetsForPicks.length ? meetsForPicks : globalMeets;
 
         for (const meet of meetCandidates) {
@@ -2468,10 +2538,19 @@ export default function Home() {
               continue;
             }
 
-            const options = race.runners.map((runner) => ({
+            let options = race.runners.map((runner) => ({
               horseId: runner.id,
               horseName: formatHorseDisplayName(runner.name, runner.number),
             }));
+
+            // If any runners still have placeholder names, enrich with Betfair catalogue names.
+            const hasPlaceholders = options.some((o) => isRunnerPlaceholderName(o.horseName));
+            if (hasPlaceholders) {
+              const betfairNames = await fetchBetfairNameMap(manualResultRaceId);
+              if (betfairNames.size) {
+                options = enrichWithBetfairNames(options, betfairNames);
+              }
+            }
 
             if (!active) {
               return;
@@ -2487,32 +2566,25 @@ export default function Home() {
           }
         }
 
-        const runnerEndpoints = ['/api/results', '/api/market-runners'];
-        for (const endpoint of runnerEndpoints) {
-          const res = await fetch(`${endpoint}?marketId=${encodeURIComponent(manualResultRaceId)}`);
-          if (!res.ok) {
-            continue;
+        // Fallback: fetch directly from Betfair market catalogue.
+        const betfairRes = await fetch(`/api/market-runners?marketId=${encodeURIComponent(manualResultRaceId)}`);
+        if (betfairRes.ok) {
+          const betfairData = await betfairRes.json() as { runners?: Array<{ id: string; name: string; number: number | null }> };
+          const options = (betfairData.runners ?? [])
+            .filter((r) => r.id)
+            .map((r) => ({
+              horseId: r.id,
+              horseName: formatHorseDisplayName(r.name, r.number),
+            }));
+
+          if (active && options.length) {
+            setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
+            setRaceRunnersCache(prev => {
+              const next = { ...prev, [manualResultRaceId]: options };
+              void persistRaceRunnersCache(next);
+              return next;
+            });
           }
-
-          const data = await res.json() as { runners?: Array<{ id: string; name: string; number: number | null }> };
-          const options = Array.isArray(data.runners)
-            ? data.runners.map((runner) => ({
-              horseId: runner.id,
-              horseName: formatHorseDisplayName(runner.name, runner.number),
-            }))
-            : [];
-
-          if (!active || !options.length) {
-            continue;
-          }
-
-          setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
-          setRaceRunnersCache(prev => {
-            const next = { ...prev, [manualResultRaceId]: options };
-            void persistRaceRunnersCache(next);
-            return next;
-          });
-          return;
         }
       } catch {
         // Keep silent and let existing fallbacks provide options.
@@ -2707,7 +2779,8 @@ export default function Home() {
   };
 
   const renderRaceLoadingState = () => (
-    <div className="rounded-lg bg-white p-4 shadow-sm">
+    <div className="rounded-lg bg-white p-4 shadow-sm flex items-center gap-3">
+      <HorseSpinner size={36} />
       <p className="text-sm text-slate-500">Loading races...</p>
     </div>
   );
@@ -3444,7 +3517,7 @@ export default function Home() {
             disabled={isSubmitting}
             className="flex-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            {isSubmitting ? 'Submitting...' : 'Confirm and Submit'}
+            {isSubmitting ? <span className="inline-flex items-center gap-2"><HorseSpinner size={18} />Submitting...</span> : 'Confirm and Submit'}
           </button>
           <button
             onClick={() => setShowSubmitConfirm(false)}
@@ -3480,7 +3553,7 @@ export default function Home() {
             disabled={resultsFetching || submissionRows.length === 0}
             className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            {resultsFetching ? 'Fetching...' : 'Fetch Results'}
+            {resultsFetching ? <span className="inline-flex items-center gap-2"><HorseSpinner size={18} />Fetching...</span> : 'Fetch Results'}
           </button>
           {/* Persist Results button removed — results are persisted automatically when races start */}
           <label className="inline-flex items-center gap-2 text-sm text-slate-700">
@@ -4349,7 +4422,7 @@ export default function Home() {
             disabled={betfairHealthLoading}
             className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {betfairHealthLoading ? 'Checking...' : 'Refresh Status'}
+            {betfairHealthLoading ? <span className="inline-flex items-center gap-2"><HorseSpinner size={18} />Checking...</span> : 'Refresh Status'}
           </button>
         </div>
 
@@ -4421,6 +4494,7 @@ export default function Home() {
           : notification.type === 'error' ? '✕'
           : notification.type === 'warning' ? '⚠'
           : 'ℹ';
+        const isRaceEvent = notification.notificationType === 'race_starting_soon' || notification.notificationType === 'race_started';
         return (
           <SwipeablNotification
             key={notification.id}
@@ -4428,7 +4502,11 @@ export default function Home() {
             className={`flex items-start gap-3 rounded-lg border px-4 py-3 shadow-lg ${bgColor} pointer-events-auto`}
             style={{ minWidth: 320, maxWidth: 400 }}
           >
-            <span className={`text-lg font-bold ${textColor}`}>{iconEmoji}</span>
+            {isRaceEvent ? (
+              <HorseRunningClip size={64} />
+            ) : (
+              <span className={`text-lg font-bold ${textColor}`}>{iconEmoji}</span>
+            )}
             <p className={`flex-1 text-sm ${textColor}`}>{notification.message}</p>
             <button
               onClick={() => removeNotification(notification.id)}
@@ -4790,13 +4868,7 @@ export default function Home() {
                   disabled={adminSelectedMeets.length !== 2 || isPublishing}
                   className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  {isPublishing && (
-                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                    </svg>
-                  )}
-                  {isPublishing ? 'Publishing...' : 'Publish Meets for New Day'}
+                  {isPublishing ? <span className="inline-flex items-center gap-2"><HorseSpinner size={18} />Publishing...</span> : 'Publish Meets for New Day'}
                 </button>
                 </div>
               </div>
