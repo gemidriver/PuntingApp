@@ -5,7 +5,7 @@ type MeetTypeFilter = 'All' | 'Thoroughbred' | 'Harness';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Avatar from '../components/Avatar';
 import MobileBottomNav from '../components/MobileBottomNav';
 import RaceSelect from '../components/RaceSelect';
@@ -296,6 +296,58 @@ const getAuthRedirectUrl = () => {
 
   return undefined;
 };
+
+function SwipeablNotification({
+  onDismiss,
+  className,
+  style,
+  children,
+}: {
+  onDismiss: () => void;
+  className?: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  const SWIPE_THRESHOLD = 80; // px
+  const startX = useRef<number | null>(null);
+  const [offsetX, setOffsetX] = useState(0);
+  const [dismissing, setDismissing] = useState(false);
+
+  const dismiss = useCallback(() => {
+    setDismissing(true);
+    setTimeout(onDismiss, 200);
+  }, [onDismiss]);
+
+  return (
+    <div
+      role="alert"
+      className={className}
+      style={{
+        ...style,
+        transform: `translateX(${offsetX}px)`,
+        opacity: dismissing ? 0 : Math.max(0, 1 - Math.abs(offsetX) / (SWIPE_THRESHOLD * 1.5)),
+        transition: offsetX === 0 || dismissing ? 'transform 0.2s ease, opacity 0.2s ease' : undefined,
+        touchAction: 'pan-y',
+        userSelect: 'none',
+      }}
+      onTouchStart={(e) => { startX.current = e.touches[0].clientX; }}
+      onTouchMove={(e) => {
+        if (startX.current === null) return;
+        setOffsetX(e.touches[0].clientX - startX.current);
+      }}
+      onTouchEnd={() => {
+        if (Math.abs(offsetX) >= SWIPE_THRESHOLD) {
+          dismiss();
+        } else {
+          setOffsetX(0);
+        }
+        startX.current = null;
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 export default function Home() {
   const [meets, setMeets] = useState<Meet[]>([]);
@@ -4319,23 +4371,23 @@ export default function Home() {
           : notification.type === 'warning' ? '⚠'
           : 'ℹ';
         return (
-          <div
+          <SwipeablNotification
             key={notification.id}
-            className={`flex items-start gap-3 rounded-lg border px-4 py-3 shadow-lg animate-in ${bgColor} pointer-events-auto`}
-            role="alert"
+            onDismiss={() => removeNotification(notification.id)}
+            className={`flex items-start gap-3 rounded-lg border px-4 py-3 shadow-lg ${bgColor} pointer-events-auto`}
             style={{ minWidth: 320, maxWidth: 400 }}
           >
             <span className={`text-lg font-bold ${textColor}`}>{iconEmoji}</span>
             <p className={`flex-1 text-sm ${textColor}`}>{notification.message}</p>
             <button
               onClick={() => removeNotification(notification.id)}
-              className={`text-lg font-bold hover:opacity-70 ${textColor}`}
+              className={`text-lg font-bold leading-none hover:opacity-70 ${textColor}`}
               aria-label="Close notification"
               style={{ pointerEvents: 'auto' }}
             >
               ×
             </button>
-          </div>
+          </SwipeablNotification>
         );
       })}
     </div>

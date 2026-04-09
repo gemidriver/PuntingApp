@@ -1,12 +1,66 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Avatar from '../../../components/Avatar';
 import MobileBottomNav from '../../../components/MobileBottomNav';
 import Link from 'next/link';
 import { getSupabaseClient } from '../../../lib/supabase';
 import { useRouter } from 'next/navigation';
 import { useUser } from '../../../lib/useUser';
+
+function SwipeableNotificationRow({
+  onDismiss,
+  children,
+}: {
+  onDismiss: () => void;
+  children: React.ReactNode;
+}) {
+  const THRESHOLD = 80;
+  const startX = useRef<number | null>(null);
+  const [offsetX, setOffsetX] = useState(0);
+  const [dismissing, setDismissing] = useState(false);
+
+  const dismiss = useCallback(() => {
+    setDismissing(true);
+    setTimeout(onDismiss, 180);
+  }, [onDismiss]);
+
+  return (
+    <div
+      className="rounded bg-white border flex items-start gap-2"
+      style={{
+        transform: `translateX(${offsetX}px)`,
+        opacity: dismissing ? 0 : Math.max(0, 1 - Math.abs(offsetX) / (THRESHOLD * 1.5)),
+        transition: offsetX === 0 || dismissing ? 'transform 0.18s ease, opacity 0.18s ease' : undefined,
+        touchAction: 'pan-y',
+        userSelect: 'none',
+        overflow: 'hidden',
+      }}
+      onTouchStart={(e) => { startX.current = e.touches[0].clientX; }}
+      onTouchMove={(e) => {
+        if (startX.current === null) return;
+        setOffsetX(e.touches[0].clientX - startX.current);
+      }}
+      onTouchEnd={() => {
+        if (Math.abs(offsetX) >= THRESHOLD) {
+          dismiss();
+        } else {
+          setOffsetX(0);
+        }
+        startX.current = null;
+      }}
+    >
+      <div className="flex-1 p-3">{children}</div>
+      <button
+        onClick={dismiss}
+        aria-label="Dismiss notification"
+        className="px-3 py-3 text-slate-400 hover:text-slate-700 text-lg leading-none flex-shrink-0 self-start"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
 
 // User profile page (client) — shows avatar and links to avatar selector
 export default function UserProfilePage({ params }: { params: { username: string } }) {
@@ -148,12 +202,10 @@ export default function UserProfilePage({ params }: { params: { username: string
             ) : (
               <div className="flex flex-col gap-2">
                 {notifications.map((n) => (
-                  <div key={n.id} className="rounded bg-white p-3 border">
-                    <div>
-                      <div className="text-sm font-medium text-slate-800">{n.message}</div>
-                      <div className="text-xs text-slate-400">{new Date(n.created_at).toLocaleString()}</div>
-                    </div>
-                  </div>
+                  <SwipeableNotificationRow key={n.id} onDismiss={() => markNotificationsRead([n.id])}>
+                    <div className="text-sm font-medium text-slate-800">{n.message}</div>
+                    <div className="text-xs text-slate-400">{new Date(n.created_at).toLocaleString()}</div>
+                  </SwipeableNotificationRow>
                 ))}
               </div>
             )}
