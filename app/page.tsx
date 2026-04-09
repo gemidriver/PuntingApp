@@ -68,7 +68,7 @@ const RACE_RESULTS_SETTING_KEY = 'race_results';
 const RACE_RUNNERS_SETTING_KEY = 'race_runners';
 const PREVIOUS_ROUND_SNAPSHOT_SETTING_KEY = 'previous_round_snapshot';
 
-type RaceResultEntry = {
+type RaceResultMapEntry = {
   winnerId: string;
   winnerName: string | null;
   secondId?: string | null;
@@ -78,7 +78,7 @@ type RaceResultEntry = {
   inferredPlaces?: boolean;
 };
 
-type RaceResultsMap = Record<string, RaceResultEntry>;
+type RaceResultsMap = Record<string, RaceResultMapEntry>;
 type RaceRunnersMap = Record<string, Array<{ horseId: string; horseName: string }>>;
 type RaceResultRow = {
   meet_id: string;
@@ -298,6 +298,78 @@ const getAuthRedirectUrl = () => {
   return undefined;
 };
 
+type RaceResultEntry = {
+  raceId: string;
+  raceName: string;
+  location: string;
+  winnerName: string | null;
+  secondName: string | null;
+  thirdName: string | null;
+  inferredPlaces?: boolean;
+};
+
+function HomeRaceResultsPanel({ results, meetLabel }: { results: RaceResultEntry[]; meetLabel: string | null }) {
+  const locations = Array.from(new Set(results.map((r) => r.location).filter(Boolean)));
+  const [activeLocation, setActiveLocation] = useState<string>(locations[0] ?? '');
+
+  useEffect(() => {
+    if (locations.length && !locations.includes(activeLocation)) {
+      setActiveLocation(locations[0]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locations.join(',')]);
+
+  const filtered = activeLocation ? results.filter((r) => r.location === activeLocation) : results;
+
+  return (
+    <div className="rounded-lg bg-white p-4 shadow-sm">
+      <h3 className="text-lg font-semibold">Last Round Race Results</h3>
+      {meetLabel ? <p className="mt-1 text-xs text-slate-500">{meetLabel}</p> : null}
+      {locations.length > 1 && (
+        <div className="mt-3 flex gap-1 flex-wrap">
+          {locations.map((loc) => (
+            <button
+              key={loc}
+              onClick={() => setActiveLocation(loc)}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                activeLocation === loc
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {loc}
+            </button>
+          ))}
+        </div>
+      )}
+      <ul className="mt-3 space-y-2">
+        {filtered.map((result, idx) => {
+          const isBetfairId = /^\d+\.\d+$/.test(result.raceName);
+          const displayName = isBetfairId ? `Race ${idx + 1}` : result.raceName;
+          return (
+          <li key={`home-result-${result.raceId}`} className="rounded-md bg-slate-50 px-3 py-2 text-sm">
+            <div className="font-medium">{result.location} - {displayName}</div>
+            <div className="mt-1 text-slate-700">1st: {result.winnerName || 'TBC'}</div>
+            <div className="flex items-center gap-1 text-slate-700">
+              2nd: {result.secondName || 'TBC'}
+              {result.secondName && result.inferredPlaces && (
+                <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1 text-slate-700">
+              3rd: {result.thirdName || 'TBC'}
+              {result.thirdName && result.inferredPlaces && (
+                <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+              )}
+            </div>
+          </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function HorseSpinner({ size = 24 }: { size?: number }) {
   return (
     <video
@@ -462,6 +534,7 @@ export default function Home() {
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isClosingMeet, setIsClosingMeet] = useState(false);
   const [activeScreen, setActiveScreen] = useState<'home' | 'main' | 'admin' | 'submissions' | 'leaderboard'>('home');
 
   // Sync active screen from URL so external navigation (layout/router) and
@@ -1077,6 +1150,39 @@ export default function Home() {
     }
   };
 
+  const isBetfairMarketId = (v: string) => /^\d+\.\d+$/.test(v);
+
+  /** Resolve any Betfair market IDs in snapshot results with proper race names from race_history. */
+  const enrichSnapshotRaceNames = async (
+    snapshot: PreviousRoundSnapshot,
+    supabase: ReturnType<typeof getSupabaseClient>
+  ): Promise<PreviousRoundSnapshot> => {
+    const unresolvedRaceIds = snapshot.results
+      .filter((r) => isBetfairMarketId(r.raceName))
+      .map((r) => r.raceId);
+    if (!unresolvedRaceIds.length) return snapshot;
+
+    const { data: histRows } = await supabase
+      .from('race_history')
+      .select('race_id,race_name')
+      .in('race_id', unresolvedRaceIds);
+    const histMap = new Map<string, string>();
+    (histRows || []).forEach((h: any) => {
+      if (h.race_id && h.race_name) histMap.set(h.race_id, h.race_name);
+    });
+
+    if (!histMap.size) return snapshot;
+
+    return {
+      ...snapshot,
+      results: snapshot.results.map((r) =>
+        isBetfairMarketId(r.raceName) && histMap.has(r.raceId)
+          ? { ...r, raceName: histMap.get(r.raceId)! }
+          : r
+      ),
+    };
+  };
+
   const loadPreviousRoundSnapshot = async () => {
     const supabase = getSupabaseClient();
     const { data } = await supabase
@@ -1086,7 +1192,8 @@ export default function Home() {
       .maybeSingle();
 
     if (data?.value && typeof data.value === 'object') {
-      setPreviousRoundSnapshot(data.value as PreviousRoundSnapshot);
+      const snapshot = await enrichSnapshotRaceNames(data.value as PreviousRoundSnapshot, supabase);
+      setPreviousRoundSnapshot(snapshot);
       return;
     }
 
@@ -1112,12 +1219,14 @@ export default function Home() {
         }>;
       };
 
-      setPreviousRoundSnapshot({
+      const rawSnapshot: PreviousRoundSnapshot = {
         capturedAt: latest.round_closed_at || new Date().toISOString(),
         meets: Array.isArray(latest.meets) ? latest.meets : [],
         scoreboard: Array.isArray(latest.scoreboard) ? latest.scoreboard : [],
         results: Array.isArray(latest.results) ? latest.results : [],
-      });
+      };
+      const enrichedSnapshot = await enrichSnapshotRaceNames(rawSnapshot, supabase);
+      setPreviousRoundSnapshot(enrichedSnapshot);
       return;
     }
 
@@ -1665,12 +1774,34 @@ export default function Home() {
             historyByKey.set(`${h.meet_id}|${h.race_id}`, { race_name: h.race_name, course: h.course });
           });
 
+          // Also pull race names from submissions so we can resolve Betfair IDs → real names
+          const { data: submissionData } = await supabase
+            .from('user_submissions')
+            .select('selections');
+          const submissionRaceNames = new Map<string, string>(); // raceId → raceName
+          (submissionData || []).forEach((row: any) => {
+            (Array.isArray(row.selections) ? row.selections : []).forEach((sel: any) => {
+              if (sel.raceId && sel.raceName && !submissionRaceNames.has(sel.raceId)) {
+                submissionRaceNames.set(sel.raceId, sel.raceName);
+              }
+            });
+          });
+
+          const isBetfairId = (v: string) => /^\d+\.\d+$/.test(v);
+
           dbResults = [...byRace.entries()].map(([key, rows]) => {
             const [meetId, raceId] = key.split('|');
             const hist = historyByKey.get(key);
             const meetMeta = meetsForSnapshot.find((m) => m.meet_id === meetId);
             const location = hist?.course || meetMeta?.course || meetId;
-            const raceName = hist?.race_name || raceId;
+            // Prefer: race_history name → submission raceName → lastRoundRaceResults memo → raceId fallback
+            const memoResult = lastRoundRaceResults.find((r) => r.raceId === raceId);
+            const rawName = hist?.race_name
+              || submissionRaceNames.get(raceId)
+              || memoResult?.raceName
+              || raceId;
+            // If what we have is still a Betfair market ID, try to extract a usable label
+            const raceName = isBetfairId(rawName) ? (memoResult?.raceName && !isBetfairId(memoResult.raceName) ? memoResult.raceName : rawName) : rawName;
             const w = rows.find((r) => r.finishing_position === 1);
             const s = rows.find((r) => r.finishing_position === 2);
             const t = rows.find((r) => r.finishing_position === 3);
@@ -3456,32 +3587,7 @@ export default function Home() {
       ) : null}
 
       {homeLastRoundRaceResults.length > 0 ? (
-        <div className="rounded-lg bg-white p-4 shadow-sm">
-          <h3 className="text-lg font-semibold">Last Round Race Results</h3>
-          {homePreviousMeetLabel ? (
-            <p className="mt-1 text-xs text-slate-500">{homePreviousMeetLabel}</p>
-          ) : null}
-          <ul className="mt-3 space-y-2">
-            {homeLastRoundRaceResults.map((result) => (
-              <li key={`home-result-${result.raceId}`} className="rounded-md bg-slate-50 px-3 py-2 text-sm">
-                <div className="font-medium">{result.location} - {result.raceName}</div>
-                <div className="mt-1 text-slate-700">1st: {result.winnerName || 'TBC'}</div>
-                <div className="flex items-center gap-1 text-slate-700">
-                  2nd: {result.secondName || 'TBC'}
-                  {result.secondName && result.inferredPlaces && (
-                    <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 text-slate-700">
-                  3rd: {result.thirdName || 'TBC'}
-                  {result.thirdName && result.inferredPlaces && (
-                    <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <HomeRaceResultsPanel results={homeLastRoundRaceResults} meetLabel={homePreviousMeetLabel} />
       ) : null}
     </section>
   );
@@ -4861,11 +4967,13 @@ export default function Home() {
                 
                 <button
                   onClick={() => {
-                    void resetRaceDayState([]);
+                    setIsClosingMeet(true);
+                    resetRaceDayState([]).finally(() => setIsClosingMeet(false));
                   }}
-                  className="rounded-full bg-red-100 px-4 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-200"
+                  disabled={isClosingMeet || globalMeets.length === 0}
+                  className="rounded-full bg-red-100 px-4 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Close Meet &amp; Start New Day
+                  {isClosingMeet ? <span className="inline-flex items-center gap-2"><HorseSpinner size={18} />Closing...</span> : 'Close Meet & Start New Day'}
                 </button>
                 <button
                   onClick={() => {
