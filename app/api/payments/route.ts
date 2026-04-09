@@ -1,6 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '../../../lib/supabaseAdmin';
 
+const ENTRY_FEE = 15;
+const ENTRY_CURRENCY = 'AUD';
+
 export async function GET(request: Request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -63,15 +66,69 @@ export async function POST(request: Request) {
     if (authErr || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await request.json().catch(() => ({} as any));
-    const amount = Number(body.amount || 0);
-    const meetId = body.meetId || null;
-    const currency = body.currency || 'USD';
+    // meetIds is an array of all active meet IDs for the current round
+    const meetIds: string[] = Array.isArray(body.meetIds) ? body.meetIds.filter(Boolean) : [];
+    if (body.meetId && !meetIds.includes(body.meetId)) meetIds.unshift(body.meetId);
+    const primaryMeetId = meetIds[0] || null;
+    const amount = Number(body.amount ?? ENTRY_FEE);
+    const currency = body.currency || ENTRY_CURRENCY;
 
     if (!amount || amount <= 0) return Response.json({ error: 'Invalid amount' }, { status: 400 });
 
-    const { data, error } = await sup.from('payments').insert([{ user_id: user.id, meet_id: meetId, amount, currency }]).select().single();
-    if (error) return Response.json({ error: 'Failed to create payment' }, { status: 500 });
-    return Response.json({ payment: data });
+    // Idempotent: only create a payment if none already exists for this user+meet
+    let paymentData: any = null;
+    if (primaryMeetId) {
+      const { data: existing } = await sup
+        .from('payments')
+        .select('id,status')
+        .eq('user_id', user.id)
+        .eq('meet_id', primaryMeetId)
+        .in('status', ['pending', 'confirmed'])
+        .maybeSingle();
+      if (!existing) {
+        const { data, error } = await sup
+          .from('payments')
+          .insert([{ user_id: user.id, meet_id: primaryMeetId, amount, currency }])
+          .select()
+          .single();
+        if (error) return Response.json({ error: 'Failed to create payment' }, { status: 500 });
+        paymentData = data;
+      } else {
+        paymentData = existing;
+      }
+    } else {
+      // No meet_id — insert as before (backwards compat)
+      const { data, error } = await sup
+        .from('payments')
+        .insert([{ user_id: user.id, meet_id: null, amount, currency }])
+        .select()
+        .single();
+      if (error) return Response.json({ error: 'Failed to create payment' }, { status: 500 });
+      paymentData = data;
+    }
+
+    // Upsert an initial eligibility record (eligible: false) for each active meet so the admin
+    // can see this user in the approvals panel. Uses admin client to bypass RLS.
+    if (meetIds.length) {
+      try {
+        const admin = getSupabaseAdminClient();
+        const eligRows = meetIds.map((mid) => ({
+          user_id: user.id,
+          meet_id: mid,
+          eligible: false,
+        }));
+        // Only insert if no row exists yet (don't overwrite an already-approved eligibility)
+        for (const row of eligRows) {
+          await admin
+            .from('user_eligibilities')
+            .upsert(row, { onConflict: 'user_id,meet_id', ignoreDuplicates: true });
+        }
+      } catch (e) {
+        console.error('Failed to upsert initial eligibility on payment creation', e);
+      }
+    }
+
+    return Response.json({ payment: paymentData });
   } catch (err) {
     console.error('Payments POST error', err);
     return Response.json({ error: 'Internal server error' }, { status: 500 });

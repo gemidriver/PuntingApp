@@ -3,11 +3,21 @@
 import React, { useEffect, useState } from 'react';
 import { getSupabaseClient } from '../../lib/supabase';
 
-export default function AdminSubmissionsPanel({ defaultMeetId = 'current' }: { defaultMeetId?: string }) {
+interface Meet {
+  meet_id: string;
+  course: string;
+  date: string;
+  state: string;
+  raceType?: string;
+}
+
+export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globalMeets = [] }: { defaultMeetId?: string; globalMeets?: Meet[] }) {
   const [rows, setRows] = useState<Array<any>>([]);
   const [loading, setLoading] = useState(false);
   const [meetId, setMeetId] = useState(defaultMeetId);
   const [toast, setToast] = useState<string | null>(null);
+
+  const activeMeetLabel = globalMeets.map((m) => `${m.course} (${m.date})`).join(' · ') || meetId;
 
   // Resolve 'current' to the actual published meet id from app settings when available
   useEffect(() => {
@@ -44,6 +54,42 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current' }: { d
   }
 
   useEffect(() => { fetchList(); }, [meetId]);
+
+  async function recordPayment(userId: string) {
+    try {
+      let resolvedMeetId = meetId;
+      if (resolvedMeetId === 'current') {
+        try {
+          const sup = getSupabaseClient();
+          const { data: setting } = await sup.from('app_settings').select('value').eq('key', 'global_meets').maybeSingle();
+          const value = setting?.value;
+          if (Array.isArray(value) && value.length > 0 && value[0]?.meet_id) {
+            resolvedMeetId = value[0].meet_id;
+            setMeetId(resolvedMeetId);
+          }
+        } catch (e) { /* ignore */ }
+      }
+      const sup = getSupabaseClient();
+      const { data: sessionData } = await sup.auth.getSession();
+      if (!sessionData?.session?.access_token) return;
+      const res = await fetch('/api/admin/payments/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
+        body: JSON.stringify({ userId, meetId: resolvedMeetId }),
+      });
+      if (res.ok) {
+        setRows((prev) => prev.map((r) => r.submission.user_id === userId
+          ? { ...r, payments: { ...r.payments, total: 15, confirmed: 15 }, eligibility: { ...(r.eligibility || {}), eligible: true } }
+          : r));
+        setToast('Payment recorded & confirmed ✓');
+        setTimeout(() => setToast(null), 3000);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setToast(`Error: ${err.error || 'Failed to record payment'}`);
+        setTimeout(() => setToast(null), 4000);
+      }
+    } catch (e) { /* ignore */ }
+  }
 
   async function approve(userId: string) {
     try {
@@ -82,11 +128,13 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current' }: { d
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Admin — Submissions & Approvals</h2>
       <div className="mb-4">
-        <label className="text-sm mr-2">Meet:</label>
-        <input value={meetId} onChange={(e) => setMeetId(e.target.value)} className="border px-2 py-1 rounded" />
-        <button onClick={fetchList} className="ml-2 px-3 py-1 bg-sky-600 text-white rounded">Reload</button>
+        <p className="text-sm font-medium text-slate-700 mb-1">{activeMeetLabel}</p>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-500">Meet ID:</label>
+          <input value={meetId} onChange={(e) => setMeetId(e.target.value)} className="border px-2 py-1 rounded text-xs text-slate-600 w-64" />
+          <button onClick={fetchList} className="px-3 py-1 bg-sky-600 text-white rounded text-sm">Reload</button>
+        </div>
       </div>
 
       {toast && (
@@ -102,11 +150,28 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current' }: { d
               <div>
                 <div className="font-medium">{r.profile?.username ?? r.submission.user_id}</div>
                 <div className="text-sm text-slate-500">{r.profile?.email ?? ''}</div>
-                <div className="text-sm">Submitted: {r.submission.submitted_at ?? '—'}</div>
-                <div className="text-sm">Payments: {r.payments.total} (confirmed: {r.payments.confirmed})</div>
-                <div className="text-sm">Eligible: {r.eligibility?.eligible ? 'Yes' : 'No'}</div>
+                <div className="text-sm text-slate-600">
+                  Submitted: {r.submission.submitted_at ? new Date(r.submission.submitted_at).toLocaleString() : '—'}
+                </div>
+                <div className="text-sm">
+                  {r.payments.confirmed > 0
+                    ? <span className="text-emerald-700 font-medium">Entry fee: ${Number(r.payments.confirmed).toFixed(2)} confirmed ✓</span>
+                    : r.payments.total > 0
+                    ? <span className="text-amber-700">Entry fee: ${Number(r.payments.total).toFixed(2)} — payment pending</span>
+                    : <span className="text-red-600">No payment recorded</span>}
+                </div>
+                <div className="text-sm">
+                  {r.eligibility?.eligible
+                    ? <span className="text-emerald-700 font-medium">Eligible ✓</span>
+                    : <span className="text-amber-700">Awaiting approval</span>}
+                </div>
               </div>
-              <div>
+              <div className="flex flex-col gap-2 items-end">
+                {r.payments.total === 0 && (
+                  <button onClick={() => recordPayment(r.submission.user_id)} className="px-3 py-1 bg-blue-600 text-white rounded text-sm">
+                    Record Payment
+                  </button>
+                )}
                 {r.eligibility?.eligible
                   ? <button disabled className="px-3 py-1 bg-slate-300 text-slate-500 rounded cursor-not-allowed">Approved</button>
                   : <button onClick={() => approve(r.submission.user_id)} className="px-3 py-1 bg-emerald-600 text-white rounded">Approve</button>}

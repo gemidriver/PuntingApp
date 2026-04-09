@@ -309,6 +309,7 @@ export default function Home() {
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [activeScreen, setActiveScreen] = useState<'home' | 'main' | 'admin' | 'submissions' | 'leaderboard'>('home');
 
   // Sync active screen from URL so external navigation (layout/router) and
@@ -406,37 +407,12 @@ export default function Home() {
 
   const clearNotifications = () => setNotifications([]);
 
-  // Play a short tone using Web Audio API — no external file needed
-  const playNotificationSound = (type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
+  // Play notification sound using /notification.mp3
+  const playNotificationSound = (_type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
     try {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContext) return;
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      // Frequency and shape per type
-      if (type === 'success') {
-        osc.frequency.setValueAtTime(520, ctx.currentTime);
-        osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
-      } else if (type === 'error') {
-        osc.frequency.setValueAtTime(320, ctx.currentTime);
-        osc.frequency.setValueAtTime(220, ctx.currentTime + 0.12);
-      } else if (type === 'warning') {
-        osc.frequency.setValueAtTime(440, ctx.currentTime);
-        osc.frequency.setValueAtTime(380, ctx.currentTime + 0.1);
-      } else {
-        // info — gentle double-ping
-        osc.frequency.setValueAtTime(600, ctx.currentTime);
-        osc.frequency.setValueAtTime(700, ctx.currentTime + 0.08);
-      }
-      osc.type = 'sine';
-      gain.gain.setValueAtTime(0.18, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.35);
-      osc.onended = () => ctx.close();
+      const audio = new Audio('/notification.mp3');
+      audio.volume = 0.5;
+      void audio.play();
     } catch (e) {
       // ignore — sound is best-effort
     }
@@ -1711,17 +1687,22 @@ export default function Home() {
       return;
     }
 
-    const meetsToPublish = [...adminSelectedMeets];
-    const didReset = await resetRaceDayState(meetsToPublish);
-    if (!didReset) {
-      return;
-    }
+    setIsPublishing(true);
+    try {
+      const meetsToPublish = [...adminSelectedMeets];
+      const didReset = await resetRaceDayState(meetsToPublish);
+      if (!didReset) {
+        return;
+      }
 
-    for (const meet of meetsToPublish) {
-      await loadRacesForMeet(meet);
-    }
+      for (const meet of meetsToPublish) {
+        await loadRacesForMeet(meet);
+      }
 
-    await emailNewDayMeetsToUsers(meetsToPublish);
+      await emailNewDayMeetsToUsers(meetsToPublish);
+    } finally {
+      setIsPublishing(false);
+    }
   };
 
   const submitSelections = async () => {
@@ -1741,6 +1722,26 @@ export default function Home() {
       await loadSubmissionRows();
       setShowSubmitConfirm(false);
       addNotification('Your selections have been submitted successfully!', 'success', 5000);
+
+      // Auto-create a pending payment + initial eligibility row for the active meets.
+      // This is idempotent — the server skips creation if a payment already exists.
+      try {
+        const supabase = getSupabaseClient();
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (token) {
+          const activeMeetIds = globalMeets.map((m) => m.meet_id).filter(Boolean);
+          if (activeMeetIds.length) {
+            void fetch('/api/payments', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ meetId: activeMeetIds[0], meetIds: activeMeetIds }),
+            }).catch(() => { /* best-effort */ });
+          }
+        }
+      } catch (e) {
+        // Payment registration is best-effort; do not block submission flow
+      }
 
       // Notify all admins by email
       try {
@@ -3148,22 +3149,23 @@ export default function Home() {
     });
   }, [raceResults, submissionRows, runnerNameByRaceId]);
 
-  // Prefer current scoreboard/results if previousRoundSnapshot is null or outdated
-  const homeScoreboard =
-    previousRoundSnapshot && previousRoundSnapshot.scoreboard?.length && previousRoundSnapshot.capturedAt !== undefined
-      ? previousRoundSnapshot.scoreboard
-      : scoreboard;
-
+  // Home page only shows data from the previous completed round (previousRoundSnapshot).
+  // Never fall back to the current round so live participants don't see their own in-progress score.
+  const homeScoreboard = previousRoundSnapshot?.scoreboard ?? [];
   const homeRankedScoreboard = useMemo(() => rankScoreboard(homeScoreboard), [homeScoreboard]);
+  const homeLastRoundRaceResults = previousRoundSnapshot?.results ?? [];
 
-  const homeLastRoundRaceResults =
-    previousRoundSnapshot && previousRoundSnapshot.results && previousRoundSnapshot.results.length > 0 && previousRoundSnapshot.capturedAt !== undefined
-      ? previousRoundSnapshot.results
-      : lastRoundRaceResults;
+  const formatMeetDate = (dateStr: string) => {
+    try {
+      return new Date(dateStr).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch {
+      return dateStr;
+    }
+  };
 
   const homePreviousMeetLabel =
-    previousRoundSnapshot && previousRoundSnapshot.meets?.length && previousRoundSnapshot.capturedAt !== undefined
-      ? previousRoundSnapshot.meets.map((meet) => `${meet.course} (${meet.date})`).join(' • ')
+    previousRoundSnapshot && previousRoundSnapshot.meets?.length
+      ? previousRoundSnapshot.meets.map((meet) => `${meet.course} — ${formatMeetDate(meet.date)}`).join(' · ')
       : null;
 
   const homeContent = (
@@ -3191,11 +3193,12 @@ export default function Home() {
         </button>
       ) : null}
 
-      <div className="rounded-lg bg-white p-4 shadow-sm">
-        <h3 className="text-lg font-semibold">Last Round Points Won</h3>
-        {homeRankedScoreboard.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">No scored results yet for the current round.</p>
-        ) : (
+      {homeRankedScoreboard.length > 0 ? (
+        <div className="rounded-lg bg-white p-4 shadow-sm">
+          <h3 className="text-lg font-semibold">Last Round Points Won</h3>
+          {homePreviousMeetLabel ? (
+            <p className="mt-1 text-xs text-slate-500">{homePreviousMeetLabel}</p>
+          ) : null}
           <ol className="mt-3 space-y-2">
             {homeRankedScoreboard.map((entry) => (
               <li key={`home-score-${entry.username}`} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-sm">
@@ -3204,17 +3207,15 @@ export default function Home() {
               </li>
             ))}
           </ol>
-        )}
-      </div>
+        </div>
+      ) : null}
 
-      <div className="rounded-lg bg-white p-4 shadow-sm">
-        <h3 className="text-lg font-semibold">Last Round Race Results</h3>
-        {homePreviousMeetLabel ? (
-          <p className="mt-2 text-xs text-slate-500">Previous meets: {homePreviousMeetLabel}</p>
-        ) : null}
-        {homeLastRoundRaceResults.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">Race results are not available yet.</p>
-        ) : (
+      {homeLastRoundRaceResults.length > 0 ? (
+        <div className="rounded-lg bg-white p-4 shadow-sm">
+          <h3 className="text-lg font-semibold">Last Round Race Results</h3>
+          {homePreviousMeetLabel ? (
+            <p className="mt-1 text-xs text-slate-500">{homePreviousMeetLabel}</p>
+          ) : null}
           <ul className="mt-3 space-y-2">
             {homeLastRoundRaceResults.map((result) => (
               <li key={`home-result-${result.raceId}`} className="rounded-md bg-slate-50 px-3 py-2 text-sm">
@@ -3235,8 +3236,8 @@ export default function Home() {
               </li>
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      ) : null}
     </section>
   );
 
@@ -4562,10 +4563,16 @@ export default function Home() {
                   onClick={() => {
                     void publishGlobalMeetSelection();
                   }}
-                  disabled={adminSelectedMeets.length !== 2}
-                  className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  disabled={adminSelectedMeets.length !== 2 || isPublishing}
+                  className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  Publish Meets for New Day
+                  {isPublishing && (
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                  )}
+                  {isPublishing ? 'Publishing...' : 'Publish Meets for New Day'}
                 </button>
                 </div>
               </div>
@@ -4715,9 +4722,8 @@ export default function Home() {
           {/* New combined admin panels: Payments + Submissions */}
           <section className={`mb-10 ${activeScreen === 'admin' ? '' : 'hidden'}`}>
             <h2 className="text-xl font-semibold mb-1">Admin — Submissions & Approvals</h2>
-            <p className="text-sm text-slate-500 mb-3">Using meet: {globalMeets?.[0]?.meet_id ?? 'none'}</p>
             <div className="bg-white rounded-lg p-4 shadow-sm">
-              <AdminSubmissionsPanel defaultMeetId={globalMeets?.[0]?.meet_id ?? 'current'} />
+              <AdminSubmissionsPanel defaultMeetId={globalMeets?.[0]?.meet_id ?? 'current'} globalMeets={globalMeets} />
             </div>
           </section>
 
@@ -4791,6 +4797,9 @@ export default function Home() {
                     Submitted {submittedSelections.selections.length} selections
                     {submittedSelections.wildcard && ' with wildcard'}
                     {submittedSelections.submittedAt && ` on ${new Date(submittedSelections.submittedAt).toLocaleString()}`}
+                  </p>
+                  <p className="mt-2 text-sm font-medium text-amber-700">
+                    ⚠ Your entry is pending approval. An admin must confirm your payment before you are eligible for this meet.
                   </p>
                 </div>
               ) : null}
@@ -5336,6 +5345,9 @@ export default function Home() {
                   Submitted {submittedSelections.selections.length} selections
                   {submittedSelections.wildcard && ' with wildcard'}
                   {submittedSelections.submittedAt && ` on ${new Date(submittedSelections.submittedAt).toLocaleString()}`}
+                </p>
+                <p className="mt-2 text-sm font-medium text-amber-700">
+                  ⚠ Your entry is pending approval. An admin must confirm your payment before you are eligible for this meet.
                 </p>
               </div>
             ) : null}

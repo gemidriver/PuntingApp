@@ -426,3 +426,41 @@ as $$
   where ue.meet_id = target_meet
     and ue.eligible = true;
 $$;
+
+-- race_meets: permanent record of every published race day session.
+-- Rows are upserted when the admin publishes meets (or closes a round).
+create table if not exists public.race_meets (
+  id bigserial primary key,
+  meet_id text not null,
+  course text not null,
+  race_date date not null,
+  race_type text,
+  state text,
+  published_at timestamptz not null default now(),
+  closed_at timestamptz,
+  status text not null check (status in ('active', 'closed')) default 'active',
+  meta jsonb default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  unique (meet_id, published_at)
+);
+
+create index if not exists race_meets_meet_id_idx on public.race_meets (meet_id);
+create index if not exists race_meets_status_idx on public.race_meets (status);
+create index if not exists race_meets_race_date_idx on public.race_meets (race_date desc);
+
+alter table public.race_meets enable row level security;
+
+drop policy if exists "race_meets_select_authenticated" on public.race_meets;
+drop policy if exists "race_meets_write_admin" on public.race_meets;
+create policy "race_meets_select_authenticated"
+on public.race_meets
+for select
+to authenticated
+using (true);
+
+create policy "race_meets_write_admin"
+on public.race_meets
+for all
+to authenticated
+using (public.is_admin_user(auth.uid()))
+with check (public.is_admin_user(auth.uid()));
