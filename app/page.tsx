@@ -1795,17 +1795,18 @@ export default function Home() {
       try {
         const meetIds = meetsForSnapshot.map((m) => m.meet_id);
 
-        // Fetch aggregated scores from user_selection_scores
-        const { data: scoreRows } = await supabase
-          .from('user_selection_scores')
-          .select('username,total_points')
-          .in('meet_id', meetIds);
-        if (Array.isArray(scoreRows) && scoreRows.length > 0) {
-          const totals = new Map<string, number>();
-          scoreRows.forEach((r: any) => {
-            totals.set(r.username, (totals.get(r.username) ?? 0) + (r.total_points ?? 0));
-          });
-          dbScoreboard = [...totals.entries()].map(([username, score]) => ({ username, score }));
+        // IMPORTANT: Run recalculate_scores_for_meet synchronously for every meet before reading
+        // user_selection_scores. The admin reset that follows will delete user_eligibilities,
+        // which the RPC joins against — so this MUST complete before the reset call.
+        // Note: we do NOT use user_selection_scores for the snapshot scoreboard because the DB
+        // function matches horses by ID only, which misses name-only picks. The client-side
+        // `scoreboard` memo (already set as dbScoreboard default) uses name+ID matching and is correct.
+        for (const meetId of meetIds) {
+          try {
+            await supabase.rpc('recalculate_scores_for_meet', { target_meet_id: meetId });
+          } catch (err) {
+            console.warn('recalculate_scores_for_meet failed for meet', meetId, err);
+          }
         }
 
         // Fetch race results and resolve meet/race names
@@ -3645,7 +3646,12 @@ export default function Home() {
 
   const homePreviousMeetLabel =
     previousRoundSnapshot && previousRoundSnapshot.meets?.length
-      ? previousRoundSnapshot.meets.map((meet) => `${meet.course} — ${formatMeetDate(meet.date)}`).join(' · ')
+      ? previousRoundSnapshot.meets.map((meet) => {
+          // meet.course from the API already contains the human-readable date (e.g. "Gold Coast (AUS) 10th Apr").
+          // Only append the year from meet.date to avoid full date duplication.
+          const year = meet.date ? ` ${new Date(meet.date).getFullYear()}` : '';
+          return `${meet.course}${year}`;
+        }).join(' · ')
       : null;
 
   const homeContent = (
@@ -4137,7 +4143,7 @@ export default function Home() {
         // These rows have horse_id/horse_name for each pick, but finishing_position may be wrong if IDs mismatched.
         const { data: scoreRows } = await supabase
           .from('user_selection_scores')
-          .select('username,race_id,horse_id,horse_name,finishing_position');
+          .select('username,meet_id,race_id,horse_id,horse_name,finishing_position');
 
         // Fetch current-round submissions — only available for the current open meet, not historical.
         const { data: currentSubs } = await supabase
@@ -4153,14 +4159,23 @@ export default function Home() {
           raceResultsLookup.set(r.race_id, list);
         }
 
-        // Resolve the finishing position for a pick using ID-match first, then name-match fallback.
+        // Resolve the finishing position for a pick — uses the same normalization logic as
+        // horseMatchesResult (normalizeHorseNameForComparison, extractHorseNumber, isRunnerPlaceholderName)
+        // so name matching is identical to what the live scoreboard uses.
         const resolvePosition = (raceId: string, horseId: string | null | undefined, horseName: string | null | undefined): number | null => {
           const candidates = raceResultsLookup.get(raceId) ?? [];
           for (const c of candidates) {
-            const idMatch = horseId && c.horse_id && horseId === c.horse_id;
-            const nameMatch = horseName && c.horse_name &&
-              horseName.trim().toLowerCase() === c.horse_name.trim().toLowerCase();
-            if (idMatch || nameMatch) return c.finishing_position;
+            if (horseId && c.horse_id && horseId === c.horse_id) return c.finishing_position;
+            if (horseName && c.horse_name) {
+              const selNorm = normalizeHorseNameForComparison(horseName);
+              const resNorm = normalizeHorseNameForComparison(c.horse_name);
+              if (selNorm && resNorm && !isRunnerPlaceholderName(horseName) && !isRunnerPlaceholderName(c.horse_name) && selNorm === resNorm) {
+                return c.finishing_position;
+              }
+              const selNum = extractHorseNumber(horseName);
+              const resNum = extractHorseNumber(c.horse_name);
+              if (selNum !== null && resNum !== null && selNum === resNum) return c.finishing_position;
+            }
           }
           return null;
         };
@@ -4189,23 +4204,23 @@ export default function Home() {
           // -------------------------------------------------------------------
           // Compute per-user wins/seconds/thirds.
           //
-          // Strategy (two sources, deduped by raceId per user):
+          // Strategy (two sources, deduped by meet_id|race_id per user):
           //  1) user_selection_scores — historical picks stored when recalculate_scores_for_meet ran.
-          //     May have stale/null finishing_position if horse IDs mismatched, so we re-resolve via
-          //     race_results using name-based fallback.
-          //  2) user_submissions — current-round picks only (table is overwritten each round).
+          //     Re-resolved via race_results using full name+ID normalization (same as live scoreboard).
+          //  2) user_submissions — current-round picks only (cleared after close).
           //     Covers the current open meet that hasn't closed yet.
           // -------------------------------------------------------------------
           const positionCounts = new Map<string, { wins: number; seconds: number; thirds: number }>();
-          // Track which raceIds we've already counted per user to avoid double-counting.
+          // Track which meet|race combos we've already counted per user to avoid double-counting.
           const countedRaces = new Map<string, Set<string>>();
 
           // Source 1: historical scored rows from user_selection_scores.
           for (const r of scoreRows || []) {
             if (!r.username || !r.race_id) continue;
+            const dedupKey = `${r.meet_id ?? ''}|${r.race_id}`;
             const counted = countedRaces.get(r.username) ?? new Set<string>();
-            if (counted.has(r.race_id)) continue;
-            counted.add(r.race_id);
+            if (counted.has(dedupKey)) continue;
+            counted.add(dedupKey);
             countedRaces.set(r.username, counted);
 
             const pos = resolvePosition(r.race_id, r.horse_id, r.horse_name);
@@ -4222,8 +4237,10 @@ export default function Home() {
           for (const row of (currentSubs || []).filter((r: any) => r.submitted)) {
             const counted = countedRaces.get(row.username) ?? new Set<string>();
             for (const sel of (row.selections || [])) {
-              if (!sel.raceId || counted.has(sel.raceId)) continue;
-              counted.add(sel.raceId);
+              if (!sel.raceId) continue;
+              const dedupKey = `${sel.meetId ?? ''}|${sel.raceId}`;
+              if (counted.has(dedupKey)) continue;
+              counted.add(dedupKey);
               countedRaces.set(row.username, counted);
 
               const pos = resolvePosition(sel.raceId, sel.horseId, sel.horseName);
@@ -4303,8 +4320,8 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Last Round/Meet Leaderboard */}
-      {previousRoundSnapshot && previousRoundSnapshot.scoreboard && previousRoundSnapshot.scoreboard.length > 0 && !allTimeMode && (
+      {/* Last Round/Meet Leaderboard — only show when no active meet is running */}
+      {previousRoundSnapshot && previousRoundSnapshot.scoreboard && previousRoundSnapshot.scoreboard.length > 0 && !allTimeMode && globalMeets.length === 0 && (
         <div className="mb-8 rounded-lg bg-white p-4 shadow-sm">
           <h3 className="text-lg font-semibold mb-2">Last Meet Results</h3>
           {/* Dias for last meet */}
@@ -4444,131 +4461,7 @@ export default function Home() {
         </div>
       ) : (allTimeMode ? allTimeScoreboard.length === 0 : scoreboard.length === 0) ? (
         <div className="rounded-lg bg-white p-8 shadow-sm text-center">
-          <p className="text-slate-500">No race results yet. Showing current meet results below.</p>
-          {/* Show current meet results dias if all-time is empty */}
-          {previousRoundSnapshot && previousRoundSnapshot.scoreboard && previousRoundSnapshot.scoreboard.length > 0 && (
-            <div className="mt-8">
-              <h3 className="text-lg font-semibold mb-2">Current Meet Results</h3>
-              <div className="grid grid-cols-3 items-end gap-2 mb-4">
-                {(() => {
-                  const podiumGroups = (() => {
-                    const ranked = rankScoreboard(previousRoundSnapshot.scoreboard);
-                    const groups = new Map();
-                    ranked.forEach((entry) => {
-                      if (entry.rank > 3) return;
-                      const existing = groups.get(entry.rank);
-                      if (existing) {
-                        existing.entries.push(entry);
-                        return;
-                      }
-                      groups.set(entry.rank, {
-                        rank: entry.rank,
-                        score: entry.score,
-                        entries: [entry],
-                      });
-                    });
-                    return {
-                      first: groups.get(1) ?? null,
-                      second: groups.get(2) ?? null,
-                      third: groups.get(3) ?? null,
-                    };
-                  })();
-                  return [
-                    {
-                      key: 'second',
-                      group: podiumGroups.second,
-                      rank: 2,
-                      orderClass: 'order-1',
-                      cardClass: 'border-2 border-slate-400 bg-slate-100',
-                      headerClass: 'bg-slate-400 text-white',
-                      scoreClass: 'text-slate-700',
-                      nameClass: 'text-slate-900',
-                      subtextClass: 'text-slate-600',
-                      pillarClass: 'border-2 border-slate-400 border-t-0 bg-slate-300 h-8 sm:h-24',
-                      emptyCardClass: 'border-2 border-dashed border-slate-300 bg-slate-100 opacity-50',
-                      emptyHeaderClass: 'bg-slate-300 text-slate-500',
-                      emptyPillarClass: 'border-2 border-dashed border-slate-300 border-t-0 bg-slate-200 h-8 sm:h-24',
-                      icon: '🥈',
-                    },
-                    {
-                      key: 'first',
-                      group: podiumGroups.first,
-                      rank: 1,
-                      orderClass: 'order-2',
-                      cardClass: 'border-4 border-yellow-400 bg-yellow-100',
-                      headerClass: 'bg-yellow-400 text-white',
-                      scoreClass: 'text-yellow-600',
-                      nameClass: 'text-yellow-900',
-                      subtextClass: 'text-yellow-700',
-                      pillarClass: 'border-4 border-yellow-400 border-t-0 bg-yellow-300 h-14 sm:h-32',
-                      emptyCardClass: 'border-4 border-dashed border-yellow-300 bg-yellow-50 opacity-50',
-                      emptyHeaderClass: 'bg-yellow-300 text-yellow-600',
-                      emptyPillarClass: 'border-4 border-dashed border-yellow-300 border-t-0 bg-yellow-200 h-14 sm:h-32',
-                      icon: '🥇',
-                    },
-                    {
-                      key: 'third',
-                      group: podiumGroups.third,
-                      rank: 3,
-                      orderClass: 'order-3',
-                      cardClass: 'border-2 border-amber-700 bg-amber-100',
-                      headerClass: 'bg-amber-700 text-white',
-                      scoreClass: 'text-amber-700',
-                      nameClass: 'text-amber-900',
-                      subtextClass: 'text-amber-800',
-                      pillarClass: 'border-2 border-amber-700 border-t-0 bg-amber-600 h-5 sm:h-16',
-                      emptyCardClass: 'border-2 border-dashed border-amber-600 bg-amber-50 opacity-50',
-                      emptyHeaderClass: 'bg-amber-600 text-amber-200',
-                      emptyPillarClass: 'border-2 border-dashed border-amber-600 border-t-0 bg-amber-500 h-5 sm:h-16',
-                      icon: '🥉',
-                    },
-                  ].map((slot) => {
-                    const placeLabel = `${formatRankLabel(slot.rank)} Place`;
-                    if (!slot.group) {
-                      return (
-                        <div key={slot.key} className={slot.orderClass}>
-                          <div className={`overflow-hidden rounded-t-lg ${slot.emptyCardClass}`}>
-                            <div className={`p-2 text-center ${slot.emptyHeaderClass}`}>
-                              <p className="text-xl font-bold">—</p>
-                              <p className="text-[10px] font-semibold leading-tight">{placeLabel}</p>
-                            </div>
-                            <div className="p-3 text-center">
-                              <p className="text-sm font-bold text-slate-400">TBC</p>
-                            </div>
-                          </div>
-                          <div className={slot.emptyPillarClass}></div>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div key={slot.key} className={slot.orderClass}>
-                        <div className={`overflow-hidden rounded-t-lg ${slot.cardClass}`}>
-                          <div className={`p-2 text-center ${slot.headerClass}`}>
-                            <p className={`font-bold ${slot.rank === 1 ? 'text-2xl' : 'text-xl'}`}>{slot.icon}</p>
-                            <p className="text-[10px] font-semibold leading-tight">
-                              {slot.group.entries.length > 1 ? `Tied ${placeLabel}` : placeLabel}
-                            </p>
-                          </div>
-                          <div className="p-2 text-center">
-                            <div className="space-y-1">
-                              {(slot.group.entries as any[]).map((entry: any) => (
-                                <div key={`${slot.key}-${entry.username}`} className="rounded bg-white/60 px-1 py-1">
-                                  <p className={`text-xs font-bold truncate ${slot.nameClass}`}>{entry.username}</p>
-                                </div>
-                              ))}
-                            </div>
-                            <p className={`mt-2 font-bold ${slot.rank === 1 ? 'text-3xl' : 'text-2xl'} ${slot.scoreClass}`}>{slot.group.score}</p>
-                            <p className={`text-[9px] ${slot.subtextClass}`}>pts</p>
-                          </div>
-                        </div>
-                        <div className={slot.pillarClass}></div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            </div>
-          )}
+          <p className="text-slate-500">{allTimeMode ? 'No all-time results found.' : globalMeets.length > 0 ? 'No race results yet for this meet.' : 'No active meet. Check back when the next race day starts.'}</p>
         </div>
       ) : (
         <div className="mt-4">
@@ -5211,7 +5104,7 @@ export default function Home() {
                   disabled={isClosingMeet || globalMeets.length === 0}
                   className="rounded-full bg-red-100 px-4 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isClosingMeet ? <span className="inline-flex items-center gap-2"><HorseSpinner size={18} />Closing...</span> : 'Close Meet & Start New Day'}
+                  {isClosingMeet ? <span className="inline-flex items-center gap-2"><HorseSpinner size={18} />Closing...</span> : 'Close Meet'}
                 </button>
                 <button
                   onClick={() => {
@@ -5228,7 +5121,7 @@ export default function Home() {
 
             <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600 sm:p-4">
               Races, runners, and user picks remain visible after a race day ends so you can assign results and view the scoreboard.
-              When you are ready to start the next race day, click <strong>Close Meet &amp; Start New Day</strong> — this clears all selections and results.
+              When you are ready to start the next race day, click <strong>Close Meet</strong> — this clears all selections and results.
               Then select two new meets and click <strong>Publish Meets for New Day</strong>.
             </p>
 

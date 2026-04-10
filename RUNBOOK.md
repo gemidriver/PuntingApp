@@ -70,7 +70,7 @@ Notes:
 
 1. Ensure results are fetched/manual placings completed.
 2. Verify home screen shows final points/results.
-3. Click `Close Meet & Start New Day`.
+3. Click `Close Meet`.
 4. Confirm previous round remains visible on home.
 5. (Optional) Publish next two meets immediately.
 
