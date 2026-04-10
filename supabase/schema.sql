@@ -317,12 +317,13 @@ with check (public.is_admin_user(auth.uid()));
 
 -- Scored selections
 drop policy if exists "scores_select_own_or_admin" on public.user_selection_scores;
+drop policy if exists "scores_select_authenticated" on public.user_selection_scores;
 drop policy if exists "scores_write_admin" on public.user_selection_scores;
-create policy "scores_select_own_or_admin"
+create policy "scores_select_authenticated"
 on public.user_selection_scores
 for select
 to authenticated
-using (auth.uid() = user_id or public.is_admin_user(auth.uid()));
+using (true);
 
 create policy "scores_write_admin"
 on public.user_selection_scores

@@ -4096,7 +4096,7 @@ export default function Home() {
 
   // Aggregate all-time scoreboard from all race_results and user_submissions
   type AllTimePodiumGroups = { first: null | PodiumGroup; second: null | PodiumGroup; third: null | PodiumGroup };
-  type AllTimeScoreboardEntry = { username: string; score: number; wins: number; seconds: number; thirds: number };
+  type AllTimeScoreboardEntry = { username: string; score: number; wins: number; seconds: number; thirds: number; meetCount: number };
   const [allTimeScoreboard, setAllTimeScoreboard] = useState<AllTimeScoreboardEntry[]>([]);
   const [allTimeRankedScoreboard, setAllTimeRankedScoreboard] = useState<RankedScoreboardEntry[]>([]);
   const [allTimePodiumGroups, setAllTimePodiumGroups] = useState<AllTimePodiumGroups>({ first: null, second: null, third: null });
@@ -4116,47 +4116,55 @@ export default function Home() {
           .select('scoreboard')
           .order('round_closed_at', { ascending: true });
 
-        // Count wins / seconds / thirds from granular scored rows.
+        // Count wins / seconds / thirds and distinct meet participation from granular scored rows.
         const { data: scoreRows, error: scoresError } = await supabase
           .from('user_selection_scores')
-          .select('username,finishing_position,total_points');
+          .select('username,meet_id,finishing_position,total_points');
 
         let allTimeBoard: any[] = [];
 
         if (!historyError && Array.isArray(historyRows) && historyRows.length > 0) {
           // Sum scores per username across all historical rounds.
           const totals = new Map<string, number>();
+          // Count distinct rounds each user appeared in (= meets participated in).
+          const meetCounts = new Map<string, number>();
           for (const row of historyRows) {
             const roundBoard: Array<{ username: string; score: number }> = Array.isArray(row.scoreboard) ? row.scoreboard : [];
+            const seenThisRound = new Set<string>();
             for (const entry of roundBoard) {
               if (entry.username) {
                 totals.set(entry.username, (totals.get(entry.username) ?? 0) + (entry.score ?? 0));
+                if (!seenThisRound.has(entry.username)) {
+                  seenThisRound.add(entry.username);
+                  meetCounts.set(entry.username, (meetCounts.get(entry.username) ?? 0) + 1);
+                }
               }
             }
           }
 
-          // Collect per-position counts from user_selection_scores.
-          const positionCounts = new Map<string, { wins: number; seconds: number; thirds: number }>();
+          // Collect per-position counts and distinct meet participation from user_selection_scores.
+          const positionCounts = new Map<string, { wins: number; seconds: number; thirds: number; meetIds: Set<string> }>();
           if (!scoresError && Array.isArray(scoreRows)) {
             for (const r of scoreRows) {
               if (!r.username) continue;
-              const existing = positionCounts.get(r.username) ?? { wins: 0, seconds: 0, thirds: 0 };
+              const existing = positionCounts.get(r.username) ?? { wins: 0, seconds: 0, thirds: 0, meetIds: new Set<string>() };
               if (r.finishing_position === 1) existing.wins++;
               else if (r.finishing_position === 2) existing.seconds++;
               else if (r.finishing_position === 3) existing.thirds++;
+              if (r.meet_id) existing.meetIds.add(r.meet_id);
               positionCounts.set(r.username, existing);
             }
           }
 
           for (const [username, score] of totals.entries()) {
-            const pos = positionCounts.get(username) ?? { wins: 0, seconds: 0, thirds: 0 };
-            allTimeBoard.push({ username, score, ...pos });
+            const pos = positionCounts.get(username) ?? { wins: 0, seconds: 0, thirds: 0, meetIds: new Set<string>() };
+            allTimeBoard.push({ username, score, wins: pos.wins, seconds: pos.seconds, thirds: pos.thirds, meetCount: meetCounts.get(username) ?? 0 });
           }
         }
 
         // Fallback: if round_history is empty (first ever round), use previousRoundSnapshot.
         if (allTimeBoard.length === 0 && previousRoundSnapshot && previousRoundSnapshot.scoreboard && previousRoundSnapshot.scoreboard.length > 0) {
-          allTimeBoard = previousRoundSnapshot.scoreboard.map((entry) => ({ ...entry, wins: 0, seconds: 0, thirds: 0 }));
+          allTimeBoard = previousRoundSnapshot.scoreboard.map((entry) => ({ ...entry, wins: 0, seconds: 0, thirds: 0, meetCount: 0 }));
         }
 
         const ranked = rankScoreboard(allTimeBoard);
@@ -4599,6 +4607,49 @@ export default function Home() {
               </li>
             ))}
           </ol>
+        </div>
+      )}
+
+      {/* All-time participant stats table */}
+      {allTimeMode && allTimeRankedScoreboard.length > 0 && (
+        <div className="mt-8 rounded-lg bg-white shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100">
+            <h3 className="text-lg font-semibold text-slate-900">All-Time Participant Stats</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Accumulated across all race meets</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  <th className="px-4 py-3 w-10">#</th>
+                  <th className="px-4 py-3">Punter</th>
+                  <th className="px-4 py-3 text-right">Pts</th>
+                  <th className="px-4 py-3 text-center">Meets</th>
+                  <th className="px-4 py-3 text-center">🥇 1st</th>
+                  <th className="px-4 py-3 text-center">🥈 2nd</th>
+                  <th className="px-4 py-3 text-center">🥉 3rd</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {allTimeRankedScoreboard.map((entry) => {
+                  const statsEntry = allTimeScoreboard.find((e) => e.username === entry.username);
+                  return (
+                    <tr key={`stats-${entry.username}`} className="hover:bg-slate-50 transition-colors">
+                      <td className={`px-4 py-3 font-bold ${
+                        entry.rank === 1 ? 'text-yellow-600' : entry.rank === 2 ? 'text-slate-500' : entry.rank === 3 ? 'text-amber-700' : 'text-slate-400'
+                      }`}>{entry.rank}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900">{entry.username}</td>
+                      <td className="px-4 py-3 text-right font-bold text-slate-800">{entry.score}</td>
+                      <td className="px-4 py-3 text-center text-slate-600">{statsEntry?.meetCount ?? '—'}</td>
+                      <td className="px-4 py-3 text-center font-semibold text-yellow-700">{statsEntry?.wins ?? '—'}</td>
+                      <td className="px-4 py-3 text-center font-semibold text-slate-500">{statsEntry?.seconds ?? '—'}</td>
+                      <td className="px-4 py-3 text-center font-semibold text-amber-700">{statsEntry?.thirds ?? '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </section>
