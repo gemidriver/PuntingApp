@@ -5550,6 +5550,15 @@ export default function Home() {
         {versionBadge}
         {/* Mobile bottom tab bar provided by layout-shell */}
         {notificationContainer}
+        {/* Full-screen loading overlay */}
+        {(isSubmitting || isPublishing || isClosingMeet || resultsFetching || betfairHealthLoading) && (
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
+            <HorseSpinner size={160} />
+            <p className="mt-4 text-white text-lg font-semibold tracking-wide drop-shadow-lg">
+              {isSubmitting ? 'Submitting picks...' : isPublishing ? 'Publishing meets...' : isClosingMeet ? 'Closing meet...' : resultsFetching ? 'Fetching results...' : 'Checking Betfair...'}
+            </p>
+          </div>
+        )}
       </div>
     );
   }
@@ -5957,6 +5966,15 @@ export default function Home() {
         </div>
       </div>
       {notificationContainer}
+      {/* Full-screen loading overlay */}
+      {(isSubmitting || isPublishing || isClosingMeet || resultsFetching || betfairHealthLoading) && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
+          <HorseSpinner size={160} />
+          <p className="mt-4 text-white text-lg font-semibold tracking-wide drop-shadow-lg">
+            {isSubmitting ? 'Submitting picks...' : isPublishing ? 'Publishing meets...' : isClosingMeet ? 'Closing meet...' : resultsFetching ? 'Fetching results...' : 'Checking Betfair...'}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
