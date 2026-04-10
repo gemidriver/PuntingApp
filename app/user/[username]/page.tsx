@@ -83,7 +83,6 @@ function SwipeableNotificationRow({
 export default function UserProfilePage({ params }: { params: { username: string } }) {
   const { username } = params;
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined);
-  const [messages, setMessages] = useState<Array<any>>([]);
   const router = useRouter();
   const { username: currentUsername } = useUser();
   const [notifications, setNotifications] = useState<Array<any>>([]);
@@ -97,23 +96,6 @@ export default function UserProfilePage({ params }: { params: { username: string
       if (metaAvatar) setAvatarUrl(metaAvatar);
     });
 
-    // fetch chat messages and show those authored by or mentioning this username
-    (async () => {
-      try {
-        const res = await fetch('/api/chat');
-        const data = await res.json();
-        if (data?.messages) {
-          const filtered = (data.messages as Array<any>).filter((m) => {
-            if (!m || !m.message) return false;
-            const lower = m.message.toLowerCase();
-            return (m.username && m.username.toLowerCase() === username.toLowerCase()) || lower.includes('@' + username.toLowerCase());
-          });
-          setMessages(filtered);
-        }
-      } catch (e) {
-        // ignore
-      }
-    })();
   }, []);
 
   // fetch notifications for the signed-in user when viewing their own profile
@@ -227,25 +209,7 @@ export default function UserProfilePage({ params }: { params: { username: string
               </div>
             )}
           </div>
-          <h3 className="text-lg font-semibold mb-2 text-slate-900">Chat</h3>
-          <div className="bg-slate-100 rounded p-3 text-slate-700">
-            {messages.length === 0 ? (
-              <div className="text-sm text-slate-500">No recent chat messages mentioning or from this user.</div>
-            ) : (
-              <div className="relative">
-                <div className="chat-scroll flex flex-col gap-3 max-h-[52vh] sm:max-h-80 overflow-y-auto pr-2 pb-6">
-                  {messages.map((m) => (
-                    <div key={m.id} className="p-2 bg-white rounded border">
-                      <div className="text-sm font-medium text-sky-700">{m.username}:</div>
-                      <div className="text-sm text-slate-800">{m.message}</div>
-                      <div className="text-xs text-slate-400 mt-1">{new Date(m.created_at).toLocaleString()}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="chat-gradient" />
-              </div>
-            )}
-          </div>
+
         </div>
 
         
@@ -289,10 +253,6 @@ export default function UserProfilePage({ params }: { params: { username: string
         }}
       />
       <style jsx>{`
-        .chat-scroll::-webkit-scrollbar { width: 8px; }
-        .chat-scroll::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.35); border-radius: 8px; }
-        .chat-scroll { scrollbar-width: thin; scrollbar-color: rgba(100,116,139,0.35) transparent; }
-        .chat-gradient { pointer-events: none; position: absolute; bottom: 0; left: 0; right: 0; height: 32px; background: linear-gradient(180deg, rgba(255,255,255,0), rgba(241,245,249,1)); }
         .profile-card { max-height: calc(100vh - 4rem); }
       `}</style>
     </div>
