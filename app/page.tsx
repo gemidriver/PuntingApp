@@ -5263,19 +5263,32 @@ export default function Home() {
             </div>
           </section>
 
+          {activeScreen === 'main' && meetsForPicks.length === 0 && (
+            <section className="mb-10">
+              <div className="mt-4 rounded-xl bg-white p-8 shadow-sm flex flex-col items-center text-center gap-3">
+                <video
+                  src="/TP_HorseWaiting.mp4"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-48 h-48 object-contain rounded-lg"
+                />
+                <p className="text-base font-semibold text-slate-800">No race meets set up yet</p>
+                <p className="text-sm text-slate-500 max-w-sm">
+                  Keep an eye on your inbox — you&apos;ll receive an email when the next race meet is ready for picks.
+                </p>
+              </div>
+            </section>
+          )}
+
           {activeScreen === 'main' && meetsForPicks.length > 0 && (
             <section className="mb-10">
               <div className="mb-8">
                 <h2 className="text-xl font-semibold">Global Meets</h2>
 
-                {meetsForPicks.length === 0 ? (
-                  <div className="mt-4 rounded-lg bg-white p-6 shadow-sm">
-                    <p className="text-sm text-slate-600">Waiting for an admin to select the two race meets for this session.</p>
-                    <p className="mt-2 text-sm text-slate-500">Once meets are published, they will appear here automatically.</p>
-                  </div>
-                ) : (
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {meetsForPicks.map(meet => {
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {meetsForPicks.map(meet => {
                       const meetRaceIds = [...new Set(submissionRows.flatMap(row =>
                         row.selections.filter(s => s.meetId === meet.meet_id).map(s => s.raceId)
                       ))];
@@ -5293,7 +5306,6 @@ export default function Home() {
                       );
                     })}
                   </div>
-                )}
               </div>
 
               <div className="flex items-center justify-between mb-4">
@@ -5705,9 +5717,19 @@ export default function Home() {
           <h2 className="text-xl font-semibold">Global Meets</h2>
 
           {globalMeets.length === 0 ? (
-            <div className="mt-4 rounded-lg bg-white p-6 shadow-sm">
-              <p className="text-sm text-slate-600">Waiting for an admin to select the two race meets for this session.</p>
-              <p className="mt-2 text-sm text-slate-500">Once an admin has chosen the meets, they will appear here automatically.</p>
+            <div className="mt-4 rounded-xl bg-white p-8 shadow-sm flex flex-col items-center text-center gap-3">
+              <video
+                src="/TP_HorseWaiting.mp4"
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="w-48 h-48 object-contain rounded-lg"
+              />
+              <p className="text-base font-semibold text-slate-800">No race meets set up yet</p>
+              <p className="text-sm text-slate-500 max-w-sm">
+                Keep an eye on your inbox — you&apos;ll receive an email when the next race meet is ready for picks.
+              </p>
             </div>
           ) : (
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
