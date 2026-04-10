@@ -71,7 +71,7 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globa
     }
   }
 
-  useEffect(() => { fetchList(); }, [meetId]);
+  useEffect(() => { if (meetId && meetId !== 'current') fetchList(); }, [meetId]);
 
   async function recordPayment(userId: string) {
     try {

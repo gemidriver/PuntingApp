@@ -529,6 +529,7 @@ export default function Home() {
 
   const [submittedSelections, setSubmittedSelections] = useState<UserSelections | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [isApproved, setIsApproved] = useState(false);
   const [changingRaceId, setChangingRaceId] = useState<string | null>(null);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   
@@ -1032,6 +1033,7 @@ export default function Home() {
     setWildcard(null);
     setSubmittedSelections(null);
     setHasSubmitted(false);
+    setIsApproved(false);
     setManualResultRaceId('');
     setManualResultHorseId('');
     setManualResultSecondHorseId('');
@@ -1610,6 +1612,18 @@ export default function Home() {
         submitted: Boolean(existingSubmission.submitted),
         submittedAt: existingSubmission.submitted_at || undefined,
       });
+
+      // Load eligibility for the current user across all active meets
+      if (meetsFromDb.length) {
+        const meetIds = meetsFromDb.map((m) => m.meet_id);
+        const { data: eligRows } = await supabase
+          .from('user_eligibilities')
+          .select('eligible')
+          .eq('user_id', authUser.id)
+          .in('meet_id', meetIds);
+        const approved = Array.isArray(eligRows) && eligRows.some((e: any) => e.eligible === true);
+        setIsApproved(approved);
+      }
     } else {
       clearSelectionState();
     }
@@ -2539,8 +2553,22 @@ export default function Home() {
           const { data: sessionData } = await sup.auth.getSession();
           const token = sessionData?.session?.access_token ?? '';
 
+          // Count how many global meets are still live (not in toWarn list)
+          const warnIds = new Set(toWarn.map((m) => m.meet_id));
+          const stillLiveMeets = globalMeets.filter((m) => !warnIds.has(m.meet_id));
+          const totalMeets = globalMeets.length;
+
           await Promise.all(toWarn.map(async (meet) => {
-            const message = await classifyUnavailableMeet(meet, token);
+            let message = await classifyUnavailableMeet(meet, token);
+            // If other meets are still running, replace the "close this round" call-to-action
+            // with a progress indicator so the admin isn't misled.
+            if (stillLiveMeets.length > 0 && message.includes('You can close this round')) {
+              const completedIdx = globalMeets.findIndex((m) => m.meet_id === meet.meet_id) + 1;
+              message = message.replace(
+                / You can close this round and publish the next meet\.?/,
+                ` (meet ${completedIdx} of ${totalMeets} completed — waiting for ${stillLiveMeets.map((m) => m.course).join(', ')} to finish)`
+              );
+            }
             addNotification(message, 'warning', 0);
           }));
 
@@ -2956,10 +2984,36 @@ export default function Home() {
   );
 
   const renderNoRacesState = (meet: Meet) => {
+    // Check if this meet has recorded results — if so, it has finished.
+    const raceIdsForMeet = new Set(
+      submissionRows.flatMap((row) =>
+        row.selections.filter((s) => s.meetId === meet.meet_id).map((s) => s.raceId)
+      )
+    );
+    const resultsForMeet = [...raceIdsForMeet].filter((id) => raceResults[id]?.winnerId);
+    const meetIsFinished = resultsForMeet.length > 0;
+
     if (!isAdmin) {
+      if (meetIsFinished) {
+        return (
+          <div className="rounded-lg bg-white p-6 shadow-sm">
+            <p className="text-sm font-medium text-slate-700">{meet.course} has finished.</p>
+            <p className="mt-1 text-sm text-slate-500">{resultsForMeet.length} of {raceIdsForMeet.size || resultsForMeet.length} race results recorded.</p>
+          </div>
+        );
+      }
       return (
         <div className="rounded-lg bg-white p-6 shadow-sm">
           <p className="text-sm text-slate-600">No races available, please wait for next meet.</p>
+        </div>
+      );
+    }
+
+    if (meetIsFinished) {
+      return (
+        <div className="rounded-lg bg-white p-6 shadow-sm">
+          <p className="text-sm font-medium text-slate-700">{meet.course} has finished.</p>
+          <p className="mt-1 text-sm text-slate-500">{resultsForMeet.length} of {raceIdsForMeet.size || resultsForMeet.length} race results recorded. Once all meets are complete you can close this round.</p>
         </div>
       );
     }
@@ -5241,9 +5295,11 @@ export default function Home() {
                     {submittedSelections.wildcard && ' with wildcard'}
                     {submittedSelections.submittedAt && ` on ${new Date(submittedSelections.submittedAt).toLocaleString()}`}
                   </p>
-                  <p className="mt-2 text-sm font-medium text-amber-700">
-                    ⚠ Your entry is pending approval. An admin must confirm your payment before you are eligible for this meet.
-                  </p>
+                  {isApproved ? (
+                    <p className="mt-2 text-sm font-medium text-green-700">✓ Your entry is confirmed and you are eligible for this meet.</p>
+                  ) : (
+                    <p className="mt-2 text-sm font-medium text-amber-700">⚠ Your entry is pending approval. An admin must confirm your payment before you are eligible for this meet.</p>
+                  )}
                 </div>
               ) : null}
 
@@ -5789,9 +5845,11 @@ export default function Home() {
                   {submittedSelections.wildcard && ' with wildcard'}
                   {submittedSelections.submittedAt && ` on ${new Date(submittedSelections.submittedAt).toLocaleString()}`}
                 </p>
-                <p className="mt-2 text-sm font-medium text-amber-700">
-                  ⚠ Your entry is pending approval. An admin must confirm your payment before you are eligible for this meet.
-                </p>
+                {isApproved ? (
+                  <p className="mt-2 text-sm font-medium text-green-700">✓ Your entry is confirmed and you are eligible for this meet.</p>
+                ) : (
+                  <p className="mt-2 text-sm font-medium text-amber-700">⚠ Your entry is pending approval. An admin must confirm your payment before you are eligible for this meet.</p>
+                )}
               </div>
             ) : null}
           </div>
