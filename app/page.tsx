@@ -4108,43 +4108,57 @@ export default function Home() {
     (async () => {
       try {
         const supabase = getSupabaseClient();
-        const { data: allResults, error: allResultsError } = await supabase
-          .from('race_results')
-          .select('meet_id,race_id,horse_id,horse_name,finishing_position,result_date');
-        const { data: allSubs, error: allSubsError } = await supabase
-          .from('user_submissions')
-          .select('user_id,username,selections,wildcard,submitted');
+
+        // Accumulate totals from every closed round stored in round_history.
+        // Each row has a scoreboard JSONB: [{username, score}, ...].
+        const { data: historyRows, error: historyError } = await supabase
+          .from('round_history')
+          .select('scoreboard')
+          .order('round_closed_at', { ascending: true });
+
+        // Count wins / seconds / thirds from granular scored rows.
+        const { data: scoreRows, error: scoresError } = await supabase
+          .from('user_selection_scores')
+          .select('username,finishing_position,total_points');
+
         let allTimeBoard: any[] = [];
-        if (!(allResultsError || allSubsError)) {
-          const allTimeRaceResults = buildRaceResultsMapFromRows(allResults || []);
-          const allTimeRows = (allSubs || []).filter(row => row.submitted);
-          allTimeBoard = allTimeRows.map((row: any) => {
-            let score = 0, wins = 0, seconds = 0, thirds = 0;
-            (row.selections || []).forEach((sel: any) => {
-              const result = allTimeRaceResults[sel.raceId];
-              let points = 0;
-              if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.winnerId, result?.winnerName)) {
-                points = 4;
-                wins++;
-              } else if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.secondId, result?.secondName)) {
-                points = 2;
-                seconds++;
-              } else if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result?.thirdId, result?.thirdName)) {
-                points = 1;
-                thirds++;
+
+        if (!historyError && Array.isArray(historyRows) && historyRows.length > 0) {
+          // Sum scores per username across all historical rounds.
+          const totals = new Map<string, number>();
+          for (const row of historyRows) {
+            const roundBoard: Array<{ username: string; score: number }> = Array.isArray(row.scoreboard) ? row.scoreboard : [];
+            for (const entry of roundBoard) {
+              if (entry.username) {
+                totals.set(entry.username, (totals.get(entry.username) ?? 0) + (entry.score ?? 0));
               }
-              if (points > 0) {
-                const isWild = row.wildcard?.meetId === sel.meetId && row.wildcard?.raceId === sel.raceId;
-                score += isWild ? points * 2 : points;
-              }
-            });
-            return { username: row.username, score, wins, seconds, thirds };
-          });
+            }
+          }
+
+          // Collect per-position counts from user_selection_scores.
+          const positionCounts = new Map<string, { wins: number; seconds: number; thirds: number }>();
+          if (!scoresError && Array.isArray(scoreRows)) {
+            for (const r of scoreRows) {
+              if (!r.username) continue;
+              const existing = positionCounts.get(r.username) ?? { wins: 0, seconds: 0, thirds: 0 };
+              if (r.finishing_position === 1) existing.wins++;
+              else if (r.finishing_position === 2) existing.seconds++;
+              else if (r.finishing_position === 3) existing.thirds++;
+              positionCounts.set(r.username, existing);
+            }
+          }
+
+          for (const [username, score] of totals.entries()) {
+            const pos = positionCounts.get(username) ?? { wins: 0, seconds: 0, thirds: 0 };
+            allTimeBoard.push({ username, score, ...pos });
+          }
         }
-        // Fallback: if allTimeBoard is empty, use previousRoundSnapshot.scoreboard
+
+        // Fallback: if round_history is empty (first ever round), use previousRoundSnapshot.
         if (allTimeBoard.length === 0 && previousRoundSnapshot && previousRoundSnapshot.scoreboard && previousRoundSnapshot.scoreboard.length > 0) {
-          allTimeBoard = previousRoundSnapshot.scoreboard.map((entry) => ({ ...entry }));
+          allTimeBoard = previousRoundSnapshot.scoreboard.map((entry) => ({ ...entry, wins: 0, seconds: 0, thirds: 0 }));
         }
+
         const ranked = rankScoreboard(allTimeBoard);
         const groups = new Map();
         ranked.forEach((entry) => {
