@@ -7,10 +7,14 @@
     "dev": "next dev",
     "prebuild": "node scripts/generate-version.mjs",
     "build": "next build",
+    "build:mobile": "next build && npx cap sync",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
+    "@capacitor/ios": "^8.3.0",
     "@supabase/auth-helpers-react": "^0.15.0",
     "@supabase/supabase-js": "^2.99.1",
     "next": "^14.2.35",
