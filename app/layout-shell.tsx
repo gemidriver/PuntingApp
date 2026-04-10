@@ -75,7 +75,7 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
         {children}
       </div>
       {/* Chat handled in top toolbar; do not render floating chat button here */}
-      <MobileBottomNav activeScreen={activeScreen} setActiveScreen={handleSetActive} showLogout={false} onLogout={handleLogout} />
+      {user && <MobileBottomNav activeScreen={activeScreen} setActiveScreen={handleSetActive} showLogout={false} onLogout={handleLogout} />}
     </AllUsersProvider>
   );
 }
