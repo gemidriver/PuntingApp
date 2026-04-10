@@ -923,6 +923,18 @@ export default function Home() {
 
     const errMsg = upsertError?.message ?? null;
 
+    // If upsert succeeded, recalculate scored picks for affected meets so user_selection_scores stays current.
+    if (!errMsg) {
+      const affectedMeetIds = [...new Set(rowsToInsert.map(r => r.meet_id).filter(Boolean))];
+      for (const meetId of affectedMeetIds) {
+        // security-definer RPC — runs as DB owner, bypasses RLS, safe for any authenticated user to call.
+        supabase.rpc('recalculate_scores_for_meet', { target_meet_id: meetId }).then(
+          () => { /* no-op */ },
+          (err) => { console.warn('recalculate_scores_for_meet failed for', meetId, err); }
+        );
+      }
+    }
+
     // If upsert succeeded and caller requested notifications, notify server
     if (!errMsg && notify) {
       try {
@@ -4116,10 +4128,42 @@ export default function Home() {
           .select('scoreboard')
           .order('round_closed_at', { ascending: true });
 
-        // Count wins / seconds / thirds and distinct meet participation from granular scored rows.
-        const { data: scoreRows, error: scoresError } = await supabase
+        // Fetch all race results (for name+ID based position lookup across all time).
+        const { data: allRaceResultRows } = await supabase
+          .from('race_results')
+          .select('race_id,horse_id,horse_name,finishing_position');
+
+        // Fetch historical scored picks — populated by recalculate_scores_for_meet when results are persisted.
+        // These rows have horse_id/horse_name for each pick, but finishing_position may be wrong if IDs mismatched.
+        const { data: scoreRows } = await supabase
           .from('user_selection_scores')
-          .select('username,meet_id,finishing_position,total_points');
+          .select('username,race_id,horse_id,horse_name,finishing_position');
+
+        // Fetch current-round submissions — only available for the current open meet, not historical.
+        const { data: currentSubs } = await supabase
+          .from('user_submissions')
+          .select('username,selections,submitted');
+
+        // Build a raceId → [{horse_id, horse_name, finishing_position}] lookup using race_results.
+        const raceResultsLookup = new Map<string, Array<{ horse_id: string; horse_name: string | null; finishing_position: number }>>();
+        for (const r of allRaceResultRows || []) {
+          if (!r.race_id || !r.finishing_position) continue;
+          const list = raceResultsLookup.get(r.race_id) ?? [];
+          list.push(r);
+          raceResultsLookup.set(r.race_id, list);
+        }
+
+        // Resolve the finishing position for a pick using ID-match first, then name-match fallback.
+        const resolvePosition = (raceId: string, horseId: string | null | undefined, horseName: string | null | undefined): number | null => {
+          const candidates = raceResultsLookup.get(raceId) ?? [];
+          for (const c of candidates) {
+            const idMatch = horseId && c.horse_id && horseId === c.horse_id;
+            const nameMatch = horseName && c.horse_name &&
+              horseName.trim().toLowerCase() === c.horse_name.trim().toLowerCase();
+            if (idMatch || nameMatch) return c.finishing_position;
+          }
+          return null;
+        };
 
         let allTimeBoard: any[] = [];
 
@@ -4142,22 +4186,59 @@ export default function Home() {
             }
           }
 
-          // Collect per-position counts and distinct meet participation from user_selection_scores.
-          const positionCounts = new Map<string, { wins: number; seconds: number; thirds: number; meetIds: Set<string> }>();
-          if (!scoresError && Array.isArray(scoreRows)) {
-            for (const r of scoreRows) {
-              if (!r.username) continue;
-              const existing = positionCounts.get(r.username) ?? { wins: 0, seconds: 0, thirds: 0, meetIds: new Set<string>() };
-              if (r.finishing_position === 1) existing.wins++;
-              else if (r.finishing_position === 2) existing.seconds++;
-              else if (r.finishing_position === 3) existing.thirds++;
-              if (r.meet_id) existing.meetIds.add(r.meet_id);
+          // -------------------------------------------------------------------
+          // Compute per-user wins/seconds/thirds.
+          //
+          // Strategy (two sources, deduped by raceId per user):
+          //  1) user_selection_scores — historical picks stored when recalculate_scores_for_meet ran.
+          //     May have stale/null finishing_position if horse IDs mismatched, so we re-resolve via
+          //     race_results using name-based fallback.
+          //  2) user_submissions — current-round picks only (table is overwritten each round).
+          //     Covers the current open meet that hasn't closed yet.
+          // -------------------------------------------------------------------
+          const positionCounts = new Map<string, { wins: number; seconds: number; thirds: number }>();
+          // Track which raceIds we've already counted per user to avoid double-counting.
+          const countedRaces = new Map<string, Set<string>>();
+
+          // Source 1: historical scored rows from user_selection_scores.
+          for (const r of scoreRows || []) {
+            if (!r.username || !r.race_id) continue;
+            const counted = countedRaces.get(r.username) ?? new Set<string>();
+            if (counted.has(r.race_id)) continue;
+            counted.add(r.race_id);
+            countedRaces.set(r.username, counted);
+
+            const pos = resolvePosition(r.race_id, r.horse_id, r.horse_name);
+            if (pos === 1 || pos === 2 || pos === 3) {
+              const existing = positionCounts.get(r.username) ?? { wins: 0, seconds: 0, thirds: 0 };
+              if (pos === 1) existing.wins++;
+              else if (pos === 2) existing.seconds++;
+              else existing.thirds++;
               positionCounts.set(r.username, existing);
             }
           }
 
+          // Source 2: current-round picks from user_submissions (for current open meet).
+          for (const row of (currentSubs || []).filter((r: any) => r.submitted)) {
+            const counted = countedRaces.get(row.username) ?? new Set<string>();
+            for (const sel of (row.selections || [])) {
+              if (!sel.raceId || counted.has(sel.raceId)) continue;
+              counted.add(sel.raceId);
+              countedRaces.set(row.username, counted);
+
+              const pos = resolvePosition(sel.raceId, sel.horseId, sel.horseName);
+              if (pos === 1 || pos === 2 || pos === 3) {
+                const existing = positionCounts.get(row.username) ?? { wins: 0, seconds: 0, thirds: 0 };
+                if (pos === 1) existing.wins++;
+                else if (pos === 2) existing.seconds++;
+                else existing.thirds++;
+                positionCounts.set(row.username, existing);
+              }
+            }
+          }
+
           for (const [username, score] of totals.entries()) {
-            const pos = positionCounts.get(username) ?? { wins: 0, seconds: 0, thirds: 0, meetIds: new Set<string>() };
+            const pos = positionCounts.get(username) ?? { wins: 0, seconds: 0, thirds: 0 };
             allTimeBoard.push({ username, score, wins: pos.wins, seconds: pos.seconds, thirds: pos.thirds, meetCount: meetCounts.get(username) ?? 0 });
           }
         }
