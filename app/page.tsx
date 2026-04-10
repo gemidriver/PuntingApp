@@ -2563,10 +2563,10 @@ export default function Home() {
             // If other meets are still running, replace the "close this round" call-to-action
             // with a progress indicator so the admin isn't misled.
             if (stillLiveMeets.length > 0 && message.includes('You can close this round')) {
-              const completedIdx = globalMeets.findIndex((m) => m.meet_id === meet.meet_id) + 1;
+              const completedCount = totalMeets - stillLiveMeets.length;
               message = message.replace(
                 / You can close this round and publish the next meet\.?/,
-                ` (meet ${completedIdx} of ${totalMeets} completed — waiting for ${stillLiveMeets.map((m) => m.course).join(', ')} to finish)`
+                ` (${completedCount} of ${totalMeets} meets completed — waiting for ${stillLiveMeets.map((m) => m.course).join(', ')} to finish)`
               );
             }
             addNotification(message, 'warning', 0);
@@ -2996,9 +2996,9 @@ export default function Home() {
     if (!isAdmin) {
       if (meetIsFinished) {
         return (
-          <div className="rounded-lg bg-white p-6 shadow-sm">
-            <p className="text-sm font-medium text-slate-700">{meet.course} has finished.</p>
-            <p className="mt-1 text-sm text-slate-500">{resultsForMeet.length} of {raceIdsForMeet.size || resultsForMeet.length} race results recorded.</p>
+          <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-6">
+            <p className="text-sm font-semibold text-emerald-800">✓ {meet.course} has finished.</p>
+            <p className="mt-1 text-sm text-emerald-700">{resultsForMeet.length} of {raceIdsForMeet.size || resultsForMeet.length} race results recorded.</p>
           </div>
         );
       }
@@ -3011,9 +3011,9 @@ export default function Home() {
 
     if (meetIsFinished) {
       return (
-        <div className="rounded-lg bg-white p-6 shadow-sm">
-          <p className="text-sm font-medium text-slate-700">{meet.course} has finished.</p>
-          <p className="mt-1 text-sm text-slate-500">{resultsForMeet.length} of {raceIdsForMeet.size || resultsForMeet.length} race results recorded. Once all meets are complete you can close this round.</p>
+        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-6">
+          <p className="text-sm font-semibold text-emerald-800">✓ {meet.course} has finished.</p>
+          <p className="mt-1 text-sm text-emerald-700">{resultsForMeet.length} of {raceIdsForMeet.size || resultsForMeet.length} race results recorded. Once all meets are complete you can close this round.</p>
         </div>
       );
     }
@@ -3492,7 +3492,7 @@ export default function Home() {
 
   const myRaceResultsPanel = (
     <section className="mb-10 rounded-lg bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 mb-3">
         <h3 className="text-lg font-semibold">Race Results for Your Picks</h3>
         <span className="text-xs text-slate-500">
           Settled: {myRaceResults.filter((item) => item.isSettled).length}/{myRaceResults.length}
@@ -3502,60 +3502,65 @@ export default function Home() {
       {myRaceResults.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500">Make your race selections first to see result status here.</p>
       ) : (
-        <ul className="mt-3 space-y-2">
+        <ul className="space-y-1.5">
           {myRaceResults.sort((a, b) => {
+            const locCmp = (getSelectionLocation(a) ?? '').localeCompare(getSelectionLocation(b) ?? '');
+            if (locCmp !== 0) return locCmp;
             const raceNumA = parseInt(a.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
             const raceNumB = parseInt(b.raceName?.match(/R(\d+)/)?.[1] ?? '0', 10);
             return raceNumA - raceNumB;
-          }).map((item) => (
-            <li key={`my-result-${item.meetId}-${item.raceId}`} className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-medium text-slate-900">
-                  {getSelectionLocation(item)} - {item.raceName}
-                </p>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    !item.isSettled
-                      ? 'bg-amber-100 text-amber-700'
-                      : item.isWinner
-                      ? 'bg-green-100 text-green-700'
-                      : item.isSecond
-                      ? 'bg-blue-100 text-blue-700'
-                      : item.isThird
-                      ? 'bg-indigo-100 text-indigo-700'
-                      : 'bg-red-100 text-red-700'
-                  }`}
+          }).map((item) => {
+            const resultKey = `my-result-expand-${item.meetId}-${item.raceId}`;
+            const isOpen = raceExpanded[resultKey] ?? false;
+            const placeBadgeClass = !item.isSettled
+              ? 'bg-amber-100 text-amber-700'
+              : item.isWinner
+              ? 'bg-green-100 text-green-700'
+              : item.isSecond
+              ? 'bg-blue-100 text-blue-700'
+              : item.isThird
+              ? 'bg-indigo-100 text-indigo-700'
+              : 'bg-red-100 text-red-700';
+            const placeLabel = !item.isSettled ? 'Pending' : item.isWinner ? '1st' : item.isSecond ? '2nd' : item.isThird ? '3rd' : 'Unplaced';
+            const rowBg = item.isSettled
+              ? item.isWinner ? 'border-emerald-200 bg-emerald-50' : item.isSecond ? 'border-blue-100 bg-blue-50' : item.isThird ? 'border-indigo-100 bg-indigo-50' : 'border-slate-200 bg-slate-50'
+              : 'border-slate-200 bg-white';
+
+            return (
+              <li key={`my-result-${item.meetId}-${item.raceId}`} className={`rounded-md border ${rowBg} overflow-hidden`}>
+                {/* Single-line header */}
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-left"
+                  onClick={() => setRaceExpanded(prev => ({ ...prev, [resultKey]: !isOpen }))}
                 >
-                  {!item.isSettled
-                    ? 'Pending'
-                    : item.isWinner
-                    ? '1st Place'
-                    : item.isSecond
-                    ? '2nd Place'
-                    : item.isThird
-                    ? '3rd Place'
-                    : 'Unplaced'}
-                </span>
-              </div>
-              <p className="mt-1 text-slate-700">
-                Your pick: {item.horseName}
-                {item.isWildcardPick ? ' (Wildcard)' : ''}
-              </p>
-              <p className="mt-1 text-slate-600">1st: {item.winnerName ?? item.winnerId ?? 'Waiting for result'}</p>
-              <p className="mt-1 flex items-center gap-1 text-slate-600">
-                2nd: {item.secondName ?? item.secondId ?? 'TBC'}
-                {item.secondId && raceResults[item.raceId]?.inferredPlaces && (
-                  <span className="inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${placeBadgeClass}`}>{placeLabel}</span>
+                  <span className="flex-1 min-w-0 text-sm font-medium text-slate-900 truncate">{getSelectionLocation(item)} — {item.raceName}</span>
+                  <span className="shrink-0 text-xs text-slate-500 truncate">Pick: {item.horseName}{item.isWildcardPick ? ' ★' : ''}</span>
+                  <span className={`ml-1 shrink-0 text-slate-400 text-xs transition-transform ${isOpen ? 'rotate-180' : ''}`}>▾</span>
+                </button>
+                {/* Expanded detail */}
+                {isOpen && (
+                  <div className="border-t border-slate-100 px-3 pb-3 pt-2 text-sm space-y-0.5">
+                    <p className="text-slate-700">Your pick: <span className="font-medium">{item.horseName}{item.isWildcardPick ? ' (Wildcard)' : ''}</span></p>
+                    <p className="text-slate-600">1st: {item.winnerName ?? item.winnerId ?? 'Waiting for result'}</p>
+                    <p className="flex items-center gap-1 text-slate-600">
+                      2nd: {item.secondName ?? item.secondId ?? 'TBC'}
+                      {item.secondId && raceResults[item.raceId]?.inferredPlaces && (
+                        <span className="inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+                      )}
+                    </p>
+                    <p className="flex items-center gap-1 text-slate-600">
+                      3rd: {item.thirdName ?? item.thirdId ?? 'TBC'}
+                      {item.thirdId && raceResults[item.raceId]?.inferredPlaces && (
+                        <span className="inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+                      )}
+                    </p>
+                  </div>
                 )}
-              </p>
-              <p className="mt-1 flex items-center gap-1 text-slate-600">
-                3rd: {item.thirdName ?? item.thirdId ?? 'TBC'}
-                {item.thirdId && raceResults[item.raceId]?.inferredPlaces && (
-                  <span className="inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-700">Auto</span>
-                )}
-              </p>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
@@ -5260,13 +5265,23 @@ export default function Home() {
                   </div>
                 ) : (
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {meetsForPicks.map(meet => (
-                      <div key={`admin-main-meet-${meet.meet_id}`} className="bg-white p-4 rounded-lg shadow-sm">
-                        <h3 className="text-lg font-semibold">{meet.course} ({meet.state})</h3>
-                        <p className="text-sm text-slate-500">{meet.date}</p>
-                        <p className="text-xs text-slate-500">{normalizeMeetRaceType(meet.raceType)}</p>
-                      </div>
-                    ))}
+                    {meetsForPicks.map(meet => {
+                      const meetRaceIds = [...new Set(submissionRows.flatMap(row =>
+                        row.selections.filter(s => s.meetId === meet.meet_id).map(s => s.raceId)
+                      ))];
+                      const meetDone = meetRaceIds.length > 0 && meetRaceIds.every(id => raceResults[id]?.winnerId);
+                      return (
+                        <div key={`admin-main-meet-${meet.meet_id}`} className={`p-4 rounded-lg shadow-sm border ${meetDone ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-transparent'}`}>
+                          <div className="flex items-center gap-2">
+                            {meetDone && <span className="text-emerald-600 font-bold text-base">✓</span>}
+                            <h3 className={`text-lg font-semibold ${meetDone ? 'text-emerald-800' : 'text-slate-900'}`}>{meet.course} ({meet.state})</h3>
+                          </div>
+                          <p className={`text-sm ${meetDone ? 'text-emerald-600' : 'text-slate-500'}`}>{meet.date}</p>
+                          <p className={`text-xs ${meetDone ? 'text-emerald-500' : 'text-slate-500'}`}>{normalizeMeetRaceType(meet.raceType)}</p>
+                          {meetDone && <p className="mt-1 text-xs font-medium text-emerald-700">Finished</p>}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -5312,106 +5327,104 @@ export default function Home() {
                     ) : (races[meet.meet_id] || []).length === 0 ? (
                       renderNoRacesState(meet)
                     ) : (
-                      <div className="-mx-4 px-4 lg:mx-0 lg:px-0">
-                      <div className="flex gap-3 overflow-x-auto pb-3 snap-x snap-mandatory lg:grid lg:grid-cols-4 lg:overflow-visible lg:snap-none">
+                      <div className="space-y-2">
                         {(races[meet.meet_id] || []).slice(-4).map(race => {
                           const raceKey = `${meet.meet_id}|${race.id}`;
                           const selected = selections.find(s => s.meetId === meet.meet_id && s.raceId === race.id);
-                          const expanded = raceExpanded[raceKey] ?? true;
+                          const result = raceResults[race.id];
+                          const isSettled = Boolean(result?.winnerId);
                           const selectedRunner = selected ? race.runners.find(r => r.id === selected.horseId) : null;
+                          const isWildcardRace = wildcard?.meetId === meet.meet_id && wildcard?.raceId === race.id;
+
+                          // Collapsed by default when submitted or already selected; open when no pick yet
+                          const expanded = raceExpanded[raceKey] ?? (hasSubmitted ? false : !selected);
+
+                          const raceTime = race.time ? new Date(race.time) : null;
+                          const minutesUntil = raceTime ? (raceTime.getTime() - new Date().getTime()) / 60000 : Infinity;
+                          const allowChange = minutesUntil > 10;
+
+                          const headerBg = isSettled
+                            ? 'bg-emerald-50 border-emerald-200'
+                            : selected
+                            ? 'bg-slate-50 border-slate-200'
+                            : 'bg-white border-slate-200';
+
+                          const winnerName = isSettled ? (result.winnerName || result.winnerId) : null;
 
                           return (
-                            <div key={race.id} className="bg-white p-4 rounded-lg shadow-sm shrink-0 w-[82vw] sm:w-80 snap-start lg:w-auto lg:shrink">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <h3 className="text-lg font-semibold">{race.name}</h3>
-                                  <p className="text-xs text-slate-500">{formatRaceTime(race.time)}</p>
+                            <div key={race.id} className={`rounded-lg border ${headerBg} overflow-hidden`}>
+                              {/* Accordion header — always visible */}
+                              <button
+                                type="button"
+                                className="w-full flex items-center justify-between px-4 py-3 text-left"
+                                onClick={() => setRaceExpanded(prev => ({ ...prev, [raceKey]: !expanded }))}
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <span className={`text-sm font-semibold ${isSettled ? 'text-emerald-800' : 'text-slate-900'}`}>{race.name}</span>
+                                  {isSettled ? (
+                                    <span className="shrink-0 text-xs font-medium text-emerald-700 bg-emerald-100 rounded-full px-2 py-0.5">✓ Done</span>
+                                  ) : selected ? (
+                                    <span className="shrink-0 text-xs text-slate-500">
+                                      Pick: <span className="font-medium text-slate-800">{selectedRunner?.name || selected.horseName}{isWildcardRace ? ' ★' : ''}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="shrink-0 text-xs font-medium text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Pick required</span>
+                                  )}
+                                  {isSettled && winnerName && (
+                                    <span className="shrink-0 text-xs text-emerald-600 truncate">1st: {winnerName}</span>
+                                  )}
                                 </div>
-                                {selected ? (
-                                  (() => {
-                                    const raceTime = race.time ? new Date(race.time) : null;
-                                    const now = new Date();
-                                    const minutesUntil = raceTime ? (raceTime.getTime() - now.getTime()) / 60000 : Infinity;
-                                    const allowChange = minutesUntil > 10; // only allow changes more than 10 minutes before start
+                                <span className={`ml-2 shrink-0 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
+                              </button>
 
-                                    if (hasSubmitted && submittedSelections) {
-                                      if (allowChange) {
-                                        return (
-                                          <div className="flex items-center gap-2">
-                                            <button
-                                              type="button"
-                                              onClick={() => startChangeForRace(raceKey, race.id)}
-                                              className="text-xs font-medium text-blue-600 hover:underline"
-                                            >
-                                              Change
-                                            </button>
-                                            {changingRaceId === race.id ? (
-                                              <button
-                                                type="button"
-                                                onClick={cancelChange}
-                                                className="text-xs font-medium text-slate-600 hover:underline"
-                                              >
-                                                Cancel
-                                              </button>
-                                            ) : null}
-                                          </div>
-                                        );
-                                      }
-
-                                      return (
+                              {/* Expanded body */}
+                              {expanded && (
+                                <div className="border-t border-slate-100 px-4 pb-4 pt-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-xs text-slate-500">{formatRaceTime(race.time)}</p>
+                                    {selected && hasSubmitted && submittedSelections && (
+                                      allowChange ? (
+                                        <div className="flex items-center gap-2">
+                                          <button type="button" onClick={() => startChangeForRace(raceKey, race.id)} className="text-xs font-medium text-blue-600 hover:underline">Change</button>
+                                          {changingRaceId === race.id && <button type="button" onClick={cancelChange} className="text-xs font-medium text-slate-600 hover:underline">Cancel</button>}
+                                        </div>
+                                      ) : (
                                         <span className="text-xs text-slate-500">Locked</span>
-                                      );
-                                    }
-
-                                    // default behaviour when not submitted: expand to change selection
-                                    return (
-                                      <button
-                                        type="button"
-                                        onClick={() => setRaceExpanded(prev => ({ ...prev, [raceKey]: true }))}
-                                        className="text-xs font-medium text-blue-600 hover:underline"
-                                      >
-                                        Change
-                                      </button>
-                                    );
-                                  })()
-                                ) : null}
-                              </div>
-
-                              {selected && !expanded && selectedRunner ? (
-                                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                  <p className="text-sm font-medium">Selected: {selectedRunner.name}</p>
-                                  <p className="text-xs text-slate-500">Odds: {selectedRunner.odds || 'N/A'}</p>
+                                      )
+                                    )}
+                                  </div>
+                                  {isSettled ? (
+                                    <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3 text-sm space-y-0.5">
+                                      {selected && <p className="font-medium text-emerald-800">Your pick: {selectedRunner?.name || selected.horseName}{isWildcardRace ? ' ★ (Wildcard)' : ''}</p>}
+                                      <p className="text-emerald-700">1st: {result.winnerName || result.winnerId || '—'}</p>
+                                      <p className="text-emerald-700">2nd: {result.secondName || result.secondId || '—'}</p>
+                                      <p className="text-emerald-700">3rd: {result.thirdName || result.thirdId || '—'}</p>
+                                    </div>
+                                  ) : (
+                                    <ul className="space-y-2">
+                                      {race.runners.map(runner => (
+                                        <li key={runner.id}>
+                                          <button
+                                            onClick={() => setSelectedRunnerDetails({ runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name })}
+                                            className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+                                              isSelected(meet.meet_id, race.id, runner.id)
+                                                ? 'bg-green-100 text-green-900'
+                                                : 'bg-slate-50 text-slate-900 hover:bg-slate-100'
+                                            } ${isWildcardRace ? 'ring-2 ring-amber-400' : ''}`}
+                                          >
+                                            <span className="block font-semibold">{formatHorseDisplayName(runner.name, runner.number)}</span>
+                                            <span className="mt-0.5 block text-xs font-normal text-slate-600">{formatRunnerMetaLine(runner)}</span>
+                                            <span className="mt-0.5 block text-xs font-normal text-slate-500">Jockey: {runner.jockey || 'N/A'}</span>
+                                          </button>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
                                 </div>
-                              ) : (
-                                <ul className="mt-3 space-y-2">
-                                  {race.runners.map(runner => (
-                                    <li key={runner.id}>
-                                      <button
-                                        onClick={() => {
-                                          setSelectedRunnerDetails({ runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name });
-                                        }}
-                                        className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
-                                          isSelected(meet.meet_id, race.id, runner.id)
-                                            ? 'bg-green-100 text-green-900'
-                                            : 'bg-slate-50 text-slate-900 hover:bg-slate-100'
-                                        } ${
-                                          selectedWildcards(meet.meet_id, race.id)
-                                            ? 'ring-2 ring-amber-400'
-                                            : ''
-                                        }`}
-                                      >
-                                        <span className="block font-semibold">{formatHorseDisplayName(runner.name, runner.number)}</span>
-                                        <span className="mt-0.5 block text-xs font-normal text-slate-600">{formatRunnerMetaLine(runner)}</span>
-                                        <span className="mt-0.5 block text-xs font-normal text-slate-500">Jockey: {runner.jockey || 'N/A'}</span>
-                                      </button>
-                                    </li>
-                                  ))}
-                                </ul>
                               )}
                             </div>
                           );
                         })}
-                      </div>
                       </div>
                     )}
                   </div>
@@ -5679,13 +5692,23 @@ export default function Home() {
             </div>
           ) : (
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              {globalMeets.map(meet => (
-                <div key={meet.meet_id} className="bg-white p-4 rounded-lg shadow-sm">
-                  <h3 className="text-lg font-semibold">{meet.course} ({meet.state})</h3>
-                  <p className="text-sm text-slate-500">{meet.date}</p>
-                  <p className="text-xs text-slate-500">{normalizeMeetRaceType(meet.raceType)}</p>
-                </div>
-              ))}
+              {globalMeets.map(meet => {
+                const meetRaceIds = [...new Set(submissionRows.flatMap(row =>
+                  row.selections.filter(s => s.meetId === meet.meet_id).map(s => s.raceId)
+                ))];
+                const meetDone = meetRaceIds.length > 0 && meetRaceIds.every(id => raceResults[id]?.winnerId);
+                return (
+                  <div key={meet.meet_id} className={`p-4 rounded-lg shadow-sm border ${meetDone ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-transparent'}`}>
+                    <div className="flex items-center gap-2">
+                      {meetDone && <span className="text-emerald-600 font-bold text-base">✓</span>}
+                      <h3 className={`text-lg font-semibold ${meetDone ? 'text-emerald-800' : 'text-slate-900'}`}>{meet.course} ({meet.state})</h3>
+                    </div>
+                    <p className={`text-sm ${meetDone ? 'text-emerald-600' : 'text-slate-500'}`}>{meet.date}</p>
+                    <p className={`text-xs ${meetDone ? 'text-emerald-500' : 'text-slate-500'}`}>{normalizeMeetRaceType(meet.raceType)}</p>
+                    {meetDone && <p className="mt-1 text-xs font-medium text-emerald-700">Finished</p>}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -5699,63 +5722,84 @@ export default function Home() {
               ) : (races[meet.meet_id] || []).length === 0 ? (
                 renderNoRacesState(meet)
               ) : (
-                <div className="-mx-4 px-4 lg:mx-0 lg:px-0">
-                <div className="flex gap-3 overflow-x-auto pb-3 snap-x snap-mandatory lg:grid lg:grid-cols-4 lg:overflow-visible lg:snap-none">
+                <div className="space-y-2">
                   {(races[meet.meet_id] || []).slice(-4).map(race => {
                     const raceKey = `${meet.meet_id}|${race.id}`;
                     const selected = selections.find(s => s.meetId === meet.meet_id && s.raceId === race.id);
-                    const expanded = raceExpanded[raceKey] ?? true;
+                    const result = raceResults[race.id];
+                    const isSettled = Boolean(result?.winnerId);
                     const selectedRunner = selected ? race.runners.find(r => r.id === selected.horseId) : null;
+                    const isWildcardRace = wildcard?.meetId === meet.meet_id && wildcard?.raceId === race.id;
+                    const expanded = raceExpanded[raceKey] ?? (hasSubmitted ? false : !selected);
+                    const raceTime = race.time ? new Date(race.time) : null;
+                    const minutesUntil = raceTime ? (raceTime.getTime() - new Date().getTime()) / 60000 : Infinity;
+                    const allowChange = minutesUntil > 10;
+                    const headerBg = isSettled ? 'bg-emerald-50 border-emerald-200' : selected ? 'bg-slate-50 border-slate-200' : 'bg-white border-slate-200';
+                    const winnerName = isSettled ? (result.winnerName || result.winnerId) : null;
 
                     return (
-                      <div key={race.id} className="shrink-0 w-[82vw] sm:w-80 snap-start lg:w-auto lg:shrink bg-white p-4 rounded-lg shadow-sm">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h3 className="text-lg font-semibold">{race.name}</h3>
-                            <p className="text-xs text-slate-500">{formatRaceTime(race.time)}</p>
+                      <div key={race.id} className={`rounded-lg border ${headerBg} overflow-hidden`}>
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-between px-4 py-3 text-left"
+                          onClick={() => setRaceExpanded(prev => ({ ...prev, [raceKey]: !expanded }))}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className={`text-sm font-semibold ${isSettled ? 'text-emerald-800' : 'text-slate-900'}`}>{race.name}</span>
+                            {isSettled ? (
+                              <span className="shrink-0 text-xs font-medium text-emerald-700 bg-emerald-100 rounded-full px-2 py-0.5">✓ Done</span>
+                            ) : selected ? (
+                              <span className="shrink-0 text-xs text-slate-500">Pick: <span className="font-medium text-slate-800">{selectedRunner?.name || selected.horseName}{isWildcardRace ? ' ★' : ''}</span></span>
+                            ) : (
+                              <span className="shrink-0 text-xs font-medium text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Pick required</span>
+                            )}
+                            {isSettled && winnerName && <span className="shrink-0 text-xs text-emerald-600 truncate">1st: {winnerName}</span>}
                           </div>
-                          {selected ? (
-                            <button
-                              type="button"
-                              onClick={() => setRaceExpanded(prev => ({ ...prev, [raceKey]: true }))}
-                              className="text-xs font-medium text-blue-600 hover:underline"
-                            >
-                              Change
-                            </button>
-                          ) : null}
-                        </div>
-
-                        {selected && !expanded && selectedRunner ? (
-                          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                            <p className="text-sm font-medium">Selected: {selectedRunner.name}</p>
-                            <p className="text-xs text-slate-500">Odds: {selectedRunner.odds || 'N/A'}</p>
+                          <span className={`ml-2 shrink-0 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
+                        </button>
+                        {expanded && (
+                          <div className="border-t border-slate-100 px-4 pb-4 pt-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs text-slate-500">{formatRaceTime(race.time)}</p>
+                              {selected && hasSubmitted && submittedSelections && (
+                                allowChange ? (
+                                  <div className="flex items-center gap-2">
+                                    <button type="button" onClick={() => startChangeForRace(raceKey, race.id)} className="text-xs font-medium text-blue-600 hover:underline">Change</button>
+                                    {changingRaceId === race.id && <button type="button" onClick={cancelChange} className="text-xs font-medium text-slate-600 hover:underline">Cancel</button>}
+                                  </div>
+                                ) : <span className="text-xs text-slate-500">Locked</span>
+                              )}
+                            </div>
+                            {isSettled ? (
+                              <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3 text-sm space-y-0.5">
+                                {selected && <p className="font-medium text-emerald-800">Your pick: {selectedRunner?.name || selected.horseName}{isWildcardRace ? ' ★ (Wildcard)' : ''}</p>}
+                                <p className="text-emerald-700">1st: {result.winnerName || result.winnerId || '—'}</p>
+                                <p className="text-emerald-700">2nd: {result.secondName || result.secondId || '—'}</p>
+                                <p className="text-emerald-700">3rd: {result.thirdName || result.thirdId || '—'}</p>
+                              </div>
+                            ) : (
+                              <ul className="space-y-2">
+                                {race.runners.map(runner => (
+                                  <li key={runner.id}>
+                                    <button
+                                      onClick={() => setSelectedRunnerDetails({ runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name })}
+                                      className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+                                        isSelected(meet.meet_id, race.id, runner.id) ? 'bg-green-100 text-green-900' : 'bg-slate-50 text-slate-900 hover:bg-slate-100'
+                                      } ${isWildcardRace ? 'ring-2 ring-amber-400' : ''}`}
+                                    >
+                                      <span className="block font-semibold">{formatHorseDisplayName(runner.name, runner.number)}</span>
+                                      <span className="mt-0.5 block text-xs font-normal text-slate-600">{formatRunnerMetaLine(runner)}</span>
+                                      <span className="mt-0.5 block text-xs font-normal text-slate-500">Jockey: {runner.jockey || 'N/A'}</span>
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
                           </div>
-                        ) : (
-                          <ul className="mt-3 space-y-2">
-                            {race.runners.map(runner => (
-                              <li key={runner.id}>
-                                <button
-                                  onClick={() => {
-                                    setSelectedRunnerDetails({ runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name });
-                                  }}
-                                  className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
-                                    isSelected(meet.meet_id, race.id, runner.id)
-                                      ? 'bg-green-100 text-green-900'
-                                      : 'bg-slate-50 text-slate-900 hover:bg-slate-100'
-                                  } ${selectedWildcards(meet.meet_id, race.id) ? 'ring-2 ring-amber-400' : ''}`}
-                                >
-                                  <span className="block font-semibold">{formatHorseDisplayName(runner.name, runner.number)}</span>
-                                  <span className="mt-0.5 block text-xs font-normal text-slate-600">{formatRunnerMetaLine(runner)}</span>
-                                  <span className="mt-0.5 block text-xs font-normal text-slate-500">Jockey: {runner.jockey || 'N/A'}</span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
                         )}
                       </div>
                     );
                   })}
-                </div>
                 </div>
               )}
             </div>
