@@ -1905,12 +1905,29 @@ export default function Home() {
       }
 
       // Also keep an append-only historical record for multi-round lookup/reporting.
+      // Compute wins/seconds/thirds per user using horseMatchesResult (same logic as the live scoreboard)
+      // so the counts are authoritative and consistent with the score shown in the email.
+      const scoreboardWithStats = snapshotToPersist.scoreboard.map((entry) => {
+        const subRow = submissionRows.find(r => r.username === entry.username && r.submitted);
+        let wins = 0, seconds = 0, thirds = 0;
+        if (subRow) {
+          subRow.selections.forEach((sel) => {
+            const result = raceResults[sel.raceId];
+            if (!result) return;
+            if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result.winnerId, result.winnerName)) wins++;
+            else if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result.secondId, result.secondName)) seconds++;
+            else if (horseMatchesResult(sel.raceId, sel.horseId, sel.horseName, result.thirdId, result.thirdName)) thirds++;
+          });
+        }
+        return { ...entry, wins, seconds, thirds };
+      });
+
       const { error: historyInsertError } = await supabase
         .from('round_history')
         .insert({
           round_closed_at: snapshotToPersist.capturedAt,
           meets: snapshotToPersist.meets,
-          scoreboard: snapshotToPersist.scoreboard,
+          scoreboard: scoreboardWithStats,
           results: snapshotToPersist.results,
         });
 
@@ -4128,53 +4145,40 @@ export default function Home() {
         const supabase = getSupabaseClient();
 
         // Accumulate totals from every closed round stored in round_history.
-        // Each row has a scoreboard JSONB: [{username, score}, ...].
+        // Each row has a scoreboard JSONB: [{username, score, wins?, seconds?, thirds?}, ...].
+        // wins/seconds/thirds were computed at close time using horseMatchesResult — the same
+        // logic as the email/live scoreboard — so they are authoritative.
         const { data: historyRows, error: historyError } = await supabase
           .from('round_history')
           .select('scoreboard')
           .order('round_closed_at', { ascending: true });
 
-        // Fetch all race results (for name+ID based position lookup across all time).
-        const { data: allRaceResultRows } = await supabase
-          .from('race_results')
-          .select('race_id,horse_id,horse_name,finishing_position');
-
-        // Fetch historical scored picks — populated by recalculate_scores_for_meet when results are persisted.
-        // These rows have horse_id/horse_name for each pick, but finishing_position may be wrong if IDs mismatched.
-        const { data: scoreRows } = await supabase
-          .from('user_selection_scores')
-          .select('username,meet_id,race_id,horse_id,horse_name,finishing_position');
-
-        // Fetch current-round submissions — only available for the current open meet, not historical.
+        // For the CURRENT open meet (not yet closed), compute positions from user_submissions live.
         const { data: currentSubs } = await supabase
           .from('user_submissions')
           .select('username,selections,submitted');
 
-        // Build a raceId → [{horse_id, horse_name, finishing_position}] lookup using race_results.
+        // Build a raceId → placings lookup from race_results for the current-meet live computation.
+        const { data: currentRaceResultRows } = await supabase
+          .from('race_results')
+          .select('race_id,horse_id,horse_name,finishing_position');
+
         const raceResultsLookup = new Map<string, Array<{ horse_id: string; horse_name: string | null; finishing_position: number }>>();
-        for (const r of allRaceResultRows || []) {
+        for (const r of currentRaceResultRows || []) {
           if (!r.race_id || !r.finishing_position) continue;
           const list = raceResultsLookup.get(r.race_id) ?? [];
           list.push(r);
           raceResultsLookup.set(r.race_id, list);
         }
 
-        // Resolve the finishing position for a pick — uses the same normalization logic as
-        // horseMatchesResult (normalizeHorseNameForComparison, extractHorseNumber, isRunnerPlaceholderName)
-        // so name matching is identical to what the live scoreboard uses.
         const resolvePosition = (raceId: string, horseId: string | null | undefined, horseName: string | null | undefined): number | null => {
           const candidates = raceResultsLookup.get(raceId) ?? [];
           for (const c of candidates) {
             if (horseId && c.horse_id && horseId === c.horse_id) return c.finishing_position;
             if (horseName && c.horse_name) {
-              const selNorm = normalizeHorseNameForComparison(horseName);
-              const resNorm = normalizeHorseNameForComparison(c.horse_name);
-              if (selNorm && resNorm && !isRunnerPlaceholderName(horseName) && !isRunnerPlaceholderName(c.horse_name) && selNorm === resNorm) {
-                return c.finishing_position;
-              }
-              const selNum = extractHorseNumber(horseName);
-              const resNum = extractHorseNumber(c.horse_name);
-              if (selNum !== null && resNum !== null && selNum === resNum) return c.finishing_position;
+              const selNorm = horseName.trim().toLowerCase().replace(/^\d+\.\s*/, '');
+              const resNorm = c.horse_name.trim().toLowerCase().replace(/^\d+\.\s*/, '');
+              if (selNorm && resNorm && selNorm === resNorm) return c.finishing_position;
             }
           }
           return null;
@@ -4183,80 +4187,47 @@ export default function Home() {
         let allTimeBoard: any[] = [];
 
         if (!historyError && Array.isArray(historyRows) && historyRows.length > 0) {
-          // Sum scores per username across all historical rounds.
-          const totals = new Map<string, number>();
-          // Count distinct rounds each user appeared in (= meets participated in).
-          const meetCounts = new Map<string, number>();
+          // Sum scores, wins, seconds, thirds per user across all historical rounds.
+          const totals = new Map<string, { score: number; wins: number; seconds: number; thirds: number; meetCount: number }>();
+
           for (const row of historyRows) {
-            const roundBoard: Array<{ username: string; score: number }> = Array.isArray(row.scoreboard) ? row.scoreboard : [];
+            const roundBoard: Array<{ username: string; score: number; wins?: number; seconds?: number; thirds?: number }> =
+              Array.isArray(row.scoreboard) ? row.scoreboard : [];
             const seenThisRound = new Set<string>();
             for (const entry of roundBoard) {
-              if (entry.username) {
-                totals.set(entry.username, (totals.get(entry.username) ?? 0) + (entry.score ?? 0));
-                if (!seenThisRound.has(entry.username)) {
-                  seenThisRound.add(entry.username);
-                  meetCounts.set(entry.username, (meetCounts.get(entry.username) ?? 0) + 1);
+              if (!entry.username) continue;
+              const existing = totals.get(entry.username) ?? { score: 0, wins: 0, seconds: 0, thirds: 0, meetCount: 0 };
+              existing.score += entry.score ?? 0;
+              existing.wins += entry.wins ?? 0;
+              existing.seconds += entry.seconds ?? 0;
+              existing.thirds += entry.thirds ?? 0;
+              if (!seenThisRound.has(entry.username)) {
+                seenThisRound.add(entry.username);
+                existing.meetCount += 1;
+              }
+              totals.set(entry.username, existing);
+            }
+          }
+
+          // Add current open meet's live picks (not yet in round_history).
+          if (globalMeets.length > 0) {
+            for (const row of (currentSubs || []).filter((r: any) => r.submitted)) {
+              for (const sel of (row.selections || [])) {
+                if (!sel.raceId) continue;
+                const pos = resolvePosition(sel.raceId, sel.horseId, sel.horseName);
+                if (pos === 1 || pos === 2 || pos === 3) {
+                  const existing = totals.get(row.username) ?? { score: 0, wins: 0, seconds: 0, thirds: 0, meetCount: 0 };
+                  if (pos === 1) existing.wins++;
+                  else if (pos === 2) existing.seconds++;
+                  else existing.thirds++;
+                  totals.set(row.username, existing);
                 }
               }
             }
           }
 
-          // -------------------------------------------------------------------
-          // Compute per-user wins/seconds/thirds.
-          //
-          // Strategy (two sources, deduped by meet_id|race_id per user):
-          //  1) user_selection_scores — historical picks stored when recalculate_scores_for_meet ran.
-          //     Re-resolved via race_results using full name+ID normalization (same as live scoreboard).
-          //  2) user_submissions — current-round picks only (cleared after close).
-          //     Covers the current open meet that hasn't closed yet.
-          // -------------------------------------------------------------------
-          const positionCounts = new Map<string, { wins: number; seconds: number; thirds: number }>();
-          // Track which meet|race combos we've already counted per user to avoid double-counting.
-          const countedRaces = new Map<string, Set<string>>();
-
-          // Source 1: historical scored rows from user_selection_scores.
-          for (const r of scoreRows || []) {
-            if (!r.username || !r.race_id) continue;
-            const dedupKey = `${r.meet_id ?? ''}|${r.race_id}`;
-            const counted = countedRaces.get(r.username) ?? new Set<string>();
-            if (counted.has(dedupKey)) continue;
-            counted.add(dedupKey);
-            countedRaces.set(r.username, counted);
-
-            const pos = resolvePosition(r.race_id, r.horse_id, r.horse_name);
-            if (pos === 1 || pos === 2 || pos === 3) {
-              const existing = positionCounts.get(r.username) ?? { wins: 0, seconds: 0, thirds: 0 };
-              if (pos === 1) existing.wins++;
-              else if (pos === 2) existing.seconds++;
-              else existing.thirds++;
-              positionCounts.set(r.username, existing);
-            }
-          }
-
-          // Source 2: current-round picks from user_submissions (for current open meet).
-          for (const row of (currentSubs || []).filter((r: any) => r.submitted)) {
-            const counted = countedRaces.get(row.username) ?? new Set<string>();
-            for (const sel of (row.selections || [])) {
-              if (!sel.raceId) continue;
-              const dedupKey = `${sel.meetId ?? ''}|${sel.raceId}`;
-              if (counted.has(dedupKey)) continue;
-              counted.add(dedupKey);
-              countedRaces.set(row.username, counted);
-
-              const pos = resolvePosition(sel.raceId, sel.horseId, sel.horseName);
-              if (pos === 1 || pos === 2 || pos === 3) {
-                const existing = positionCounts.get(row.username) ?? { wins: 0, seconds: 0, thirds: 0 };
-                if (pos === 1) existing.wins++;
-                else if (pos === 2) existing.seconds++;
-                else existing.thirds++;
-                positionCounts.set(row.username, existing);
-              }
-            }
-          }
-
-          for (const [username, score] of totals.entries()) {
-            const pos = positionCounts.get(username) ?? { wins: 0, seconds: 0, thirds: 0 };
-            allTimeBoard.push({ username, score, wins: pos.wins, seconds: pos.seconds, thirds: pos.thirds, meetCount: meetCounts.get(username) ?? 0 });
+          for (const [username, data] of totals.entries()) {
+            allTimeBoard.push({ username, ...data });
           }
         }
 
