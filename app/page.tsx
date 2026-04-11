@@ -1381,19 +1381,9 @@ export default function Home() {
 
   const loadPreviousRoundSnapshot = async () => {
     const supabase = getSupabaseClient();
-    const { data } = await supabase
-      .from('app_settings')
-      .select('value')
-      .eq('key', PREVIOUS_ROUND_SNAPSHOT_SETTING_KEY)
-      .maybeSingle();
 
-    if (data?.value && typeof data.value === 'object') {
-      const snapshot = await enrichSnapshotRaceNames(data.value as PreviousRoundSnapshot, supabase);
-      setPreviousRoundSnapshot(snapshot);
-      return;
-    }
-
-    // Fallback for environments using append-only historical storage
+    // Primary source: round_history (append-only, never overwritten).
+    // This is the authoritative record of every closed round.
     const { data: historyRows, error: historyError } = await supabase
       .from('round_history')
       .select('round_closed_at,meets,scoreboard,results')
@@ -1414,15 +1404,28 @@ export default function Home() {
           thirdName: string | null;
         }>;
       };
-
       const rawSnapshot: PreviousRoundSnapshot = {
         capturedAt: latest.round_closed_at || new Date().toISOString(),
         meets: Array.isArray(latest.meets) ? latest.meets : [],
         scoreboard: Array.isArray(latest.scoreboard) ? latest.scoreboard : [],
-        results: Array.isArray(latest.results) ? latest.results : [],
+        // Only show races that actually have results.
+        results: (Array.isArray(latest.results) ? latest.results : []).filter((r) => Boolean(r.winnerName)),
       };
       const enrichedSnapshot = await enrichSnapshotRaceNames(rawSnapshot, supabase);
       setPreviousRoundSnapshot(enrichedSnapshot);
+      return;
+    }
+
+    // Fallback: legacy app_settings entry (may be stale/overwritten — only used if round_history is empty).
+    const { data } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', PREVIOUS_ROUND_SNAPSHOT_SETTING_KEY)
+      .maybeSingle();
+
+    if (data?.value && typeof data.value === 'object') {
+      const snapshot = await enrichSnapshotRaceNames(data.value as PreviousRoundSnapshot, supabase);
+      setPreviousRoundSnapshot(snapshot);
       return;
     }
 
@@ -1924,7 +1927,7 @@ export default function Home() {
   const resetRaceDayState = async (nextGlobalMeets: Meet[] = []) => {
     const supabase = getSupabaseClient();
 
-    // If closing (no meets), move globalMeets to previousRoundSnapshot, then clear globalMeets
+    // meetsForSnapshot always reflects the round being CLOSED (old meets), never the incoming new ones.
     let meetsForSnapshot = globalMeets;
     if (!nextGlobalMeets.length && globalMeets.length) {
       meetsForSnapshot = globalMeets;
@@ -1933,13 +1936,13 @@ export default function Home() {
       setAdminSelectedMeets([]);
       const supabase = getSupabaseClient();
       await supabase.from('app_settings').upsert({ key: GLOBAL_MEETS_SETTING_KEY, value: [] }, { onConflict: 'key' });
-    } else if (nextGlobalMeets.length) {
-      meetsForSnapshot = nextGlobalMeets;
     }
+    // When nextGlobalMeets is set, meetsForSnapshot stays as globalMeets (the round just closed).
 
     // Build snapshot from DB data (authoritative) rather than React memos which may be stale/empty.
     let dbScoreboard: Array<{ username: string; score: number }> = scoreboard;
-    let dbResults: PreviousRoundSnapshot['results'] = lastRoundRaceResults;
+    // Only include races that have an actual winner — avoids persisting 40+ empty Betfair market IDs.
+    let dbResults: PreviousRoundSnapshot['results'] = lastRoundRaceResults.filter((r) => Boolean(r.winnerName));
     if (!nextGlobalMeets.length && meetsForSnapshot.length) {
       try {
         const meetIds = meetsForSnapshot.map((m) => m.meet_id);
@@ -2077,7 +2080,8 @@ export default function Home() {
           round_closed_at: snapshotToPersist.capturedAt,
           meets: snapshotToPersist.meets,
           scoreboard: scoreboardWithStats,
-          results: snapshotToPersist.results,
+          // Only persist races that have an actual winner so we never store empty Betfair market IDs.
+          results: snapshotToPersist.results.filter((r) => Boolean(r.winnerName)),
         });
 
       if (historyInsertError) {
