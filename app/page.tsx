@@ -309,32 +309,45 @@ type RaceResultEntry = {
 };
 
 function HomeRaceResultsPanel({ results, meetLabel }: { results: RaceResultEntry[]; meetLabel: string | null }) {
-  const locations = Array.from(new Set(results.map((r) => r.location).filter(Boolean)));
-  const [activeLocation, setActiveLocation] = useState<string>(locations[0] ?? '');
+  const locations = Array.from(new Set(results.map((r) => r.location).filter((l) => l && l !== 'Unknown Meet')));
+  // If all locations are 'Unknown Meet' fall back to showing all together under the meetLabel
+  const hasUsableLocations = locations.length > 0;
+  const effectiveLocations = hasUsableLocations ? locations : ['All'];
+  const [activeLocation, setActiveLocation] = useState<string>(effectiveLocations[0] ?? '');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (locations.length && !locations.includes(activeLocation)) {
-      setActiveLocation(locations[0]);
+    if (effectiveLocations.length && !effectiveLocations.includes(activeLocation)) {
+      setActiveLocation(effectiveLocations[0]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locations.join(',')]);
+  }, [effectiveLocations.join(',')]);
 
-  const filtered = activeLocation ? results.filter((r) => r.location === activeLocation) : results;
+  const toggleExpand = (raceId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(raceId)) next.delete(raceId);
+      else next.add(raceId);
+      return next;
+    });
+  };
+
+  const filtered = activeLocation === 'All'
+    ? results
+    : results.filter((r) => r.location === activeLocation);
 
   return (
     <div className="rounded-lg bg-white p-4 shadow-sm">
       <h3 className="text-lg font-semibold">Last Round Race Results</h3>
       {meetLabel ? <p className="mt-1 text-xs text-slate-500">{meetLabel}</p> : null}
-      {locations.length > 1 && (
+      {effectiveLocations.length > 1 && (
         <div className="mt-3 flex gap-1 flex-wrap">
-          {locations.map((loc) => (
+          {effectiveLocations.map((loc) => (
             <button
               key={loc}
               onClick={() => setActiveLocation(loc)}
               className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                activeLocation === loc
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                activeLocation === loc ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
               {loc}
@@ -346,26 +359,135 @@ function HomeRaceResultsPanel({ results, meetLabel }: { results: RaceResultEntry
         {filtered.map((result, idx) => {
           const isBetfairId = /^\d+\.\d+$/.test(result.raceName);
           const displayName = isBetfairId ? `Race ${idx + 1}` : result.raceName;
+          const isExpanded = expanded.has(result.raceId);
           return (
-          <li key={`home-result-${result.raceId}`} className="rounded-md bg-slate-50 px-3 py-2 text-sm">
-            <div className="font-medium">{result.location} - {displayName}</div>
-            <div className="mt-1 text-slate-700">1st: {result.winnerName || 'TBC'}</div>
-            <div className="flex items-center gap-1 text-slate-700">
-              2nd: {result.secondName || 'TBC'}
-              {result.secondName && result.inferredPlaces && (
-                <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+            <li key={`home-result-${result.raceId}`} className="rounded-md overflow-hidden border border-slate-100">
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-3 py-2 text-sm text-left bg-slate-50"
+                onClick={() => toggleExpand(result.raceId)}
+              >
+                <span className="font-medium">{displayName}</span>
+                <span className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>▾</span>
+              </button>
+              {isExpanded && (
+                <div className="px-3 pb-3 pt-2 text-sm border-t border-slate-100 bg-white">
+                  <div className="text-slate-700">1st: {result.winnerName || 'TBC'}</div>
+                  <div className="flex items-center gap-1 text-slate-700">
+                    2nd: {result.secondName || 'TBC'}
+                    {result.secondName && result.inferredPlaces && (
+                      <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 text-slate-700">
+                    3rd: {result.thirdName || 'TBC'}
+                    {result.thirdName && result.inferredPlaces && (
+                      <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
+                    )}
+                  </div>
+                </div>
               )}
-            </div>
-            <div className="flex items-center gap-1 text-slate-700">
-              3rd: {result.thirdName || 'TBC'}
-              {result.thirdName && result.inferredPlaces && (
-                <span className="inline-block rounded bg-sky-100 px-1 py-0.5 text-xs font-medium text-sky-700">Auto</span>
-              )}
-            </div>
-          </li>
+            </li>
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+function CurrentRoundRacesPanel({
+  globalMeets,
+  races,
+  raceResults,
+}: {
+  globalMeets: Meet[];
+  races: { [meetId: string]: import('../lib/betfair').Race[] };
+  raceResults: RaceResultsMap;
+}) {
+  const locations = globalMeets.map((m) => m.course).filter(Boolean);
+  const [activeLocation, setActiveLocation] = useState<string>(locations[0] ?? '');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (locations.length && !locations.includes(activeLocation)) {
+      setActiveLocation(locations[0]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locations.join(',')]);
+
+  const activeMeet = globalMeets.find((m) => m.course === activeLocation) ?? globalMeets[0];
+  const meetRaces = activeMeet ? (races[activeMeet.meet_id] || []).slice(-4) : [];
+
+  const toggleExpand = (raceId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(raceId)) next.delete(raceId);
+      else next.add(raceId);
+      return next;
+    });
+  };
+
+  return (
+    <div className="rounded-lg bg-white p-4 shadow-sm">
+      <h3 className="text-lg font-semibold">Current Round Races</h3>
+      {locations.length > 1 && (
+        <div className="mt-3 flex gap-1 flex-wrap">
+          {locations.map((loc) => (
+            <button
+              key={loc}
+              onClick={() => setActiveLocation(loc)}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                activeLocation === loc ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {loc}
+            </button>
+          ))}
+        </div>
+      )}
+      {meetRaces.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">Race details will appear here once loaded.</p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {meetRaces.map((race) => {
+            const result = raceResults[race.id];
+            const isSettled = Boolean(result?.winnerId);
+            const isExpanded = expanded.has(race.id);
+            return (
+              <li key={race.id} className="rounded-md overflow-hidden border border-slate-100">
+                <button
+                  type="button"
+                  className={`w-full flex items-center justify-between px-3 py-2 text-sm text-left ${
+                    isSettled ? 'bg-emerald-50' : 'bg-slate-50'
+                  }`}
+                  onClick={() => toggleExpand(race.id)}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`font-medium ${isSettled ? 'text-emerald-800' : 'text-slate-800'}`}>{race.name}</span>
+                    {isSettled
+                      ? <span className="text-xs font-medium text-emerald-700 bg-emerald-100 rounded-full px-2 py-0.5">✓ Done</span>
+                      : <span className="text-xs text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Pending</span>}
+                  </div>
+                  <span className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>▾</span>
+                </button>
+                {isExpanded && (
+                  <div className="px-3 pb-3 pt-2 text-sm border-t border-slate-100 bg-white">
+                    {isSettled ? (
+                      <div className="space-y-0.5">
+                        <div className="text-emerald-700">1st: {result.winnerName || result.winnerId || '—'}</div>
+                        <div className="text-emerald-700">2nd: {result.secondName || result.secondId || '—'}</div>
+                        <div className="text-emerald-700">3rd: {result.thirdName || result.thirdId || '—'}</div>
+                      </div>
+                    ) : (
+                      <p className="text-slate-500">Race not yet run.</p>
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -1218,16 +1340,43 @@ export default function Home() {
       });
     }
 
-    if (!nameMap.size) return snapshot;
+    let enriched: PreviousRoundSnapshot = nameMap.size
+      ? {
+          ...snapshot,
+          results: snapshot.results.map((r) =>
+            isBetfairMarketId(r.raceName) && nameMap.has(r.raceId)
+              ? { ...r, raceName: nameMap.get(r.raceId)! }
+              : r
+          ),
+        }
+      : { ...snapshot };
 
-    return {
-      ...snapshot,
-      results: snapshot.results.map((r) =>
-        isBetfairMarketId(r.raceName) && nameMap.has(r.raceId)
-          ? { ...r, raceName: nameMap.get(r.raceId)! }
-          : r
-      ),
-    };
+    // Also resolve 'Unknown Meet' or empty locations via race_results → meet_id → snapshot.meets
+    const unknownLocEntries = enriched.results.filter((r) => !r.location || r.location === 'Unknown Meet');
+    if (unknownLocEntries.length && snapshot.meets?.length) {
+      const unknownRaceIds = unknownLocEntries.map((r) => r.raceId);
+      const { data: raceMeetRows } = await supabase
+        .from('race_results')
+        .select('race_id,meet_id')
+        .in('race_id', unknownRaceIds);
+      const raceToMeet = new Map<string, string>();
+      (raceMeetRows || []).forEach((r: any) => { if (r.race_id && r.meet_id) raceToMeet.set(r.race_id, r.meet_id); });
+      const meetToCourse = new Map<string, string>();
+      (snapshot.meets || []).forEach((m: any) => { if (m.meet_id && m.course) meetToCourse.set(m.meet_id, m.course); });
+      if (raceToMeet.size) {
+        enriched = {
+          ...enriched,
+          results: enriched.results.map((r) => {
+            if (r.location && r.location !== 'Unknown Meet') return r;
+            const meetId = raceToMeet.get(r.raceId);
+            const course = meetId ? meetToCourse.get(meetId) : undefined;
+            return course ? { ...r, location: course } : r;
+          }),
+        };
+      }
+    }
+
+    return enriched;
   };
 
   const loadPreviousRoundSnapshot = async () => {
@@ -3712,6 +3861,10 @@ export default function Home() {
           </ol>
         </div>
       ) : null}
+
+      {globalMeets.length > 0 && (
+        <CurrentRoundRacesPanel globalMeets={globalMeets} races={races} raceResults={raceResults} />
+      )}
 
       {homeLastRoundRaceResults.length > 0 ? (
         <HomeRaceResultsPanel results={homeLastRoundRaceResults} meetLabel={homePreviousMeetLabel} />
