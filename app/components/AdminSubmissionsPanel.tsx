@@ -73,7 +73,7 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globa
 
   useEffect(() => { if (meetId && meetId !== 'current') fetchList(); }, [meetId]);
 
-  async function recordPayment(userId: string) {
+  async function approveUser(userId: string) {
     try {
       let resolvedMeetId = meetId;
       if (resolvedMeetId === 'current') {
@@ -90,58 +90,32 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globa
       const sup = getSupabaseClient();
       const { data: sessionData } = await sup.auth.getSession();
       if (!sessionData?.session?.access_token) return;
-      const res = await fetch('/api/admin/payments/record', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
-        body: JSON.stringify({ userId, meetId: resolvedMeetId }),
-      });
-      if (res.ok) {
+
+      // Record payment and set eligible in parallel
+      const [payRes, eligRes] = await Promise.all([
+        fetch('/api/admin/payments/record', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
+          body: JSON.stringify({ userId, meetId: resolvedMeetId }),
+        }),
+        fetch('/api/admin/eligibilities/set', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
+          body: JSON.stringify({ userId, meetId: resolvedMeetId, eligible: true }),
+        }),
+      ]);
+
+      if (payRes.ok && eligRes.ok) {
         setRows((prev) => prev.map((r) => r.profile.id === userId
           ? { ...r, payments: { ...r.payments, total: 15, confirmed: 15 }, eligibility: { ...(r.eligibility || {}), eligible: true } }
           : r));
-        setToast('Payment recorded & confirmed ✓');
+        setToast('Approved ✓');
         setTimeout(() => setToast(null), 3000);
       } else {
-        const err = await res.json().catch(() => ({}));
-        setToast(`Error: ${err.error || 'Failed to record payment'}`);
+        setToast('Error: could not approve user');
         setTimeout(() => setToast(null), 4000);
       }
     } catch (e) { /* ignore */ }
-  }
-
-  async function approve(userId: string) {
-    try {
-      let resolvedMeetId = meetId;
-      if (resolvedMeetId === 'current') {
-        try {
-          const sup = getSupabaseClient();
-          const { data: setting } = await sup.from('app_settings').select('value').eq('key', 'global_meets').maybeSingle();
-          const value = setting?.value;
-          if (Array.isArray(value) && value.length > 0 && value[0]?.meet_id) {
-            resolvedMeetId = value[0].meet_id;
-            setMeetId(resolvedMeetId);
-          }
-        } catch (e) {
-          // ignore and fall back to literal
-        }
-      }
-
-      const sup = getSupabaseClient();
-      const { data: sessionData } = await sup.auth.getSession();
-      if (!sessionData?.session?.access_token) return;
-      const res = await fetch('/api/admin/eligibilities/set', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
-        body: JSON.stringify({ userId, meetId: resolvedMeetId, eligible: true }),
-      });
-      if (res.ok) {
-        setRows((prev) => prev.map((r) => (r.profile.id === userId ? { ...r, eligibility: { ...(r.eligibility || {}), eligible: true } } : r)));
-        setToast('User approved ✓');
-        setTimeout(() => setToast(null), 3000);
-      }
-    } catch (e) {
-      // ignore
-    }
   }
 
   return (
@@ -201,27 +175,15 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globa
                   Submitted: {r.submission?.submitted_at ? new Date(r.submission.submitted_at).toLocaleString() : '—'}
                 </div>
                 <div className="text-sm">
-                  {r.payments.confirmed > 0
-                    ? <span className="text-emerald-700 font-medium">Entry fee: ${Number(r.payments.confirmed).toFixed(2)} confirmed ✓</span>
-                    : r.payments.total > 0
-                    ? <span className="text-amber-700">Entry fee: ${Number(r.payments.total).toFixed(2)} — payment pending</span>
-                    : <span className="text-red-600">No payment recorded</span>}
-                </div>
-                <div className="text-sm">
                   {r.eligibility?.eligible
-                    ? <span className="text-emerald-700 font-medium">Eligible ✓</span>
+                    ? <span className="text-emerald-700 font-medium">Approved — payment confirmed ✓</span>
                     : <span className="text-amber-700">Awaiting approval</span>}
                 </div>
               </div>
               <div className="flex flex-col gap-2 items-end">
-                {r.payments.total === 0 && (
-                  <button onClick={() => recordPayment(r.profile.id)} className="px-3 py-1 bg-blue-600 text-white rounded text-sm">
-                    Record Payment
-                  </button>
-                )}
                 {r.eligibility?.eligible
                   ? <button disabled className="px-3 py-1 bg-slate-300 text-slate-500 rounded cursor-not-allowed">Approved</button>
-                  : <button onClick={() => approve(r.profile.id)} className="px-3 py-1 bg-emerald-600 text-white rounded">Approve</button>}
+                  : <button onClick={() => approveUser(r.profile.id)} className="px-3 py-1 bg-emerald-600 text-white rounded">Approve</button>}
               </div>
             </div>
           ))}
