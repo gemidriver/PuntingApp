@@ -212,25 +212,8 @@ export default function UserProfilePage({ params }: { params: { username: string
 
         </div>
 
-        
-
         <div className="mt-6 flex flex-col items-center w-full">
           <Link href="/" className="text-sm text-slate-500 hidden lg:inline">Back to app</Link>
-
-          <button
-            onClick={async () => {
-              const supabase = getSupabaseClient();
-              try {
-                await supabase.auth.signOut();
-              } catch (e) {
-                // ignore errors
-              }
-              router.push('/');
-            }}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 hidden lg:inline"
-          >
-            Log out
-          </button>
         </div>
       </div>
 
