@@ -1943,7 +1943,7 @@ export default function Home() {
     let dbScoreboard: Array<{ username: string; score: number }> = scoreboard;
     // Only include races that have an actual winner — avoids persisting 40+ empty Betfair market IDs.
     let dbResults: PreviousRoundSnapshot['results'] = lastRoundRaceResults.filter((r) => Boolean(r.winnerName));
-    if (!nextGlobalMeets.length && meetsForSnapshot.length) {
+    if (meetsForSnapshot.length) {
       try {
         const meetIds = meetsForSnapshot.map((m) => m.meet_id);
 
