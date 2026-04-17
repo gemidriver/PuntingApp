@@ -5134,47 +5134,65 @@ export default function Home() {
             <div className="space-y-2">
               <button
                 onClick={() => setActiveScreen('home')}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'home' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'home' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:flex lg:justify-center' : ''}`}
               >
-                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Home</span>
-                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>H</span>
+                {sidebarCollapsed ? (
+                  <span className="text-xl leading-none" title="Home">🏠</span>
+                ) : (
+                  <span className="flex items-center gap-2"><span className="text-base leading-none">🏠</span>Home</span>
+                )}
               </button>
               <button
                 onClick={() => setActiveScreen('main')}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'main' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:flex lg:justify-center' : ''}`}
               >
-                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>My Picks</span>
-                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>M</span>
+                {sidebarCollapsed ? (
+                  <span className="text-xl leading-none" title="My Picks">🏇</span>
+                ) : (
+                  <span className="flex items-center gap-2"><span className="text-base leading-none">🏇</span>My Picks</span>
+                )}
               </button>
               <button
                 onClick={() => setActiveScreen('admin')}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'admin' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'admin' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:flex lg:justify-center' : ''}`}
               >
-                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Admin</span>
-                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>A</span>
+                {sidebarCollapsed ? (
+                  <span className="text-xl leading-none" title="Admin">⚙️</span>
+                ) : (
+                  <span className="flex items-center gap-2"><span className="text-base leading-none">⚙️</span>Admin</span>
+                )}
               </button>
               <button
                 onClick={() => setActiveScreen('leaderboard')}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'leaderboard' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'leaderboard' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:flex lg:justify-center' : ''}`}
               >
-                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Leaderboard</span>
-                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>L</span>
+                {sidebarCollapsed ? (
+                  <span className="text-xl leading-none" title="Leaderboard">🏆</span>
+                ) : (
+                  <span className="flex items-center gap-2"><span className="text-base leading-none">🏆</span>Leaderboard</span>
+                )}
               </button>
               <button
                 onClick={() => setActiveScreen('submissions')}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'submissions' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:text-center' : ''}`}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${activeScreen === 'submissions' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} ${sidebarCollapsed ? 'lg:flex lg:justify-center' : ''}`}
               >
-                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>User Submissions</span>
-                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>U</span>
+                {sidebarCollapsed ? (
+                  <span className="text-xl leading-none" title="User Submissions">📋</span>
+                ) : (
+                  <span className="flex items-center gap-2"><span className="text-base leading-none">📋</span>User Submissions</span>
+                )}
               </button>
             </div>
-            <div className={`mt-auto ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
+            <div className={`mt-auto`}>
               <button
                 onClick={() => { void logout(); }}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 ${sidebarCollapsed ? 'lg:text-center' : ''}`}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 ${sidebarCollapsed ? 'lg:flex lg:justify-center' : ''}`}
               >
-                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>Log out</span>
-                <span className={`hidden ${sidebarCollapsed ? 'lg:inline' : ''}`}>⎋</span>
+                {sidebarCollapsed ? (
+                  <span className="text-xl leading-none" title="Log out">🚪</span>
+                ) : (
+                  <span className="flex items-center gap-2"><span className="text-base leading-none">🚪</span>Log out</span>
+                )}
               </button>
             </div>
           </aside>
@@ -5554,7 +5572,7 @@ export default function Home() {
                     ) : (races[meet.meet_id] || []).length === 0 ? (
                       renderNoRacesState(meet)
                     ) : (
-                      <div className="space-y-2">
+                      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start">
                         {(races[meet.meet_id] || []).slice(-4).map(race => {
                           const raceKey = `${meet.meet_id}|${race.id}`;
                           const selected = selections.find(s => s.meetId === meet.meet_id && s.raceId === race.id);
@@ -5994,7 +6012,7 @@ export default function Home() {
               ) : (races[meet.meet_id] || []).length === 0 ? (
                 renderNoRacesState(meet)
               ) : (
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start">
                   {(races[meet.meet_id] || []).slice(-4).map(race => {
                     const raceKey = `${meet.meet_id}|${race.id}`;
                     const selected = selections.find(s => s.meetId === meet.meet_id && s.raceId === race.id);
