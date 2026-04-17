@@ -78,7 +78,23 @@ export async function POST(request: Request) {
 
     if (!rows.length) return Response.json({ success: true, inserted: 0 });
 
-    const { error: upsertError } = await supabase.from('race_results').upsert(rows, { onConflict: 'meet_id,race_id,horse_id' });
+    // Deduplicate by (meet_id, race_id, horse_id) to prevent PostgreSQL error 21000
+    const seenKeys = new Set<string>();
+    const dedupedRows = rows.filter(row => {
+      const key = `${row.meet_id}|${row.race_id}|${row.horse_id}`;
+      if (seenKeys.has(key)) return false;
+      seenKeys.add(key);
+      return true;
+    });
+
+    // Delete stale rows for each affected (meet_id, race_id) before inserting corrected results
+    const affectedRaces = [...new Set(dedupedRows.map((r: any) => `${r.meet_id}::${r.race_id}`))];
+    for (const key of affectedRaces) {
+      const [meetId, raceId] = key.split('::');
+      await supabase.from('race_results').delete().eq('meet_id', meetId).eq('race_id', raceId);
+    }
+
+    const { error: upsertError } = await supabase.from('race_results').upsert(dedupedRows, { onConflict: 'meet_id,race_id,horse_id' });
     if (upsertError) return Response.json({ error: upsertError.message }, { status: 500 });
 
     // Create in-app notifications for results updated for affected meets

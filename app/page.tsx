@@ -1038,10 +1038,32 @@ export default function Home() {
       return { error: null };
     }
 
-    // Use upsert to avoid duplicate entries and preserve all results
+    // Deduplicate by (meet_id, race_id, horse_id) to prevent PostgreSQL error 21000
+    // (cardinality violation when the same horse appears in multiple placing slots).
+    const seenKeys = new Set<string>();
+    const dedupedRows = rowsToInsert.filter(row => {
+      const key = `${row.meet_id}|${row.race_id}|${row.horse_id}`;
+      if (seenKeys.has(key)) return false;
+      seenKeys.add(key);
+      return true;
+    });
+
+    // Delete all existing rows for each affected (meet_id, race_id) pair before upserting.
+    // This ensures stale rows (e.g. a previously-incorrect winner) don't remain alongside the corrected result.
+    const affectedRaces = [...new Set(dedupedRows.map(r => `${r.meet_id}::${r.race_id}`))];
+    for (const key of affectedRaces) {
+      const [meetId, raceId] = key.split('::');
+      await supabase
+        .from('race_results')
+        .delete()
+        .eq('meet_id', meetId)
+        .eq('race_id', raceId);
+    }
+
+    // Insert the corrected rows fresh
     const { error: upsertError } = await supabase
       .from('race_results')
-      .upsert(rowsToInsert, { onConflict: 'meet_id,race_id,horse_id' });
+      .upsert(dedupedRows, { onConflict: 'meet_id,race_id,horse_id' });
 
     const errMsg = upsertError?.message ?? null;
 
