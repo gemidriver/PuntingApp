@@ -89,6 +89,26 @@ export async function POST(request: Request) {
             const admin = getSupabaseAdminClient();
             const { data: existingHistory } = await admin.from('race_history').select('runners').eq('meet_id', meet.meet_id).eq('race_id', race.id).maybeSingle();
             const prevRunners: Array<any> = Array.isArray(existingHistory?.runners) ? existingHistory.runners : [];
+            const hasBaseline = existingHistory !== null && prevRunners.length > 0;
+
+            if (!hasBaseline && currentRunnersWithStatus.length > 0) {
+              // No prior state for this race — save whatever the API currently shows
+              // as our baseline so the next cron run has something to diff against.
+              // Do NOT send notifications: we can't tell which horses were scratched
+              // before we started tracking (not "newly" scratched from users' perspective).
+              try {
+                await admin.from('race_history').upsert([{
+                  meet_id: meet.meet_id,
+                  race_id: race.id,
+                  race_name: race.name,
+                  course: meet.course,
+                  race_time: new Date(race.time).toISOString(),
+                  runners: currentRunnersWithStatus,
+                }], { onConflict: 'meet_id,race_id' });
+              } catch (e) {
+                console.error('Failed to save initial race_history baseline', race.id, e);
+              }
+            } else {
             const prevStatusById = new Map<string, string | null>();
             for (const pr of prevRunners) {
               if (pr && pr.id) prevStatusById.set(String(pr.id), String(pr.status ?? '').toUpperCase() || null);
@@ -180,6 +200,7 @@ export async function POST(request: Request) {
                 console.error('Error preparing meet-specific scratch notifications', e);
               }
             }
+            } // end else (has baseline)
           } catch (e) {
             console.error('Scratch detection error for race', race.id, e);
           }
