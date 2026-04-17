@@ -13,7 +13,7 @@ interface Meet {
 
 type FilterTab = 'submitted' | 'approved' | 'not-entered';
 
-export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globalMeets = [] }: { defaultMeetId?: string; globalMeets?: Meet[] }) {
+export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globalMeets = [], autoLoad = false }: { defaultMeetId?: string; globalMeets?: Meet[]; autoLoad?: boolean }) {
   const [rows, setRows] = useState<Array<any>>([]);
   const [loading, setLoading] = useState(false);
   const [meetId, setMeetId] = useState(defaultMeetId);
@@ -72,6 +72,9 @@ export default function AdminSubmissionsPanel({ defaultMeetId = 'current', globa
   }
 
   useEffect(() => { if (meetId && meetId !== 'current') fetchList(); }, [meetId]);
+
+  // Auto-load when the panel becomes visible (e.g. admin navigates to submissions screen)
+  useEffect(() => { if (autoLoad && meetId && meetId !== 'current') fetchList(); }, [autoLoad]);
 
   async function approveUser(userId: string) {
     try {

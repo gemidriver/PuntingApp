@@ -5458,7 +5458,7 @@ export default function Home() {
           <section className={`mb-10 ${activeScreen === 'admin' ? '' : 'hidden'}`}>
             <h2 className="text-xl font-semibold mb-1">Admin — Submissions & Approvals</h2>
             <div className="bg-white rounded-lg p-4 shadow-sm">
-              <AdminSubmissionsPanel defaultMeetId={globalMeets?.[0]?.meet_id ?? 'current'} globalMeets={globalMeets} />
+              <AdminSubmissionsPanel defaultMeetId={globalMeets?.[0]?.meet_id ?? 'current'} globalMeets={globalMeets} autoLoad={activeScreen === 'admin'} />
             </div>
           </section>
 
@@ -5533,17 +5533,7 @@ export default function Home() {
 
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold">My Horse Selections</h2>
-                {hasSubmitted ? (
-                  <span className="text-sm text-green-600 font-medium">Submitted</span>
-                ) : (
-                  <button
-                    onClick={openSubmitConfirmation}
-                    disabled={!canSubmit() || isSubmitting}
-                    className="rounded-full bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  >
-                    {canSubmit() ? 'Review and Submit' : 'Complete all race picks to submit'}
-                  </button>
-                )}
+                {hasSubmitted && <span className="text-sm text-green-600 font-medium">Submitted</span>}
                 {/* Development debug panel removed */}
               </div>
 
@@ -5704,6 +5694,7 @@ export default function Home() {
 
               <div className="mb-6">
                 <h3 className="text-lg font-semibold mb-3">Select Wildcard Horse</h3>
+                <p className="mb-3 text-xs text-slate-500">Choose a wildcard race to double your points for that race, then submit below.</p>
                 <select
                   value={wildcard ? `${wildcard.meetId}|${wildcard.raceId}` : ''}
                   onChange={(e) => {
@@ -5736,6 +5727,17 @@ export default function Home() {
                 <p className="mt-2 text-sm text-slate-500">
                   The wildcard can only be assigned to one race; it will double the points for that race.
                 </p>
+                {!hasSubmitted && (
+                  <div className="mt-4">
+                    <button
+                      onClick={openSubmitConfirmation}
+                      disabled={!canSubmit() || isSubmitting}
+                      className="rounded-full bg-green-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {canSubmit() ? '🏇 Review and Submit' : 'Complete all race picks to submit'}
+                    </button>
+                  </div>
+                )}
               </div>
 
               <section>
@@ -6154,6 +6156,17 @@ export default function Home() {
             ))}
           </select>
           <p className="mt-2 text-sm text-slate-500">The wildcard can only be assigned to one race; it will double the points for that race.</p>
+          {!hasSubmitted && (
+            <div className="mt-4">
+              <button
+                onClick={openSubmitConfirmation}
+                disabled={!canSubmit() || isSubmitting}
+                className="rounded-full bg-green-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {canSubmit() ? '🏇 Review and Submit' : 'Complete all race picks to submit'}
+              </button>
+            </div>
+          )}
         </div>
 
         <section className="mb-10">
@@ -6180,38 +6193,21 @@ export default function Home() {
 
         {myRaceResultsPanel}
 
-        {meetsForPicks.length > 0 && (
-          <div className="mb-10">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">My Horse Selections</h2>
-              {hasSubmitted ? (
-                <span className="text-sm text-green-600 font-medium">Submitted</span>
+        {meetsForPicks.length > 0 && hasSubmitted && submittedSelections && (
+          <div className="mb-6">
+            <div className="rounded-lg bg-green-50 border border-green-200 p-4">
+              <h3 className="text-sm font-semibold text-green-800 mb-2">✓ Selections Submitted</h3>
+              <p className="text-sm text-green-700">
+                Submitted {submittedSelections.selections.length} selections
+                {submittedSelections.wildcard && ' with wildcard'}
+                {submittedSelections.submittedAt && ` on ${new Date(submittedSelections.submittedAt).toLocaleString()}`}
+              </p>
+              {isApproved ? (
+                <p className="mt-2 text-sm font-medium text-green-700">✓ Your entry is confirmed and you are eligible for this meet.</p>
               ) : (
-                <button
-                  onClick={openSubmitConfirmation}
-                  disabled={!canSubmit() || isSubmitting}
-                  className="rounded-full bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {canSubmit() ? 'Review and Submit' : 'Complete all race picks to submit'}
-                </button>
+                <p className="mt-2 text-sm font-medium text-amber-700">⚠ Your entry is pending approval. An admin must confirm your payment before you are eligible for this meet.</p>
               )}
             </div>
-
-            {hasSubmitted && submittedSelections ? (
-              <div className="rounded-lg bg-green-50 border border-green-200 p-4 mb-6">
-                <h3 className="text-sm font-semibold text-green-800 mb-2">Selections Submitted</h3>
-                <p className="text-sm text-green-700">
-                  Submitted {submittedSelections.selections.length} selections
-                  {submittedSelections.wildcard && ' with wildcard'}
-                  {submittedSelections.submittedAt && ` on ${new Date(submittedSelections.submittedAt).toLocaleString()}`}
-                </p>
-                {isApproved ? (
-                  <p className="mt-2 text-sm font-medium text-green-700">✓ Your entry is confirmed and you are eligible for this meet.</p>
-                ) : (
-                  <p className="mt-2 text-sm font-medium text-amber-700">⚠ Your entry is pending approval. An admin must confirm your payment before you are eligible for this meet.</p>
-                )}
-              </div>
-            ) : null}
           </div>
         )}
 
