@@ -22,6 +22,7 @@ export interface Race {
     age: string;
     form: string;
     colours: string;
+    status?: string | null;
   }[];
 }
 

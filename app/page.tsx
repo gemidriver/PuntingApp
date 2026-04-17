@@ -5629,34 +5629,48 @@ export default function Home() {
                                     </div>
                                   ) : (
                                     <ul className="space-y-2">
-                                      {race.runners.map(runner => {
-                                        const isScratched = String(runner.status ?? '').toUpperCase() === 'REMOVED';
-                                        return (
-                                        <li key={runner.id}>
-                                          <button
-                                            disabled={isScratched}
-                                            onClick={() => !isScratched && setSelectedRunnerDetails({ runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name })}
-                                            className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
-                                              isScratched
-                                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-60'
-                                                : isSelected(meet.meet_id, race.id, runner.id)
-                                                ? 'bg-green-100 text-green-900'
-                                                : 'bg-slate-50 text-slate-900 hover:bg-slate-100'
-                                            } ${!isScratched && isWildcardRace ? 'ring-2 ring-amber-400' : ''}`}
-                                          >
-                                            <span className={`block font-semibold ${isScratched ? 'line-through' : ''}`}>{formatHorseDisplayName(runner.name, runner.number)}</span>
-                                            {isScratched ? (
-                                              <span className="mt-0.5 block text-xs font-normal text-red-400">Scratched</span>
-                                            ) : (
-                                              <>
-                                                <span className="mt-0.5 block text-xs font-normal text-slate-600">{formatRunnerMetaLine(runner)}</span>
-                                                <span className="mt-0.5 block text-xs font-normal text-slate-500">Jockey: {runner.jockey || 'N/A'}</span>
-                                              </>
-                                            )}
-                                          </button>
-                                        </li>
-                                        );
-                                      })}
+                                      {(() => {
+                                        const activeRrunners = race.runners.filter(r => String(r.status ?? '').toUpperCase() !== 'REMOVED');
+                                        const favId = activeRrunners.reduce<string | null>((bestId, r) => {
+                                          const o = parseFloat(r.odds ?? '');
+                                          if (isNaN(o)) return bestId;
+                                          if (bestId === null) return r.id;
+                                          const bestO = parseFloat(activeRrunners.find(x => x.id === bestId)?.odds ?? '');
+                                          return o < bestO ? r.id : bestId;
+                                        }, null);
+                                        return race.runners.map(runner => {
+                                          const isScratched = String(runner.status ?? '').toUpperCase() === 'REMOVED';
+                                          const isFav = !isScratched && runner.id === favId;
+                                          return (
+                                          <li key={runner.id}>
+                                            <button
+                                              disabled={isScratched}
+                                              onClick={() => !isScratched && setSelectedRunnerDetails({ runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name })}
+                                              className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+                                                isScratched
+                                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-60'
+                                                  : isSelected(meet.meet_id, race.id, runner.id)
+                                                  ? 'bg-green-100 text-green-900'
+                                                  : 'bg-slate-50 text-slate-900 hover:bg-slate-100'
+                                              } ${!isScratched && isWildcardRace ? 'ring-2 ring-amber-400' : ''}`}
+                                            >
+                                              <span className="flex items-center gap-1.5">
+                                                <span className={`font-semibold ${isScratched ? 'line-through' : ''}`}>{formatHorseDisplayName(runner.name, runner.number)}</span>
+                                                {isFav && <span className="inline-flex items-center rounded-full bg-yellow-400 px-1.5 py-0.5 text-xs font-bold text-yellow-900 leading-none">FAV</span>}
+                                              </span>
+                                              {isScratched ? (
+                                                <span className="mt-0.5 block text-xs font-normal text-red-400">Scratched</span>
+                                              ) : (
+                                                <>
+                                                  <span className="mt-0.5 block text-xs font-normal text-slate-600">{formatRunnerMetaLine(runner)}</span>
+                                                  <span className="mt-0.5 block text-xs font-normal text-slate-500">Jockey: {runner.jockey || 'N/A'}</span>
+                                                </>
+                                              )}
+                                            </button>
+                                          </li>
+                                          );
+                                        });
+                                      })()}
                                     </ul>
                                   )}
                                 </div>
@@ -6037,32 +6051,46 @@ export default function Home() {
                               </div>
                             ) : (
                               <ul className="space-y-2">
-                                {race.runners.map(runner => {
-                                  const isScratched = String(runner.status ?? '').toUpperCase() === 'REMOVED';
-                                  return (
-                                  <li key={runner.id}>
-                                    <button
-                                      disabled={isScratched}
-                                      onClick={() => !isScratched && setSelectedRunnerDetails({ runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name })}
-                                      className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
-                                        isScratched
-                                          ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-60'
-                                          : isSelected(meet.meet_id, race.id, runner.id) ? 'bg-green-100 text-green-900' : 'bg-slate-50 text-slate-900 hover:bg-slate-100'
-                                      } ${!isScratched && isWildcardRace ? 'ring-2 ring-amber-400' : ''}`}
-                                    >
-                                      <span className={`block font-semibold ${isScratched ? 'line-through' : ''}`}>{formatHorseDisplayName(runner.name, runner.number)}</span>
-                                      {isScratched ? (
-                                        <span className="mt-0.5 block text-xs font-normal text-red-400">Scratched</span>
-                                      ) : (
-                                        <>
-                                          <span className="mt-0.5 block text-xs font-normal text-slate-600">{formatRunnerMetaLine(runner)}</span>
-                                          <span className="mt-0.5 block text-xs font-normal text-slate-500">Jockey: {runner.jockey || 'N/A'}</span>
-                                        </>
-                                      )}
-                                    </button>
-                                  </li>
-                                  );
-                                })}
+                                {(() => {
+                                  const activeRnrs = race.runners.filter(r => String(r.status ?? '').toUpperCase() !== 'REMOVED');
+                                  const favId = activeRnrs.reduce<string | null>((bestId, r) => {
+                                    const o = parseFloat(r.odds ?? '');
+                                    if (isNaN(o)) return bestId;
+                                    if (bestId === null) return r.id;
+                                    const bestO = parseFloat(activeRnrs.find(x => x.id === bestId)?.odds ?? '');
+                                    return o < bestO ? r.id : bestId;
+                                  }, null);
+                                  return race.runners.map(runner => {
+                                    const isScratched = String(runner.status ?? '').toUpperCase() === 'REMOVED';
+                                    const isFav = !isScratched && runner.id === favId;
+                                    return (
+                                    <li key={runner.id}>
+                                      <button
+                                        disabled={isScratched}
+                                        onClick={() => !isScratched && setSelectedRunnerDetails({ runner, meetId: meet.meet_id, raceId: race.id, raceName: race.name })}
+                                        className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+                                          isScratched
+                                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-60'
+                                            : isSelected(meet.meet_id, race.id, runner.id) ? 'bg-green-100 text-green-900' : 'bg-slate-50 text-slate-900 hover:bg-slate-100'
+                                        } ${!isScratched && isWildcardRace ? 'ring-2 ring-amber-400' : ''}`}
+                                      >
+                                        <span className="flex items-center gap-1.5">
+                                          <span className={`font-semibold ${isScratched ? 'line-through' : ''}`}>{formatHorseDisplayName(runner.name, runner.number)}</span>
+                                          {isFav && <span className="inline-flex items-center rounded-full bg-yellow-400 px-1.5 py-0.5 text-xs font-bold text-yellow-900 leading-none">FAV</span>}
+                                        </span>
+                                        {isScratched ? (
+                                          <span className="mt-0.5 block text-xs font-normal text-red-400">Scratched</span>
+                                        ) : (
+                                          <>
+                                            <span className="mt-0.5 block text-xs font-normal text-slate-600">{formatRunnerMetaLine(runner)}</span>
+                                            <span className="mt-0.5 block text-xs font-normal text-slate-500">Jockey: {runner.jockey || 'N/A'}</span>
+                                          </>
+                                        )}
+                                      </button>
+                                    </li>
+                                    );
+                                  });
+                                })()}
                               </ul>
                             )}
                           </div>
