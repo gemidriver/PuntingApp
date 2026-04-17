@@ -1384,14 +1384,20 @@ export default function Home() {
 
     // Primary source: round_history (append-only, never overwritten).
     // This is the authoritative record of every closed round.
+    // We fetch more than 1 row so we can skip bad entries with no meets.
     const { data: historyRows, error: historyError } = await supabase
       .from('round_history')
       .select('round_closed_at,meets,scoreboard,results')
       .order('round_closed_at', { ascending: false })
-      .limit(1);
+      .limit(5);
 
-    if (!historyError && Array.isArray(historyRows) && historyRows.length > 0) {
-      const latest = historyRows[0] as {
+    // Find the most recent row that actually has meets recorded (skip corrupted empty-meets rows).
+    const validRow = Array.isArray(historyRows)
+      ? historyRows.find((row: any) => Array.isArray(row.meets) && row.meets.length > 0)
+      : null;
+
+    if (!historyError && validRow) {
+      const latest = validRow as {
         round_closed_at?: string;
         meets?: Meet[];
         scoreboard?: Array<{ username: string; score: number }>;
@@ -1404,12 +1410,54 @@ export default function Home() {
           thirdName: string | null;
         }>;
       };
+      const storedMeets: Meet[] = Array.isArray(latest.meets) ? latest.meets : [];
+      const meetIds = storedMeets.map((m) => m.meet_id);
+
+      // Always re-fetch results from race_results filtered by the stored meet_ids.
+      // This avoids relying on potentially-corrupted cached results in round_history.
+      let freshResults: PreviousRoundSnapshot['results'] = [];
+      if (meetIds.length > 0) {
+        const { data: resultRows } = await supabase
+          .from('race_results')
+          .select('meet_id,race_id,horse_id,horse_name,finishing_position')
+          .in('meet_id', meetIds)
+          .in('finishing_position', [1, 2, 3]);
+
+        if (Array.isArray(resultRows) && resultRows.length > 0) {
+          const byRace = new Map<string, any[]>();
+          resultRows.forEach((r: any) => {
+            const key = `${r.meet_id}|${r.race_id}`;
+            if (!byRace.has(key)) byRace.set(key, []);
+            byRace.get(key)!.push(r);
+          });
+          freshResults = [...byRace.entries()].map(([key, rows]) => {
+            const [meetId, raceId] = key.split('|');
+            const meetMeta = storedMeets.find((m) => m.meet_id === meetId);
+            const location = meetMeta?.course || meetId;
+            const w = rows.find((r: any) => r.finishing_position === 1);
+            const s = rows.find((r: any) => r.finishing_position === 2);
+            const t = rows.find((r: any) => r.finishing_position === 3);
+            return {
+              raceId,
+              raceName: raceId,
+              location,
+              winnerName: w?.horse_name || w?.horse_id || null,
+              secondName: s?.horse_name || s?.horse_id || null,
+              thirdName: t?.horse_name || t?.horse_id || null,
+            };
+          }).filter((r) => Boolean(r.winnerName));
+        }
+      }
+
+      // Use fresh DB results. Stored results in round_history can be corrupted
+      // (e.g. race_results from all historical meets), so never fall back to them.
+      const results = freshResults;
+
       const rawSnapshot: PreviousRoundSnapshot = {
         capturedAt: latest.round_closed_at || new Date().toISOString(),
-        meets: Array.isArray(latest.meets) ? latest.meets : [],
+        meets: storedMeets,
         scoreboard: Array.isArray(latest.scoreboard) ? latest.scoreboard : [],
-        // Only show races that actually have results.
-        results: (Array.isArray(latest.results) ? latest.results : []).filter((r) => Boolean(r.winnerName)),
+        results,
       };
       const enrichedSnapshot = await enrichSnapshotRaceNames(rawSnapshot, supabase);
       setPreviousRoundSnapshot(enrichedSnapshot);
