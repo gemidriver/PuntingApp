@@ -216,7 +216,7 @@ export default function UserProfilePage({ params }: { params: { username: string
                 <span className="text-sm text-slate-700">Race email notifications</span>
               </label>
               <p className="text-xs text-slate-400 mt-1">
-                Receive emails when a race is about to start or a horse is scratched.
+                Receive emails when a race is about to start.
               </p>
             </div>
           )}
