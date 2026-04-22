@@ -118,8 +118,8 @@ export async function POST(request: Request) {
             if (newlyScratched.length) {
               console.log(`Detected ${newlyScratched.length} newly scratched runners for race ${race.id}:`, newlyScratched.map((r) => r.name));
 
-              // Build notifications for all users (same approach as reminders)
-              // Notify only users who have submissions for this meet
+              // Notify users who have submissions for this meet.
+              // Emails are sent ONLY to users who actually picked one of the scratched horses.
               try {
                 const admin2 = getSupabaseAdminClient();
                 const { data: submissions } = await admin2
@@ -127,54 +127,94 @@ export async function POST(request: Request) {
                   .select('user_id,selections')
                   .eq('submitted', true);
 
-                const userIds = new Set<string>();
+                // Build a set of scratched horse IDs for fast lookup
+                const scratchedHorseIds = new Set(newlyScratched.map((r) => String(r.id)));
+
+                // Two sets: all meet submitters (for in-app notifications) and
+                // users who specifically picked a scratched horse (for emails).
+                const meetSubmitterIds = new Set<string>();
+                // Map userId -> scratched picks they selected in this race
+                const userScratchedPicks = new Map<string, Array<{ horseId: string; horseName: string }>>();
+
                 for (const s of submissions || []) {
                   try {
                     const sels = Array.isArray(s.selections) ? s.selections : [];
-                    if (sels.find((x: any) => String(x?.meetId || '') === String(meet.meet_id))) {
-                      if (s.user_id) userIds.add(String(s.user_id));
+                    const hasMeetSel = sels.some((x: any) => String(x?.meetId || '') === String(meet.meet_id));
+                    if (!hasMeetSel || !s.user_id) continue;
+
+                    meetSubmitterIds.add(String(s.user_id));
+
+                    // Find selections in this specific race that match a scratched horse
+                    for (const x of sels) {
+                      if (
+                        String(x?.raceId || '') === String(race.id) &&
+                        x?.horseId && scratchedHorseIds.has(String(x.horseId))
+                      ) {
+                        const uid = String(s.user_id);
+                        if (!userScratchedPicks.has(uid)) userScratchedPicks.set(uid, []);
+                        userScratchedPicks.get(uid)!.push({ horseId: String(x.horseId), horseName: String(x.horseName || x.horseId) });
+                      }
                     }
                   } catch (e) {
                     // ignore malformed rows
                   }
                 }
 
-                if (userIds.size) {
+                if (meetSubmitterIds.size) {
                   const { data: profilesForMeet, error: profErr } = await admin2
                     .from('profiles')
                     .select('id,email,username')
-                    .in('id', [...userIds]);
+                    .in('id', [...meetSubmitterIds]);
 
                   if (profErr) {
                     console.error('Failed to load profiles for meet notifications', profErr);
                   } else if (Array.isArray(profilesForMeet) && profilesForMeet.length) {
-                    const message = `Scratched: ${newlyScratched.map((r) => r.name).join(', ')}`;
-                    const payload = (profilesForMeet || []).map((user: any) => ({
+                    const genericMessage = `Scratched: ${newlyScratched.map((r) => r.name).join(', ')}`;
+
+                    // In-app notifications go to all meet submitters
+                    const payload = profilesForMeet.map((user: any) => ({
                       user_id: user.id,
                       race_id: race.id,
                       race_name: race.name,
                       course: meet.course,
                       notification_type: 'race_scratched',
-                      message,
+                      message: genericMessage,
                       read_at: null,
                     }));
 
                     try {
-                      const { data: notifData, error: notifErr } = await admin2.from('notifications').upsert(payload, { onConflict: 'user_id,race_id,notification_type' });
+                      const { error: notifErr } = await admin2.from('notifications').upsert(payload, { onConflict: 'user_id,race_id,notification_type' });
                       if (notifErr) console.error('Failed to upsert race_scratched notifications:', notifErr);
                     } catch (e) {
                       console.error('Exception upserting race_scratched notifications:', e);
                     }
 
-                    // Send emails to these users only
+                    // Emails go ONLY to users who picked a scratched horse, with a personalised message
                     if (canSendEmail && resend) {
                       try {
-                        const emails = (profilesForMeet || []).map((u: any) => String(u.email || '')).filter(Boolean);
-                        const unique = [...new Set(emails)];
-                        const subject = `Scratch update: ${meet.course} - ${race.name}`;
-                        const html = `<p>${message}</p>`;
-                        const sendPromises = unique.map((to) => resend.emails.send({ from: resendFromEmail, to, subject, html }));
+                        const subject = `Your pick was scratched: ${meet.course} - ${race.name}`;
+                        const sendPromises = profilesForMeet
+                          .filter((u: any) => u.email && userScratchedPicks.has(String(u.id)))
+                          .map((u: any) => {
+                            const picks = userScratchedPicks.get(String(u.id)) || [];
+                            const pickLines = picks.map((p) => `<li>${p.horseName}</li>`).join('');
+                            return resend.emails.send({
+                              from: resendFromEmail,
+                              to: String(u.email),
+                              subject,
+                              html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                                <h2 style="margin:0 0 12px">Scratch Alert</h2>
+                                <p style="margin:0 0 8px"><strong>Race:</strong> ${meet.course} — ${race.name}</p>
+                                <p style="margin:0 0 4px">The following horse${picks.length > 1 ? 's' : ''} you picked ${picks.length > 1 ? 'have' : 'has'} been scratched:</p>
+                                <ul style="margin:8px 0 16px;padding-left:20px">${pickLines}</ul>
+                                <p style="margin:0 0 10px"><a href="https://thetoppunter.com" style="color:#2563eb;text-decoration:none">Open The Top Punter</a> to update your selection.</p>
+                                <hr style="border:none;border-top:1px solid #eee;margin:16px 0">
+                                <p style="color:#999;font-size:12px">To stop receiving these emails, visit your <a href="https://thetoppunter.com/user/${u.username}" style="color:#2563eb">profile</a> and untick <strong>Race email notifications</strong>.</p>
+                              </div>`,
+                            });
+                          });
                         await Promise.allSettled(sendPromises);
+                        console.log(`Sent scratch emails to ${sendPromises.length} user(s) who picked affected horses for race ${race.id}`);
                       } catch (e) {
                         console.error('Failed sending scratch emails', e);
                       }
@@ -239,7 +279,7 @@ export async function POST(request: Request) {
                 if (userIds.size) {
                   const { data: profilesRes, error: profErr } = await adminClient
                     .from('profiles')
-                    .select('id,email,username')
+                    .select('id,email,username,email_reminders')
                     .in('id', [...userIds]);
                   if (!profErr && Array.isArray(profilesRes)) profilesToNotify = profilesRes;
                 }
@@ -252,8 +292,9 @@ export async function POST(request: Request) {
               if (!recipients.length) {
                 console.log(`No submitters found for meet ${meet.meet_id} race ${race.id}; skipping reminder emails/notifications.`);
               } else {
-                // Queue reminder emails for recipients
+                // Queue reminder emails for recipients who have not opted out
                 for (const user of recipients) {
+                  if (user.email_reminders === false) continue; // opted out of emails
                   remindersToSend.push({
                     raceId: race.id,
                     raceName: race.name,
@@ -510,8 +551,11 @@ export async function POST(request: Request) {
               <p style="margin: 0 0 10px 0;">
                 <a href="https://thetoppunter.com" style="color: #2563eb; text-decoration: none;">Open The Top Punter</a>
               </p>
+              <hr style="border: none; border-top: 1px solid #eee; margin: 16px 0;" />
               <p style="color: #999; font-size: 12px;">
-                You're receiving this because you're registered for The Top Punter.
+                To stop receiving these emails, visit your
+                <a href="https://thetoppunter.com/user/${reminder.username}" style="color: #2563eb; text-decoration: none;">profile</a>
+                and untick <strong>Race email notifications</strong>.
               </p>
             </div>
           `,

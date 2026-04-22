@@ -87,6 +87,9 @@ export default function UserProfilePage({ params }: { params: { username: string
   const { username: currentUsername } = useUser();
   const [notifications, setNotifications] = useState<Array<any>>([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
+  const [emailReminders, setEmailReminders] = useState<boolean>(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [emailPrefLoading, setEmailPrefLoading] = useState(false);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -94,9 +97,40 @@ export default function UserProfilePage({ params }: { params: { username: string
       const user = (data as any)?.user;
       const metaAvatar = user?.user_metadata?.avatar_url;
       if (metaAvatar) setAvatarUrl(metaAvatar);
+      if (user?.id) setCurrentUserId(user.id);
     });
-
   }, []);
+
+  // Fetch email reminder preference when viewing own profile
+  useEffect(() => {
+    if (!currentUserId || !currentUsername || currentUsername.toLowerCase() !== username.toLowerCase()) return;
+    const supabase = getSupabaseClient();
+    supabase
+      .from('profiles')
+      .select('email_reminders')
+      .eq('id', currentUserId)
+      .single()
+      .then(({ data }) => {
+        if (data && typeof data.email_reminders === 'boolean') {
+          setEmailReminders(data.email_reminders);
+        }
+      });
+  }, [currentUserId, currentUsername, username]);
+
+  async function toggleEmailReminders() {
+    if (!currentUserId) return;
+    const newValue = !emailReminders;
+    setEmailReminders(newValue);
+    setEmailPrefLoading(true);
+    try {
+      const supabase = getSupabaseClient();
+      await supabase.from('profiles').update({ email_reminders: newValue }).eq('id', currentUserId);
+    } catch (e) {
+      setEmailReminders(!newValue); // revert on error
+    } finally {
+      setEmailPrefLoading(false);
+    }
+  }
 
   // fetch notifications for the signed-in user when viewing their own profile
   useEffect(() => {
@@ -167,6 +201,25 @@ export default function UserProfilePage({ params }: { params: { username: string
           </div>
         </div>
         <div className="mt-2 w-full flex-1 overflow-visible">
+          {/* Email preferences — only shown to the profile owner */}
+          {currentUsername && currentUsername.toLowerCase() === username.toLowerCase() && (
+            <div className="w-full mb-4">
+              <h3 className="text-lg font-semibold mb-2 text-slate-900">Email Preferences</h3>
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={emailReminders}
+                  onChange={toggleEmailReminders}
+                  disabled={emailPrefLoading}
+                  className="w-4 h-4 accent-blue-600"
+                />
+                <span className="text-sm text-slate-700">Race email notifications</span>
+              </label>
+              <p className="text-xs text-slate-400 mt-1">
+                Receive emails when a race is about to start or a horse is scratched.
+              </p>
+            </div>
+          )}
           {/* Jackpot moved to Submissions page */}
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold mb-2 text-slate-900">Notifications</h3>
