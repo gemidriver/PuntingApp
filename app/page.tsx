@@ -2737,10 +2737,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    void runBetfairHealthCheck();
-  }, []);
-
-  useEffect(() => {
     // Ensure races are loaded whenever published global meets change.
     // Do not gate on `user` so mobile clients will fetch races as soon
     // as an admin publishes meets.
