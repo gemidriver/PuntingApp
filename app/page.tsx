@@ -5654,6 +5654,16 @@ export default function Home() {
                                       <p className="text-emerald-700">3rd: {result.thirdName || result.thirdId || '—'}</p>
                                     </div>
                                   ) : (
+                                    <>
+                                    {(() => {
+                                        const activeForOdds = race.runners.filter(r => String(r.status ?? '').toUpperCase() !== 'REMOVED');
+                                        const hasNoOdds = activeForOdds.length > 0 && activeForOdds.every(r => !r.odds);
+                                        return hasNoOdds ? (
+                                          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">
+                                            Betting odds are not available yet for this race. Check back closer to race time.
+                                          </p>
+                                        ) : null;
+                                      })()}
                                     <ul className="space-y-2">
                                       {(() => {
                                         const activeRrunners = race.runners.filter(r => String(r.status ?? '').toUpperCase() !== 'REMOVED');
@@ -5698,6 +5708,7 @@ export default function Home() {
                                         });
                                       })()}
                                     </ul>
+                                    </>
                                   )}
                                 </div>
                               )}
@@ -6088,6 +6099,16 @@ export default function Home() {
                                 <p className="text-emerald-700">3rd: {result.thirdName || result.thirdId || '—'}</p>
                               </div>
                             ) : (
+                              <>
+                              {(() => {
+                                  const activeForOdds2 = race.runners.filter(r => String(r.status ?? '').toUpperCase() !== 'REMOVED');
+                                  const hasNoOdds2 = activeForOdds2.length > 0 && activeForOdds2.every(r => !r.odds);
+                                  return hasNoOdds2 ? (
+                                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">
+                                      Betting odds are not available yet for this race. Check back closer to race time.
+                                    </p>
+                                  ) : null;
+                                })()}
                               <ul className="space-y-2">
                                 {(() => {
                                   const activeRnrs = race.runners.filter(r => String(r.status ?? '').toUpperCase() !== 'REMOVED');
@@ -6130,6 +6151,7 @@ export default function Home() {
                                   });
                                 })()}
                               </ul>
+                              </>
                             )}
                           </div>
                         )}

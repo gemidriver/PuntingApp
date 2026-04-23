@@ -111,6 +111,7 @@ type BetfairMarketCatalogue = {
 type BetfairMarketBook = {
   marketId?: string;
   status?: string;
+  totalMatched?: number;
   runners?: Array<{
     selectionId?: number;
     status?: string;
@@ -871,12 +872,26 @@ export async function fetchRacesForCourse(
       }
     }
 
+    // Betfair sets a placeholder bestBack of 1.02 or 1.12 for every runner in a market
+    // that hasn't attracted real liquidity yet. Detect this by checking whether ALL active
+    // runners share the exact same bestBack price at a suspiciously low value.
+    // If so, suppress bestBack (LTP is still used where available as it reflects real trades).
+    const bookRunners = book?.runners ?? [];
+    const activeBookRunners = bookRunners.filter(r => String(r.status ?? '').toUpperCase() === 'ACTIVE');
+    const activeBestBacks = activeBookRunners
+      .map(r => r.ex?.availableToBack?.[0]?.price)
+      .filter((p): p is number => typeof p === 'number');
+    const isPlaceholderMarket =
+      activeBestBacks.length > 0 &&
+      activeBestBacks.every(p => p <= 1.12);
+
     const runners = (market.runners ?? []).map((runner, runnerIndex) => {
       const selectionId = Number(runner.selectionId);
       const bookRunner = bookRunnerMap.get(selectionId);
       const bestBack = bookRunner?.ex?.availableToBack?.[0]?.price;
       const ltp = bookRunner?.lastPriceTraded;
-      const oddsValue = typeof bestBack === 'number' ? bestBack : ltp;
+      // Suppress bestBack when market is showing placeholder prices; LTP is always real
+      const oddsValue = (!isPlaceholderMarket && typeof bestBack === 'number') ? bestBack : (typeof ltp === 'number' ? ltp : undefined);
       const metadata = runner.metadata ?? {};
       const metadataLookup = buildMetadataLookup(metadata);
       const firstMeta = (...keys: string[]) => firstMetadataValue(metadataLookup, metadata, ...keys);
