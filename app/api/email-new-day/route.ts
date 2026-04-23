@@ -24,6 +24,7 @@ type ProfileRow = {
 
 type NewDayEmailRequestBody = {
   meets?: Meet[];
+  recipientEmails?: string[];
 };
 
 const escapeHtml = (value: string) =>
@@ -115,6 +116,9 @@ export async function POST(request: Request) {
 
     const meetsFromBody: Meet[] = Array.isArray(body.meets) ? body.meets : [];
     let meets: Meet[] = meetsFromBody;
+    const filterEmails: string[] | null = Array.isArray(body.recipientEmails) && body.recipientEmails.length > 0
+      ? body.recipientEmails.map((e: string) => String(e).trim().toLowerCase())
+      : null;
 
     if (!meets.length) {
       const { data: settings, error: settingsError } = await supabase
@@ -165,7 +169,8 @@ export async function POST(request: Request) {
 
     const earliestStart = earliestStartIso ? formatDateTime(earliestStartIso) : null;
 
-    const { data: profiles, error: profilesError } = await supabase
+    const admin = getSupabaseAdminClient();
+    const { data: profiles, error: profilesError } = await admin
       .from('profiles')
       .select('id,email,username');
 
@@ -187,7 +192,11 @@ export async function POST(request: Request) {
       return Response.json({ error: 'No user emails found.' }, { status: 400 });
     }
 
-    const uniqueEmails = [...new Set(recipients.map((entry) => entry.email))];
+    const filteredRecipients = filterEmails
+      ? recipients.filter((r) => filterEmails.includes(r.email.toLowerCase()))
+      : recipients;
+
+    const uniqueEmails = [...new Set(filteredRecipients.map((entry) => entry.email))];
 
     if (!uniqueEmails.length) {
       return Response.json({ error: 'No user emails found.' }, { status: 400 });
@@ -239,8 +248,7 @@ export async function POST(request: Request) {
 
       // Create in-app notifications for all users about the new day
       try {
-        const admin = getSupabaseAdminClient();
-        const notificationPayload = recipients.map((r) => ({
+        const notificationPayload = filteredRecipients.map((r) => ({
           user_id: r.id,
           race_id: 'meet',
           race_name: meetListHtml ? meets.map(m => m.course).join(' | ') : 'Meet published',
