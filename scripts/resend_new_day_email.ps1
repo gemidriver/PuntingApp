@@ -58,20 +58,21 @@ $html = @"
 
 $subject = "New Race Day Meets - $meetDate"
 
-# ── Target recipients ─────────────────────────────────────────────────────────
-$missingEmails = @(
-  'sjohns73@hotmail.com'
-  'tujnuv@gmail.com'
-  'daniellefielding12@gmail.com'
-  'nickbell2287@hotmail.com'
-  'mitcht208@gmail.com'
-)
+# ── Fetch all recipients from profiles ───────────────────────────────────────
+Write-Host "Fetching recipients..."
+$profilesResp = Invoke-RestMethod `
+  -Uri "$supabaseUrl/rest/v1/profiles?select=email" `
+  -Headers $authHeaders
+
+$allEmails = $profilesResp | Where-Object { $_.email } | ForEach-Object { $_.email }
+if (-not $allEmails -or $allEmails.Count -eq 0) { Write-Error "No profiles found."; exit 1 }
+Write-Host "Sending to $($allEmails.Count) recipients..."
 
 # ── Send via Resend ───────────────────────────────────────────────────────────
 Add-Type -AssemblyName System.Web
 
 $sent = 0; $failed = 0
-foreach ($email in $missingEmails) {
+foreach ($email in $allEmails) {
   $payload = @{ from = $fromEmail; to = $email; subject = $subject; html = $html } | ConvertTo-Json -Compress
   try {
     $r = Invoke-RestMethod `
