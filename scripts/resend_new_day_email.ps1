@@ -60,11 +60,11 @@ $subject = "New Race Day Meets - $meetDate"
 
 # ── Target recipients ─────────────────────────────────────────────────────────
 $missingEmails = @(
-  'nickbell2287@hotmail.com'
-  'fieldo241@hotmail.com'
-  'daniellefielding12@gmail.com'
+  'sjohns73@hotmail.com'
   'tujnuv@gmail.com'
-  'duck231287@gmail.com'
+  'daniellefielding12@gmail.com'
+  'nickbell2287@hotmail.com'
+  'mitcht208@gmail.com'
 )
 
 # ── Send via Resend ───────────────────────────────────────────────────────────
