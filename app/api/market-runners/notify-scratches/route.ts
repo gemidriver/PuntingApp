@@ -173,11 +173,9 @@ export async function POST(request: NextRequest) {
         return acc;
       }, {} as Record<string, { to: string; html: string; subject: string }>);
 
-      const sendPromises = (Object.values(uniqueByTo) as Array<{ to: string; html: string; subject: string }>).map(item =>
-        resend.emails.send({ from: resendFromEmail, to: item.to, subject: item.subject, html: item.html })
-      );
-      const results = await Promise.allSettled(sendPromises);
-      sentCount = results.filter(r => r.status === 'fulfilled').length;
+      const batchItems = (Object.values(uniqueByTo) as Array<{ to: string; html: string; subject: string }>).map(item => ({ from: resendFromEmail, to: item.to, subject: item.subject, html: item.html }));
+      const { data: batchData, error: batchError } = await resend.batch.send(batchItems);
+      sentCount = batchError ? 0 : (batchData?.data?.length ?? batchItems.length);
     }
 
     return NextResponse.json({ success: true, scratched: scratched.map((s) => ({ id: s.id, name: s.name })), notified: insertNotes.length, emailsSent: sentCount });

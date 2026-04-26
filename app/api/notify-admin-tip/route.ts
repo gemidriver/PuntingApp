@@ -121,15 +121,8 @@ export async function POST(request: Request) {
       `;
 
     // Send to all admins
-    const emailPromises = admins.map((admin: any) =>
-      resend.emails.send({
-        from: resendFromEmail,
-        to: admin.email,
-        subject,
-        html,
-      })
-    );
-    await Promise.allSettled(emailPromises);
+    const adminBatch = admins.map((admin: any) => ({ from: resendFromEmail, to: admin.email, subject, html }));
+    await resend.batch.send(adminBatch);
     return Response.json({ success: true });
   } catch (error) {
     return Response.json({ error: 'Failed to notify admins' }, { status: 500 });

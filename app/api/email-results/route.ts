@@ -381,19 +381,11 @@ export async function POST(request: Request) {
       return Response.json({ error: testOnly ? 'Your account does not have an email address.' : 'No recipient emails found.' }, { status: 400 });
     }
 
-    const sendPromises = uniqueEmails.map((email) =>
-      resend.emails.send({
-        from: resendFromEmail,
-        to: email,
-        // Subject: include primary meet/course + date, do NOT include raw race ids
-        subject: `${testOnly ? '[TEST] ' : ''}Updated Results: ${meets.length ? `${meets[0].course} ${meets[0].date}` : new Date().toISOString().slice(0, 10)}`,
-        html,
-      })
-    );
-
-    const sendResults = await Promise.allSettled(sendPromises);
-    const sentCount = sendResults.filter((result) => result.status === 'fulfilled').length;
-    const failedCount = sendResults.length - sentCount;
+    const subject = `${testOnly ? '[TEST] ' : ''}Updated Results: ${meets.length ? `${meets[0].course} ${meets[0].date}` : new Date().toISOString().slice(0, 10)}`;
+    const batchPayload = uniqueEmails.map((email) => ({ from: resendFromEmail, to: email, subject, html }));
+    const { data: batchData, error: batchError } = await resend.batch.send(batchPayload);
+    const sentCount = batchError ? 0 : (batchData?.data?.length ?? uniqueEmails.length);
+    const failedCount = uniqueEmails.length - sentCount;
 
     return Response.json({
       success: true,

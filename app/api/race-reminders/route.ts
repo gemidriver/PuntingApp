@@ -193,12 +193,12 @@ export async function POST(request: Request) {
                     if (canSendEmail && resend) {
                       try {
                         const subject = `Your pick was scratched: ${meet.course} - ${race.name}`;
-                        const sendPromises = profilesForMeet
+                        const scratchBatch = profilesForMeet
                           .filter((u: any) => u.email && userScratchedPicks.has(String(u.id)))
                           .map((u: any) => {
                             const picks = userScratchedPicks.get(String(u.id)) || [];
                             const pickLines = picks.map((p) => `<li>${p.horseName}</li>`).join('');
-                            return resend.emails.send({
+                            return {
                               from: resendFromEmail,
                               to: String(u.email),
                               subject,
@@ -211,9 +211,9 @@ export async function POST(request: Request) {
                                 <hr style="border:none;border-top:1px solid #eee;margin:16px 0">
                                 <p style="color:#999;font-size:12px">To stop receiving these emails, visit your <a href="https://thetoppunter.com/user/${u.username}" style="color:#2563eb">profile</a> and untick <strong>Race email notifications</strong>.</p>
                               </div>`,
-                            });
+                            };
                           });
-                        await Promise.allSettled(sendPromises);
+                        if (scratchBatch.length) await resend.batch.send(scratchBatch);
                         console.log(`Sent scratch emails to ${sendPromises.length} user(s) who picked affected horses for race ${race.id}`);
                       } catch (e) {
                         console.error('Failed sending scratch emails', e);
@@ -529,12 +529,11 @@ export async function POST(request: Request) {
     // Send emails in batches when Resend is configured.
     let sentCount = 0;
     if (canSendEmail && resend) {
-      const emailPromises = remindersToSend.map(reminder =>
-        resend.emails.send({
-          from: resendFromEmail,
-          to: reminder.email,
-          subject: `🏇 Race Starting in 5 Minutes: ${reminder.course} - ${reminder.raceName}`,
-          html: `
+      const reminderBatch = remindersToSend.map(reminder => ({
+        from: resendFromEmail,
+        to: reminder.email,
+        subject: `🏇 Race Starting in 5 Minutes: ${reminder.course} - ${reminder.raceName}`,
+        html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
               <h2>Race Starting Soon!</h2>
               <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -559,11 +558,12 @@ export async function POST(request: Request) {
               </p>
             </div>
           `,
-        })
-      );
+      }));
 
-      const results = await Promise.allSettled(emailPromises);
-      sentCount = results.filter(r => r.status === 'fulfilled').length;
+      if (reminderBatch.length) {
+        const { data: batchData, error: batchError } = await resend.batch.send(reminderBatch);
+        sentCount = batchError ? 0 : (batchData?.data?.length ?? reminderBatch.length);
+      }
     }
 
     // Periodic backfill: resolve missing horse_name values in race_results
