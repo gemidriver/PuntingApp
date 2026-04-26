@@ -68,27 +68,25 @@ $allEmails = $profilesResp | Where-Object { $_.email } | ForEach-Object { $_.ema
 if (-not $allEmails -or $allEmails.Count -eq 0) { Write-Error "No profiles found."; exit 1 }
 Write-Host "Sending to $($allEmails.Count) recipients..."
 
-# ── Send via Resend ───────────────────────────────────────────────────────────
+# ── Send via Resend batch API ─────────────────────────────────────────────────
 Add-Type -AssemblyName System.Web
 
-$sent = 0; $failed = 0
-foreach ($email in $allEmails) {
-  $payload = @{ from = $fromEmail; to = $email; subject = $subject; html = $html } | ConvertTo-Json -Compress
-  try {
-    $r = Invoke-RestMethod `
-      -Uri 'https://api.resend.com/emails' `
-      -Method Post `
-      -ContentType 'application/json' `
-      -Headers @{ Authorization = "Bearer $resendApiKey" } `
-      -Body $payload
-    Write-Host "  Sent -> $email (id: $($r.id))"
-    $sent++
-  } catch {
-    $raw = $_.ErrorDetails?.Message
-    Write-Warning "  Failed -> $email : $raw"
-    $failed++
-  }
+$batchPayload = $allEmails | ForEach-Object {
+  @{ from = $fromEmail; to = $_; subject = $subject; html = $html }
 }
 
-Write-Host ""
-Write-Host "Done. Sent: $sent  Failed: $failed"
+try {
+  $r = Invoke-RestMethod `
+    -Uri 'https://api.resend.com/emails/batch' `
+    -Method Post `
+    -ContentType 'application/json' `
+    -Headers @{ Authorization = "Bearer $resendApiKey" } `
+    -Body ($batchPayload | ConvertTo-Json -Depth 5)
+
+  $sent = if ($r.data) { $r.data.Count } else { $allEmails.Count }
+  Write-Host "Done. Sent: $sent  Failed: $($allEmails.Count - $sent)"
+} catch {
+  $raw = $_.ErrorDetails?.Message
+  Write-Error "Batch send failed: $raw`n$($_.Exception.Message)"
+  exit 1
+}

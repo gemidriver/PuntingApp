@@ -232,19 +232,17 @@ export async function POST(request: Request) {
 
     const resend = new Resend(resendApiKey);
 
-    const sendResults = await Promise.allSettled(
-      uniqueEmails.map((email) =>
-        resend.emails.send({
-          from: resendFromEmail,
-          to: email,
-          subject: `New Race Day Meets - ${meetDate}`,
-          html,
-        })
-      )
-    );
+    const batchPayload = uniqueEmails.map((email) => ({
+      from: resendFromEmail,
+      to: email,
+      subject: `New Race Day Meets - ${meetDate}`,
+      html,
+    }));
 
-    const sentCount = sendResults.filter((result) => result.status === 'fulfilled').length;
-    const failedCount = sendResults.length - sentCount;
+    const { data: batchData, error: batchError } = await resend.batch.send(batchPayload);
+
+    const sentCount = batchError ? 0 : (batchData?.data?.length ?? uniqueEmails.length);
+    const failedCount = uniqueEmails.length - sentCount;
 
       // Create in-app notifications for all users about the new day
       try {
