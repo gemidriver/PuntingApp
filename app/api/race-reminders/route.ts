@@ -214,7 +214,7 @@ export async function POST(request: Request) {
                             };
                           });
                         if (scratchBatch.length) await resend.batch.send(scratchBatch);
-                        console.log(`Sent scratch emails to ${sendPromises.length} user(s) who picked affected horses for race ${race.id}`);
+                        console.log(`Sent scratch emails to ${scratchBatch.length} user(s) who picked affected horses for race ${race.id}`);
                       } catch (e) {
                         console.error('Failed sending scratch emails', e);
                       }
