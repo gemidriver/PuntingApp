@@ -1569,13 +1569,14 @@ export default function Home() {
         }
 
         const existing = map[r.marketId] || { winnerId: '', winnerName: null };
+        const nextWinnerId = existing.winnerId || r.winnerId || '';
         const nextSecondId = existing.secondId || r.secondId || null;
         const nextThirdId = existing.thirdId || r.thirdId || null;
 
         map[r.marketId] = {
           ...existing,
-          winnerId: r.winnerId,
-          winnerName: resolveWithApiNames(r.marketId, r.winnerId, existing.winnerName),
+          winnerId: nextWinnerId,
+          winnerName: resolveWithApiNames(r.marketId, nextWinnerId, existing.winnerName),
           secondId: nextSecondId,
           secondName: nextSecondId ? resolveWithApiNames(r.marketId, nextSecondId, existing.secondName) : existing.secondName ?? null,
           thirdId: nextThirdId,
@@ -2923,7 +2924,11 @@ export default function Home() {
   }, [user]);
 
   useEffect(() => {
-    if (!manualResultRaceId || manualRunnersByRaceId[manualResultRaceId]) {
+    // Skip if we already have real (non-placeholder) names for this race.
+    // If all cached entries are placeholders, allow re-fetching so real names can be resolved.
+    const existingManualRunners = manualRunnersByRaceId[manualResultRaceId];
+    const hasRealNames = existingManualRunners?.some(r => !isRunnerPlaceholderName(r.horseName));
+    if (!manualResultRaceId || hasRealNames) {
       return;
     }
 
@@ -3111,7 +3116,20 @@ export default function Home() {
 
         if (Object.keys(updates).length) {
           setRaceRunnersCache(prev => {
-            const next = { ...prev, ...updates };
+            const next = { ...prev };
+            for (const [raceId, newRunners] of Object.entries(updates)) {
+              const existing = prev[raceId] || [];
+              const existingNameById = new Map(existing.map(r => [r.horseId, r.horseName]));
+              // Prefer existing good (non-placeholder) names over incoming placeholder names.
+              // This prevents a later API call with unresolved names from wiping real names.
+              next[raceId] = newRunners.map(r => {
+                const existingName = existingNameById.get(r.horseId);
+                if (isRunnerPlaceholderName(r.horseName) && existingName && !isRunnerPlaceholderName(existingName)) {
+                  return { horseId: r.horseId, horseName: existingName };
+                }
+                return r;
+              });
+            }
             void persistRaceRunnersCache(next);
             return next;
           });
