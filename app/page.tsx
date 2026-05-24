@@ -714,7 +714,7 @@ export default function Home() {
   const [raceResults, setRaceResults] = useState<RaceResultsMap>({});
   const [raceRunnersCache, setRaceRunnersCache] = useState<RaceRunnersMap>({});
   const [resultsFetching, setResultsFetching] = useState(false);
-  const [resultsAutoRefresh, setResultsAutoRefresh] = useState(true);
+  const [resultsAutoRefresh, setResultsAutoRefresh] = useState(false);
   const [resultsLastRefreshedAt, setResultsLastRefreshedAt] = useState<string | null>(null);
   const [manualResultRaceId, setManualResultRaceId] = useState('');
   const [manualResultHorseId, setManualResultHorseId] = useState('');
@@ -725,6 +725,9 @@ export default function Home() {
   const [manualResultThirdHorseName, setManualResultThirdHorseName] = useState('');
   const [manualRunnersByRaceId, setManualRunnersByRaceId] = useState<Record<string, Array<{ horseId: string; horseName: string }>>>({});
   const [manualRunnersLoading, setManualRunnersLoading] = useState(false);
+  // Tracks race IDs where a runner fetch has already been attempted this session,
+  // preventing the effect from re-triggering on every state update.
+  const manualRunnersFetchedRef = useRef<Set<string>>(new Set());
   const [manualApplyNotice, setManualApplyNotice] = useState<string | null>(null);
   const [previousRoundSnapshot, setPreviousRoundSnapshot] = useState<PreviousRoundSnapshot | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
@@ -2924,14 +2927,15 @@ export default function Home() {
   }, [user]);
 
   useEffect(() => {
-    // Skip if we already have real (non-placeholder) names for this race.
-    // If all cached entries are placeholders, allow re-fetching so real names can be resolved.
-    const existingManualRunners = manualRunnersByRaceId[manualResultRaceId];
-    const hasRealNames = existingManualRunners?.some(r => !isRunnerPlaceholderName(r.horseName));
-    if (!manualResultRaceId || hasRealNames) {
-      return;
-    }
+    if (!manualResultRaceId) return;
 
+    // Only attempt a fetch once per race ID to prevent infinite loops.
+    if (manualRunnersFetchedRef.current.has(manualResultRaceId)) return;
+    // If we already have real names in manualRunnersByRaceId, no need to fetch.
+    const existingRunners = manualRunnersByRaceId[manualResultRaceId] || [];
+    if (existingRunners.some(r => !isRunnerPlaceholderName(r.horseName))) return;
+
+    manualRunnersFetchedRef.current.add(manualResultRaceId);
     let active = true;
     const loadManualRunners = async () => {
       setManualRunnersLoading(true);
@@ -2965,6 +2969,63 @@ export default function Home() {
             ? { horseId: opt.horseId, horseName: nameMap.get(opt.horseId)! }
             : opt
         );
+
+        // Source 1: race_history — saved when the meet was loaded, most reliable.
+        // Use this before hitting any live API to avoid placeholder names.
+        try {
+          const supabase = getSupabaseClient();
+          const { data: historyRow } = await supabase
+            .from('race_history')
+            .select('runners')
+            .eq('race_id', manualResultRaceId)
+            .maybeSingle();
+
+          if (Array.isArray(historyRow?.runners) && historyRow.runners.length) {
+            let options = (historyRow.runners as Array<{ id: string; name: string; number?: number | null }>)
+              .filter(r => r.id)
+              .map(r => ({ horseId: r.id, horseName: String(r.name || '').trim() }));
+
+            // Merge: prefer cache names that are real over placeholder names in history.
+            // This ensures horses picked in submissions (with real names) keep those names.
+            const cachedRunners = raceRunnersCache[manualResultRaceId] || [];
+            const cacheNameById = new Map(cachedRunners.map(r => [r.horseId, r.horseName]));
+            options = options.map(o => {
+              const cached = cacheNameById.get(o.horseId);
+              if (isRunnerPlaceholderName(o.horseName) && cached && !isRunnerPlaceholderName(cached)) {
+                return { horseId: o.horseId, horseName: cached };
+              }
+              return o;
+            });
+
+            if (options.some(o => !isRunnerPlaceholderName(o.horseName))) {
+              const hasPlaceholders = options.some(o => isRunnerPlaceholderName(o.horseName));
+              if (hasPlaceholders) {
+                const betfairNames = await fetchBetfairNameMap(manualResultRaceId);
+                if (betfairNames.size) options = enrichWithBetfairNames(options, betfairNames);
+              }
+              if (!active) return;
+              setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
+              setRaceRunnersCache(prev => {
+                const next = { ...prev, [manualResultRaceId]: options };
+                if (options.some(o => !isRunnerPlaceholderName(o.horseName))) {
+                  void persistRaceRunnersCache(next);
+                }
+                return next;
+              });
+              return;
+            }
+          }
+        } catch {
+          // best-effort — fall through to live API
+        }
+
+        // Source 2: fall back to cache if race_history had nothing useful.
+        const cachedRunners = raceRunnersCache[manualResultRaceId] || [];
+        if (cachedRunners.some(r => !isRunnerPlaceholderName(r.horseName))) {
+          if (!active) return;
+          setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: cachedRunners }));
+          return;
+        }
 
         const meetCandidates = meetsForPicks.length ? meetsForPicks : globalMeets;
 
@@ -3144,6 +3205,34 @@ export default function Home() {
         });
         return next;
       });
+
+      // Persist full runner details to race_history so horse names are available
+      // later when entering results, even after the Betfair API stops returning them.
+      // Only save races that have at least one real (non-placeholder) name.
+      try {
+        const supabase = getSupabaseClient();
+        const racesToSave = loadedRaces.filter(race =>
+          (race.runners || []).some(r => !isRunnerPlaceholderName(formatHorseDisplayName(r.name, r.number)))
+        );
+        if (racesToSave.length) {
+          const raceHistoryRows = racesToSave.map(race => ({
+            meet_id: meet.meet_id,
+            race_id: race.id,
+            race_name: race.name || race.id,
+            course: meet.course || meet.meet_id,
+            runners: (race.runners || []).map(r => ({
+              id: r.id,
+              name: formatHorseDisplayName(r.name, r.number),
+              number: r.number ?? null,
+            })),
+          }));
+          await supabase
+            .from('race_history')
+            .upsert(raceHistoryRows, { onConflict: 'meet_id,race_id' });
+        }
+      } catch {
+        // Non-critical — don't surface runner save failures to the user.
+      }
     } catch (err) {
       console.error('loadRacesForMeet error', err);
       // Keep current races on transient fetch failures.
