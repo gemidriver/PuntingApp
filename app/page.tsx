@@ -1295,23 +1295,40 @@ export default function Home() {
 
   const loadRaceResults = async () => {
     const supabase = getSupabaseClient();
-    const { data: tableRows, error: tableError } = await supabase
-      .from('race_results')
-      .select('meet_id,race_id,horse_id,horse_name,finishing_position,result_date')
-      .order('finishing_position', { ascending: true });
 
-    if (!tableError && Array.isArray(tableRows) && tableRows.length) {
-      setRaceResults(buildRaceResultsMapFromRows(tableRows as RaceResultRow[]));
-      return;
+    // Load both sources in parallel — the table is authoritative for races that
+    // were written with a resolved meetId; app_settings contains the full map
+    // including any races where the meetId lookup failed at save time.
+    const [tableResult, settingsResult] = await Promise.all([
+      supabase
+        .from('race_results')
+        .select('meet_id,race_id,horse_id,horse_name,finishing_position,result_date')
+        .order('finishing_position', { ascending: true }),
+      supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', RACE_RESULTS_SETTING_KEY)
+        .maybeSingle(),
+    ]);
+
+    const tableRows = !tableResult.error && Array.isArray(tableResult.data) ? tableResult.data : [];
+    const settingsMap: RaceResultsMap =
+      settingsResult.data?.value && typeof settingsResult.data.value === 'object'
+        ? (settingsResult.data.value as RaceResultsMap)
+        : {};
+
+    // Build map from table rows (most authoritative).
+    const tableMap = tableRows.length ? buildRaceResultsMapFromRows(tableRows as RaceResultRow[]) : {};
+
+    // Merge: start with app_settings (has everything), then overlay table entries
+    // so that DB-persisted rows take precedence over the blob for the same race.
+    const merged: RaceResultsMap = { ...settingsMap };
+    for (const [raceId, entry] of Object.entries(tableMap)) {
+      merged[raceId] = entry;
     }
 
-    const { data } = await supabase
-      .from('app_settings')
-      .select('value')
-      .eq('key', RACE_RESULTS_SETTING_KEY)
-      .maybeSingle();
-    if (data?.value && typeof data.value === 'object') {
-      setRaceResults(data.value as RaceResultsMap);
+    if (Object.keys(merged).length) {
+      setRaceResults(merged);
     }
   };
 
