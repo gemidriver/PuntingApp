@@ -3131,6 +3131,12 @@ export default function Home() {
     };
   }, [manualResultRaceId, manualRunnersByRaceId, globalMeets, meetsForPicks]);
 
+  // Keep a ref to the latest fetchAndSaveResults so the setInterval callback below
+  // never closes over a stale version (e.g. one that captured old raceResults state
+  // from before manual placings were applied).
+  const fetchAndSaveResultsRef = useRef(fetchAndSaveResults);
+  fetchAndSaveResultsRef.current = fetchAndSaveResults;
+
   useEffect(() => {
     if (!isAdmin || activeScreen !== 'submissions' || !resultsAutoRefresh) {
       return;
@@ -3141,7 +3147,7 @@ export default function Home() {
         return;
       }
 
-      void fetchAndSaveResults().then(() => {
+      void fetchAndSaveResultsRef.current().then(() => {
         setResultsLastRefreshedAt(new Date().toISOString());
       });
     }, 120000);
