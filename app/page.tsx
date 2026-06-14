@@ -1328,7 +1328,30 @@ export default function Home() {
     }
 
     if (Object.keys(merged).length) {
-      setRaceResults(merged);
+      // Non-destructive merge: never replace an existing entry that is MORE complete
+      // than what was loaded from DB.  This prevents a stale DB read (e.g. triggered
+      // by a Supabase TOKEN_REFRESHED event) from wiping manually-applied 2nd/3rd
+      // placings that haven't yet propagated to the DB.
+      setRaceResults(prev => {
+        const result: RaceResultsMap = { ...prev };
+        for (const [raceId, loaded] of Object.entries(merged)) {
+          const current = result[raceId];
+          if (!current) {
+            result[raceId] = loaded;
+          } else {
+            result[raceId] = {
+              ...loaded,
+              winnerId: loaded.winnerId || current.winnerId || '',
+              winnerName: loaded.winnerId ? loaded.winnerName : (current.winnerName ?? loaded.winnerName),
+              secondId: loaded.secondId || current.secondId || null,
+              secondName: loaded.secondId ? loaded.secondName : (current.secondId ? current.secondName : null),
+              thirdId: loaded.thirdId || current.thirdId || null,
+              thirdName: loaded.thirdId ? loaded.thirdName : (current.thirdId ? current.thirdName : null),
+            };
+          }
+        }
+        return result;
+      });
     }
   };
 
@@ -1568,6 +1591,9 @@ export default function Home() {
         return;
       }
 
+      // Capture here so the narrowed type is available inside functional setters below.
+      const betfairResults = data.results;
+
       setError(null);
 
       // Runner names returned by the API for settled markets (selectionId → horseName).
@@ -1581,9 +1607,9 @@ export default function Home() {
         return resolveRaceHorseName(marketId, horseId, fallback);
       };
 
-      const map: RaceResultsMap = { ...raceResults };
+      const map: RaceResultsMap = { ...raceResultsRef.current };
 
-      data.results.forEach(r => {
+      betfairResults.forEach(r => {
         if (!r.winnerId) {
           return;
         }
@@ -1606,17 +1632,62 @@ export default function Home() {
       });
 
       const supabase = getSupabaseClient();
-      const raceIds = [...new Set(data.results.map((result) => result.marketId).filter(Boolean))];
+      const raceIds = [...new Set(betfairResults.map((result) => result.marketId).filter(Boolean))];
       const { error: persistResultsError } = await persistRaceResultsRows(map, raceIds);
       if (persistResultsError) {
         addNotification('Fetched results loaded, but database persistence failed.', 'warning');
       }
 
+      // Rebuild from the latest ref state just before the DB write.  By now all
+      // awaits above have completed, so any concurrent manual-apply (applyManualResult)
+      // has already called setRaceResults and triggered a re-render that updated the
+      // ref.  This prevents fetchAndSaveResults from clobbering manually-entered
+      // 2nd/3rd placings in app_settings when it started before the manual apply.
+      const freshSettingsMap: RaceResultsMap = { ...raceResultsRef.current };
+      betfairResults.forEach(r => {
+        if (!r.winnerId) return;
+        const existing = freshSettingsMap[r.marketId] || { winnerId: '', winnerName: null };
+        const nextWinnerId = existing.winnerId || r.winnerId || '';
+        const nextSecondId = existing.secondId || r.secondId || null;
+        const nextThirdId = existing.thirdId || r.thirdId || null;
+        freshSettingsMap[r.marketId] = {
+          ...existing,
+          winnerId: nextWinnerId,
+          winnerName: resolveWithApiNames(r.marketId, nextWinnerId, existing.winnerName),
+          secondId: nextSecondId,
+          secondName: nextSecondId ? resolveWithApiNames(r.marketId, nextSecondId, existing.secondName) : (existing.secondName ?? null),
+          thirdId: nextThirdId,
+          thirdName: nextThirdId ? resolveWithApiNames(r.marketId, nextThirdId, existing.thirdName) : (existing.thirdName ?? null),
+          inferredPlaces: r.inferredPlaces ?? false,
+        };
+      });
       await supabase.from('app_settings').upsert(
-        { key: RACE_RESULTS_SETTING_KEY, value: map },
+        { key: RACE_RESULTS_SETTING_KEY, value: freshSettingsMap },
         { onConflict: 'key' }
       );
-      setRaceResults(map);
+      // Use functional update so any manual placings applied while this fetch was
+      // in flight (Betfair + DB round-trips can take several seconds) are not wiped.
+      setRaceResults(prev => {
+        const next: RaceResultsMap = { ...prev };
+        betfairResults.forEach(r => {
+          if (!r.winnerId) return;
+          const cur = next[r.marketId];
+          const nextWinnerId = cur?.winnerId || r.winnerId || '';
+          const nextSecondId = cur?.secondId || r.secondId || null;
+          const nextThirdId = cur?.thirdId || r.thirdId || null;
+          next[r.marketId] = {
+            ...(cur || {}),
+            winnerId: nextWinnerId,
+            winnerName: resolveWithApiNames(r.marketId, nextWinnerId, cur?.winnerName),
+            secondId: nextSecondId,
+            secondName: nextSecondId ? resolveWithApiNames(r.marketId, nextSecondId, cur?.secondName) : (cur?.secondName ?? null),
+            thirdId: nextThirdId,
+            thirdName: nextThirdId ? resolveWithApiNames(r.marketId, nextThirdId, cur?.thirdName) : (cur?.thirdName ?? null),
+            inferredPlaces: r.inferredPlaces ?? false,
+          };
+        });
+        return next;
+      });
 
       // Merge newly fetched runner names into the local cache so future
       // calls (e.g. auto-refresh) can resolve names without re-fetching.
@@ -1632,8 +1703,8 @@ export default function Home() {
         await persistRaceRunnersCache(updatedCache);
       }
 
-      const settledCount = data.results.filter(r => r.settled).length;
-      const winnersCount = data.results.filter(r => r.winnerId).length;
+      const settledCount = betfairResults.filter(r => r.settled).length;
+      const winnersCount = betfairResults.filter(r => r.winnerId).length;
       if (settledCount === 0) {
         addNotification('No settled markets yet. Try Fetch Results again after races settle.', 'warning');
       } else if (winnersCount === 0) {
@@ -1713,7 +1784,7 @@ export default function Home() {
     }
 
     const map: RaceResultsMap = {
-      ...raceResults,
+      ...raceResultsRef.current,
       [manualResultRaceId]: {
         winnerId,
         winnerName,
@@ -3130,6 +3201,11 @@ export default function Home() {
       active = false;
     };
   }, [manualResultRaceId, manualRunnersByRaceId, globalMeets, meetsForPicks]);
+
+  // Keep a ref to the latest raceResults so fetchAndSaveResults always merges against
+  // the current state, even if it was started before a manual placing was applied.
+  const raceResultsRef = useRef(raceResults);
+  raceResultsRef.current = raceResults;
 
   // Keep a ref to the latest fetchAndSaveResults so the setInterval callback below
   // never closes over a stale version (e.g. one that captured old raceResults state

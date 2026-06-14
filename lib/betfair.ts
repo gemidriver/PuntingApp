@@ -593,7 +593,7 @@ function firstMetadataValue(
   return '';
 }
 
-function isPlaceholderRunnerName(value: string) {
+export function isPlaceholderRunnerName(value: string) {
   const trimmed = String(value || '').trim();
   return /^(?:\d+\.\s*)?runner\s+\d+$/i.test(trimmed) || /^unknownrunner\d+$/i.test(trimmed) || /^\d+$/.test(trimmed);
 }
