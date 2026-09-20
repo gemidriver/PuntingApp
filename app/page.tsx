@@ -173,6 +173,17 @@ const formatHorseDisplayName = (name: string, number?: number | null) => {
   if (/^\d+\.\s+/.test(trimmed)) return trimmed;
   return typeof number === 'number' ? `${number}. ${trimmed}` : trimmed;
 };
+const preferResolvedRunnerName = (currentName: string, preferredName?: string | null, number?: number | null) => {
+  const current = String(currentName || '').trim();
+  const preferred = String(preferredName || '').trim();
+  if (!preferred || isRunnerPlaceholderName(preferred)) {
+    return current;
+  }
+  if (!current || isRunnerPlaceholderName(current)) {
+    return formatHorseDisplayName(preferred, number);
+  }
+  return current;
+};
 const formatRunnerMetaLine = (runner: Race['runners'][number]) => {
   const oddsLabel = runner.odds ? `Odds $${runner.odds}` : 'Odds N/A';
   const formLabel = runner.form ? `Form ${runner.form}` : 'Form N/A';
@@ -724,8 +735,8 @@ export default function Home() {
   const [manualResultSecondHorseName, setManualResultSecondHorseName] = useState('');
   const [manualResultThirdHorseName, setManualResultThirdHorseName] = useState('');
   const [manualRunnersByRaceId, setManualRunnersByRaceId] = useState<Record<string, Array<{ horseId: string; horseName: string }>>>({});
-  const [manualRunnersLoading, setManualRunnersLoading] = useState(false);
-  // Tracks race IDs where a runner fetch has already been attempted this session,
+  const [manualRunnersLoadingRaceId, setManualRunnersLoadingRaceId] = useState<string | null>(null);
+  // Tracks race IDs where runner names have already been resolved this session,
   // preventing the effect from re-triggering on every state update.
   const manualRunnersFetchedRef = useRef<Set<string>>(new Set());
   const [manualApplyNotice, setManualApplyNotice] = useState<string | null>(null);
@@ -1562,6 +1573,71 @@ export default function Home() {
     }
   };
 
+  const persistRunnerNameMapsToRaceHistory = async (runnerNamesByRaceId: Record<string, Record<string, string>>) => {
+    if (!isAdmin) return;
+
+    const raceIds = Object.keys(runnerNamesByRaceId).filter(Boolean);
+    if (!raceIds.length) return;
+
+    try {
+      const supabase = getSupabaseClient();
+      const { data } = await supabase
+        .from('race_history')
+        .select('meet_id, race_id, race_name, course, race_time, runners')
+        .in('race_id', raceIds);
+
+      if (!Array.isArray(data) || data.length === 0) return;
+
+      const updates = data.flatMap((row) => {
+        const nameMap = runnerNamesByRaceId[String(row.race_id || '')];
+        if (!nameMap) return [];
+
+        const existingRunners = Array.isArray(row.runners)
+          ? row.runners as Array<{ id?: string; name?: string; number?: number | null; status?: string | null }>
+          : [];
+
+        let changed = false;
+        const mergedRunners = existingRunners.map((runner) => {
+          const horseId = String(runner?.id || '').trim();
+          const currentName = String(runner?.name || '').trim();
+          const preferredName = horseId ? nameMap[horseId] : null;
+          const number = typeof runner?.number === 'number' ? runner.number : null;
+          const nextName = preferResolvedRunnerName(currentName, preferredName, number);
+
+          if (nextName !== currentName) {
+            changed = true;
+          }
+
+          return {
+            ...runner,
+            id: horseId,
+            name: nextName,
+            number,
+          };
+        });
+
+        if (!changed) return [];
+
+        return [{
+          meet_id: row.meet_id,
+          race_id: row.race_id,
+          race_name: row.race_name,
+          course: row.course,
+          race_time: row.race_time,
+          runners: mergedRunners,
+        }];
+      });
+
+      if (!updates.length) return;
+
+      await supabase
+        .from('race_history')
+        .upsert(updates, { onConflict: 'meet_id,race_id' });
+    } catch (err) {
+      console.warn('persistRunnerNameMapsToRaceHistory skipped or failed:', err);
+    }
+  };
+
   const fetchAndSaveResults = async () => {
     setResultsFetching(true);
     try {
@@ -1701,6 +1777,7 @@ export default function Home() {
         }
         setRaceRunnersCache(updatedCache);
         await persistRaceRunnersCache(updatedCache);
+        await persistRunnerNameMapsToRaceHistory(apiRunnerNames);
       }
 
       const settledCount = betfairResults.filter(r => r.settled).length;
@@ -3015,18 +3092,24 @@ export default function Home() {
   }, [user]);
 
   useEffect(() => {
-    if (!manualResultRaceId) return;
+    if (!manualResultRaceId) {
+      setManualRunnersLoadingRaceId(null);
+      return;
+    }
 
-    // Only attempt a fetch once per race ID to prevent infinite loops.
     if (manualRunnersFetchedRef.current.has(manualResultRaceId)) return;
     // If we already have real names in manualRunnersByRaceId, no need to fetch.
     const existingRunners = manualRunnersByRaceId[manualResultRaceId] || [];
-    if (existingRunners.some(r => !isRunnerPlaceholderName(r.horseName))) return;
+    if (existingRunners.some(r => !isRunnerPlaceholderName(r.horseName))) {
+      manualRunnersFetchedRef.current.add(manualResultRaceId);
+      setManualRunnersLoadingRaceId((current) => current === manualResultRaceId ? null : current);
+      return;
+    }
 
-    manualRunnersFetchedRef.current.add(manualResultRaceId);
     let active = true;
     const loadManualRunners = async () => {
-      setManualRunnersLoading(true);
+      let resolved = false;
+      setManualRunnersLoadingRaceId(manualResultRaceId);
       try {
         // Helper: fetch runner names from Betfair market catalogue for a given marketId.
         // Returns a map of selectionId -> display name for runners with real (non-placeholder) names.
@@ -3092,6 +3175,8 @@ export default function Home() {
                 if (betfairNames.size) options = enrichWithBetfairNames(options, betfairNames);
               }
               if (!active) return;
+              resolved = true;
+              manualRunnersFetchedRef.current.add(manualResultRaceId);
               setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
               setRaceRunnersCache(prev => {
                 const next = { ...prev, [manualResultRaceId]: options };
@@ -3111,6 +3196,8 @@ export default function Home() {
         const cachedRunners = raceRunnersCache[manualResultRaceId] || [];
         if (cachedRunners.some(r => !isRunnerPlaceholderName(r.horseName))) {
           if (!active) return;
+          resolved = true;
+          manualRunnersFetchedRef.current.add(manualResultRaceId);
           setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: cachedRunners }));
           return;
         }
@@ -3151,6 +3238,8 @@ export default function Home() {
               return;
             }
 
+            resolved = true;
+            manualRunnersFetchedRef.current.add(manualResultRaceId);
             setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
             setRaceRunnersCache(prev => {
               const next = { ...prev, [manualResultRaceId]: options };
@@ -3176,6 +3265,8 @@ export default function Home() {
             }));
 
           if (active && options.length) {
+            resolved = true;
+            manualRunnersFetchedRef.current.add(manualResultRaceId);
             setManualRunnersByRaceId(prev => ({ ...prev, [manualResultRaceId]: options }));
             setRaceRunnersCache(prev => {
               const next = { ...prev, [manualResultRaceId]: options };
@@ -3190,8 +3281,11 @@ export default function Home() {
       } catch {
         // Keep silent and let existing fallbacks provide options.
       } finally {
+        if (!resolved) {
+          manualRunnersFetchedRef.current.delete(manualResultRaceId);
+        }
         if (active) {
-          setManualRunnersLoading(false);
+          setManualRunnersLoadingRaceId((current) => current === manualResultRaceId ? null : current);
         }
       }
     };
@@ -3201,6 +3295,8 @@ export default function Home() {
       active = false;
     };
   }, [manualResultRaceId, manualRunnersByRaceId, globalMeets, meetsForPicks]);
+
+  const manualRunnersLoading = manualRunnersLoadingRaceId === manualResultRaceId;
 
   // Keep a ref to the latest raceResults so fetchAndSaveResults always merges against
   // the current state, even if it was started before a manual placing was applied.
@@ -3310,21 +3406,27 @@ export default function Home() {
       // Only save races that have at least one real (non-placeholder) name.
       try {
         const supabase = getSupabaseClient();
-        const racesToSave = loadedRaces.filter(race =>
-          (race.runners || []).some(r => !isRunnerPlaceholderName(formatHorseDisplayName(r.name, r.number)))
-        );
-        if (racesToSave.length) {
-          const raceHistoryRows = racesToSave.map(race => ({
+        const raceHistoryRows = loadedRaces.map(race => {
+          const cachedNameById = new Map((raceRunnersCache[race.id] || []).map((runner) => [runner.horseId, runner.horseName]));
+          const runners = (race.runners || []).map(r => {
+            const formattedName = formatHorseDisplayName(r.name, r.number);
+            return {
+              id: r.id,
+              name: preferResolvedRunnerName(formattedName, cachedNameById.get(r.id), r.number ?? null),
+              number: r.number ?? null,
+            };
+          });
+
+          return {
             meet_id: meet.meet_id,
             race_id: race.id,
             race_name: race.name || race.id,
             course: meet.course || meet.meet_id,
-            runners: (race.runners || []).map(r => ({
-              id: r.id,
-              name: formatHorseDisplayName(r.name, r.number),
-              number: r.number ?? null,
-            })),
-          }));
+            runners,
+          };
+        }).filter((race) => race.runners.some((runner) => !isRunnerPlaceholderName(runner.name)));
+
+        if (raceHistoryRows.length) {
           await supabase
             .from('race_history')
             .upsert(raceHistoryRows, { onConflict: 'meet_id,race_id' });
