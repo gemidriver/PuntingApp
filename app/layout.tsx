@@ -40,14 +40,18 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const shouldRegisterServiceWorker = process.env.NODE_ENV === 'production';
+
   return (
     <html lang="en" className={inter.variable}>
       <body className="antialiased">
-        <Script id="register-sw" strategy="afterInteractive">{`
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js');
-          }
-        `}</Script>
+        {shouldRegisterServiceWorker ? (
+          <Script id="register-sw" strategy="afterInteractive">{`
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.register('/sw.js');
+            }
+          `}</Script>
+        ) : null}
         <LayoutShell>{children}</LayoutShell>
       </body>
     </html>

@@ -5269,8 +5269,14 @@ export default function Home() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-900 p-6 flex items-center justify-center">
-        <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg">
+      <div
+        className="min-h-screen bg-slate-50 text-slate-900 p-6 flex items-center justify-center"
+        style={{ minHeight: '100vh', padding: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
+        <div
+          className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg"
+          style={{ width: '100%', maxWidth: 448, borderRadius: 12, padding: 32 }}
+        >
           <form
             onSubmit={e => {
               e.preventDefault();
@@ -5300,6 +5306,7 @@ export default function Home() {
 
           <div className="flex gap-2 mb-5">
             <button
+              type="button"
               onClick={() => {
                 setAuthMode('login');
                 setAuthError(null);
@@ -5311,6 +5318,7 @@ export default function Home() {
               Login
             </button>
             <button
+              type="button"
               onClick={() => {
                 setAuthMode('register');
                 setAuthError(null);

@@ -15,13 +15,27 @@ import { getSupabaseClient } from '../lib/supabase';
 export default function LayoutShell({ children }: { children: React.ReactNode }) {
   const { user } = useUser();
   const [isMobile, setIsMobile] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   useEffect(() => {
-    // Register service worker for PWA/TWA support
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => { /* non-critical */ });
-    }
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem('theme');
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const nextTheme = stored === 'dark' || stored === 'light' ? stored : (prefersDark ? 'dark' : 'light');
+    setTheme(nextTheme);
   }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    root.classList.toggle('theme-dark', theme === 'dark');
+    root.style.colorScheme = theme;
+    try {
+      window.localStorage.setItem('theme', theme);
+    } catch {
+      // ignore storage errors in private modes
+    }
+  }, [theme]);
 
   useEffect(() => {
     function check() {
@@ -68,9 +82,22 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
     }
   };
 
+  const themeTogglePositionClass = user
+    ? (isMobile ? 'right-4 top-16' : 'left-[18rem] top-4')
+    : 'left-4 top-4';
+
   return (
     <AllUsersProvider>
       <ClientVersionCheck />
+      <button
+        type="button"
+        onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+        className={`theme-toggle fixed ${themeTogglePositionClass} z-[100] rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-100`}
+        aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      >
+        {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+      </button>
       <div style={{ width: '100%', minHeight: '100vh', padding: '8px 8px 16px 8px', boxSizing: 'border-box', overflow: isMobile ? 'hidden' : 'auto' }}>
         {children}
       </div>

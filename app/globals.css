@@ -12,7 +12,6 @@
   --font-mono: var(--font-geist-mono);
 }
 
-
 body {
   background: var(--background);
   color: var(--foreground);
@@ -27,27 +26,23 @@ html, #__next {
   min-height: 100%;
 }
 
-/* Ensure no unexpected outlines or borders around the app root */
 html, body, #__next {
   border: none !important;
   outline: none !important;
 }
 
-/* Force light background regardless of system dark mode to avoid dark gutters */
-:root {
-  --background: #ffffff !important;
-  --foreground: #171717 !important;
+html.theme-dark {
+  --background: #0b1020 !important;
+  --foreground: #e5e7eb !important;
 }
 
-/* Ensure root elements use the forced background */
 html, body, #__next {
   background: var(--background) !important;
   box-shadow: none !important;
   border: none !important;
-  overflow-x: hidden; /* prevent horizontal overflow causing gutters */
+  overflow-x: hidden;
 }
 
-/* Hide native scrollbars while leaving scrolling functional */
 body::-webkit-scrollbar {
   width: 0;
   height: 0;
@@ -56,7 +51,6 @@ body {
   scrollbar-width: none; /* Firefox */
 }
 
-/* Desktop-only: hide visible scrollbars but keep scrolling working */
 @media (min-width: 1024px) {
   html, body, #__next {
     -ms-overflow-style: none; /* IE 10+ */
@@ -66,7 +60,6 @@ body {
     width: 0 !important;
     height: 0 !important;
   }
-  /* Hide scrollbars for all scrollable elements on desktop while preserving scroll behavior */
   * {
     -ms-overflow-style: none; /* IE 10+ */
     scrollbar-width: none; /* Firefox */
@@ -76,4 +69,86 @@ body {
     width: 0 !important;
     height: 0 !important;
   }
+}
+
+body {
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+/* Dark mode overrides for existing utility-class-heavy UI */
+html.theme-dark .bg-white {
+  background-color: #0f172a !important;
+}
+
+html.theme-dark .lg\:bg-white {
+  background-color: #0f172a !important;
+}
+
+html.theme-dark .bg-slate-50 {
+  background-color: #0b1326 !important;
+}
+
+html.theme-dark .bg-slate-100 {
+  background-color: #152036 !important;
+}
+
+html.theme-dark .bg-slate-200 {
+  background-color: #1b2842 !important;
+}
+
+html.theme-dark .bg-slate-300 {
+  background-color: #2b3a58 !important;
+}
+
+html.theme-dark .text-slate-900 {
+  color: #e2e8f0 !important;
+}
+
+html.theme-dark .text-slate-800 {
+  color: #cbd5e1 !important;
+}
+
+html.theme-dark .text-slate-700 {
+  color: #cbd5e1 !important;
+}
+
+html.theme-dark .text-slate-600,
+html.theme-dark .text-slate-500,
+html.theme-dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+html.theme-dark .border-slate-100,
+html.theme-dark .border-slate-200,
+html.theme-dark .border-slate-300 {
+  border-color: #25324a !important;
+}
+
+html.theme-dark .shadow-sm,
+html.theme-dark .shadow-lg {
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.42) !important;
+}
+
+html.theme-dark .bg-blue-50 {
+  background-color: #10203b !important;
+}
+
+html.theme-dark .text-blue-800 {
+  color: #bfdbfe !important;
+}
+
+html.theme-dark input,
+html.theme-dark select,
+html.theme-dark textarea {
+  color: #e5e7eb;
+}
+
+html.theme-dark .theme-toggle {
+  background-color: #152036 !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+html.theme-dark .theme-toggle:hover {
+  background-color: #1b2842 !important;
 }
